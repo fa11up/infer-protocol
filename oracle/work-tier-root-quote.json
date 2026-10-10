@@ -1,0 +1,31 @@
+{
+  "requestKey": "PLACEHOLDER-REGENERATE-BEFORE-SUBMIT",
+  "action": "oracle.request",
+  "input": {
+    "v": 1,
+    "question": "What is the agent tier tally Merkle root of the most recent daily oracle receipt that the IdentityMD WorkRegistry has recorded as of the last block of the pinned window, expressed as the unsigned 256-bit integer whose big-endian bytes are that root?",
+    "chainId": 1,
+    "window": {
+      "hours": 24
+    },
+    "answerType": "uint256",
+    "evidence": "panel",
+    "toleranceBps": 0,
+    "definitions": {
+      "registry": "The WorkRegistry is the contract at 0xb6d0a187b050fa5bb0b87033a203f37becf4a775 on Ethereum mainnet. Each UTC day's oracle receipt is recorded under a jobId derived as the first sixteen bytes of keccak256 of the ASCII string identitymd-oracle-batch: followed by the day in YYYY-MM-DD form, with the UUID version and variant bits set: byte six of those sixteen has its high nibble replaced by 8, and byte eight has its two high bits replaced by 10. Read latest(jobId) for the canonical documentHash of that day.",
+      "receipt": "Fetch the receipt document the WorkRecorded event's uri names. An ipfs:// uri resolves through any public gateway, including https://ipfs.imd.fun. Canonicalize the document as an RFC 8785 subset and confirm keccak256 of those bytes equals the documentHash read from the registry. A document whose hash does not match is not the receipt and must not be used.",
+      "figure": "The answer is the agentTierRoot field of that document, a 32-byte value written as 0x followed by 64 hexadecimal characters, reported as the unsigned integer those bytes represent in big-endian order. Do NOT report the root field, which is a root over job identifiers, and do NOT report the agentRoot field, which is the three-field tally without tiers.",
+      "verification": "Independently rebuild the tree before answering. The document carries agentTierLeafEncoding, which must be the six types uint256, uint32, uint64, uint64, uint64, uint64, and agentTierLeaves, an array of objects with agentId, accepted, cumulative, light, build and review. Build an OpenZeppelin StandardMerkleTree over those leaves in that field order and in the order given, and confirm its root equals agentTierRoot. A document whose leaves do not reproduce its own root must be refused.",
+      "selection": "Where several days qualify, take the one with the greatest day value whose documentHash is recorded at or before the window's last block. A day with no agentTierRoot at all does not qualify, whatever its schema.",
+      "exactness": "Every receipt is frozen and pinned, so every member of this panel reads identical bytes and must report the identical integer. Do not round, do not average and do not adjust toward another member. If your rebuild disagrees with another reading, report inability rather than splitting the difference.",
+      "refusal": "Report inability rather than substituting anything if the registry cannot be read, if no qualifying day exists, if the receipt cannot be fetched, if its hash does not match what the registry recorded, or if its tier leaves do not reproduce its own agentTierRoot. An absent tier tally means the control plane has not published one for that window, and the correct answer is inability, NOT zero, and NOT the agentRoot."
+    },
+    "guards": {
+      "min": 1,
+      "max": 115792089237316195423570985008687907853269984665640564039457584007913129639935
+    },
+    "panelSize": 60,
+    "quorum": 20,
+    "validForSeconds": 3600
+  }
+}
