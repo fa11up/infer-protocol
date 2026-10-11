@@ -28,7 +28,7 @@ The terminal is a static web page at `/terminal/`. It reads the contracts direct
 
 To connect, press **Disconnected** beside an amount box; it is the only connect control. Once connected, the box shows your balance of that token (press it to fill in the whole amount), and a small box with an × appears at the top right of the header: press it to disconnect. The terminal then ignores the wallet's silent reconnect until you connect again.
 
-The terminal has two tab rows. **Monitor** tabs only show figures. **Desk** tabs are where you act. This page explains each tab, what each figure means and what a disabled button is telling you. Contract addresses are listed in [Contracts and addresses](../reference/contracts-and-addresses.md): (waiting for mainnet launch).
+The terminal has two tab rows. **Monitor** tabs only show figures. **Desk** tabs are where you act. This page explains each tab, what each figure means and what a disabled button is telling you. Contract addresses are listed in [Contracts and addresses](../reference/contracts-and-addresses.md).
 
 ## How an action runs
 

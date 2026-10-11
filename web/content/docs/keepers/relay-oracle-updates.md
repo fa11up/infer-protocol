@@ -25,7 +25,7 @@ No key can push a price into the vault. A feed changes only when someone submits
 | Spot | `SpotFeed` | IMD/ETH at the last block of a window |
 | Network health | `NhiFeed` | The network health index |
 
-A fourth reading, IMD/USD, is computed by `UsdPriceFeed` from the primary feed and Chainlink ETH/USD. It takes no attestations; Chainlink keeps its ETH/USD leg up to date. Addresses: (waiting for mainnet launch).
+A fourth reading, IMD/USD, is computed by `UsdPriceFeed` from the primary feed and Chainlink ETH/USD. It takes no attestations; Chainlink keeps its ETH/USD leg up to date. Addresses: [Contracts and addresses](../reference/contracts-and-addresses.md).
 
 ## Why a relay contract
 

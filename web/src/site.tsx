@@ -90,8 +90,8 @@ export function SiteHeader({
         </nav>
       </div>
       <div className="wallet-bar">
-        {TERMINAL && !mainnet ? (
-          <span className="chip">{`${network ?? "Sepolia"} · testnet`}</span>
+        {TERMINAL && network && !mainnet ? (
+          <span className="chip">{`${network} · testnet`}</span>
         ) : (
           <span className="chips">
             <NetworkChip network="Mainnet" state="live" />

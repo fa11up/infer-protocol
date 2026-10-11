@@ -164,7 +164,7 @@ Returns `uint256`. The marker's share of the liquidation bonus, in basis points:
 
 ### `collateralPriceFeed()`
 
-Returns `address`. The vault's `SharePriceFeed` (waiting for mainnet launch): USD per 1e18 raw sIMD units, the staking vault's `convertToAssets(1e18)` times `usdPriceFeed()`. Stale whenever `usdPriceFeed()` is. Every collateral figure uses this price.
+Returns `address`. The vault's `SharePriceFeed` ([`0xF065C8b65AA9Ac6fd9cBAd15301738e91389d9e1`](https://etherscan.io/address/0xF065C8b65AA9Ac6fd9cBAd15301738e91389d9e1)): USD per 1e18 raw sIMD units, the staking vault's `convertToAssets(1e18)` times `usdPriceFeed()`. Stale whenever `usdPriceFeed()` is. Every collateral figure uses this price.
 
 ### `collateralRatio(address owner)`
 
@@ -200,7 +200,7 @@ Returns `uint256`. How much of `backedDebt()` counts toward the work ceiling, in
 
 ### `feeRecipient()`
 
-Returns `address`. The vault's Treasury (waiting for mainnet launch). Receives the protocol's bonus share and paid fees.
+Returns `address`. The vault's Treasury ([`0x6Ac8fF96Fb8DCF5d79A8eF1E59D9AC23f2BD27Bc`](https://etherscan.io/address/0x6Ac8fF96Fb8DCF5d79A8eF1E59D9AC23f2BD27Bc)). Receives the protocol's bonus share and paid fees.
 
 ### `gap()`
 
@@ -208,7 +208,7 @@ Returns `uint256`. How far above `mat()` a position can be redeemed against, in 
 
 ### `gem()`
 
-Returns `address`. The collateral token, sIMD (waiting for mainnet launch).
+Returns `address`. The collateral token, sIMD ([`0x9Efa934D9fAd4AE28c998a40195646b965a97247`](https://etherscan.io/address/0x9Efa934D9fAd4AE28c998a40195646b965a97247)).
 
 ### `indexCheckpoint()`
 
@@ -240,15 +240,15 @@ Returns `uint256`. The minimum collateral ratio as a whole percentage, from the 
 
 ### `nhiFeed()`
 
-Returns `address`. The network health feed (waiting for mainnet launch).
+Returns `address`. The network health feed ([`0x014DabF6F940c9C383D9ef48636F70D842F65D7A`](https://etherscan.io/address/0x014DabF6F940c9C383D9ef48636F70D842F65D7A)).
 
 ### `oracle()`
 
-Returns `address`. The work oracle in use: a replacement applied through `Parameters.proposeWorkOracle` if there is one, otherwise the one this vault created (waiting for mainnet launch).
+Returns `address`. The work oracle in use: a replacement applied through `Parameters.proposeWorkOracle` if there is one, otherwise the one this vault created ([`0xC7335a836ad85a6ac0830c6CEf602d735B9d8a8A`](https://etherscan.io/address/0xC7335a836ad85a6ac0830c6CEf602d735B9d8a8A)).
 
 ### `parameters()`
 
-Returns `address`. The vault's `Parameters` (waiting for mainnet launch).
+Returns `address`. The vault's `Parameters` ([`0x3D96A6Ffada9C2E5B8fF8eb3f8AFB360116dA881`](https://etherscan.io/address/0x3D96A6Ffada9C2E5B8fF8eb3f8AFB360116dA881)).
 
 ### `paced()`
 
@@ -264,7 +264,7 @@ Returns `uint256 collateral, uint256 debt`. Collateral in raw sIMD units and deb
 
 ### `priceFeed()`
 
-Returns `address`. The primary IMD/ETH feed (waiting for mainnet launch). This is not the dollar price.
+Returns `address`. The primary IMD/ETH feed ([`0x070e0603737242B01aBC1D223f7C92D63E86EC97`](https://etherscan.io/address/0x070e0603737242B01aBC1D223f7C92D63E86EC97)). This is not the dollar price.
 
 ### `redemptionBaseRate()`
 
@@ -300,7 +300,7 @@ Returns `uint256`. How far primary and spot may differ, as basis points of the p
 
 ### `spotFeed()`
 
-Returns `address`. The spot IMD/ETH feed, used only for comparison (waiting for mainnet launch).
+Returns `address`. The spot IMD/ETH feed, used only for comparison ([`0x77E1684402869Bf2B7c70B8bf21E1C7Ca7104951`](https://etherscan.io/address/0x77E1684402869Bf2B7c70B8bf21E1C7Ca7104951)).
 
 ### `stabilityFeeOf(address owner)`
 
@@ -308,7 +308,7 @@ Returns `uint256`. Unpaid fees, in imdUSD raw units. Fees do not earn fees.
 
 ### `stablecoin()`
 
-Returns `address`. The `ImdUSD` token (waiting for mainnet launch).
+Returns `address`. The `ImdUSD` token ([`0x61aAF8a992A3143e2B0C9cB0030b9fE702854a25`](https://etherscan.io/address/0x61aAF8a992A3143e2B0C9cB0030b9fE702854a25)).
 
 ### `tail()`
 
@@ -336,10 +336,10 @@ Returns `uint256`. Total imdUSD burned by `cash` without cancelling principal: r
 
 ### `treasury()`
 
-Returns `address`. The vault's Treasury (waiting for mainnet launch).
+Returns `address`. The vault's Treasury ([`0x6Ac8fF96Fb8DCF5d79A8eF1E59D9AC23f2BD27Bc`](https://etherscan.io/address/0x6Ac8fF96Fb8DCF5d79A8eF1E59D9AC23f2BD27Bc)).
 
 ### `usdPriceFeed()`
 
-Returns `address`. The vault's IMD/USD feed (waiting for mainnet launch). Prices IMD, not sIMD; `collateralPriceFeed()` builds on it.
+Returns `address`. The vault's IMD/USD feed ([`0x297b85afc6bbF9d9cCa636F7ED74c56DA79287A0`](https://etherscan.io/address/0x297b85afc6bbF9d9cCa636F7ED74c56DA79287A0)). Prices IMD, not sIMD; `collateralPriceFeed()` builds on it.
 
 For a consistent snapshot, see [Reading state](./reading-state.md). For step-by-step use, see [Open a position](../guides/open-a-position.md), [Redeem](../guides/redeem.md) and [Mark and liquidate](../keepers/mark-and-liquidate.md).

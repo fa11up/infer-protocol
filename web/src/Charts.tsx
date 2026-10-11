@@ -123,7 +123,10 @@ export function LoanBook({
   const finite = positions
     .filter((p) => p.cr !== maxUint256)
     .map((p) => Number(p.cr));
-  axisCeiling.current = Math.max(
+  // The axis stops at 500%: past it a position is safe by any measure, and stretching the axis for one very
+  // safe loan squeezes every position that matters into the left half. Those beyond sit on the right edge.
+  const AXIS_CAP = 500;
+  axisCeiling.current = Math.min(AXIS_CAP, Math.max(
     axisCeiling.current,
     Math.ceil(
       Math.max(
@@ -132,7 +135,7 @@ export function LoanBook({
         300,
       ) / 100,
     ) * 100,
-  );
+  ));
   const maximum = axisCeiling.current;
   // The axis starts at 100%: below it a position is underwater (debt worth more than its collateral), and
   // those are pinned to the left edge with an arrow rather than stretching the axis down to zero.
@@ -175,7 +178,7 @@ export function LoanBook({
           Collateral ratio
           <Info
             label="Loan book"
-            text={`Every open position by collateral ratio, from 100%. Circle area is accrued ${unit()} debt; circles stack up and down only to stay apart, so height carries no value and a tall cloud is where debt is concentrated. Positions under 100% sit at the left edge. The bands move with the live minCR and redemption ceiling.`}
+            text={`Every open position by collateral ratio, from 100%. Circle area is accrued ${unit()} debt; circles stack up and down only to stay apart, so height carries no value and a tall cloud is where debt is concentrated. Positions under 100% sit at the left edge and those above 500% at the right edge. The bands move with the live minCR and redemption ceiling.`}
           />
         </p>
         <span className="muted">
@@ -300,7 +303,7 @@ export function LoanBook({
             </div>
             <div className="strip-axis">
               <span>{FLOOR}%</span>
-              <span>{maximum}%</span>
+              <span>{maximum}%{positions.some((p) => p.cr > BigInt(maximum)) ? "+" : ""}</span>
             </div>
           </div>
           <LoanFeed

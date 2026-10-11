@@ -1,7 +1,7 @@
 ---
 title: Glossary
 section: overview
-order: 3
+order: 4
 audience: everyone
 sources:
   - docs/NAMING.md:1-68

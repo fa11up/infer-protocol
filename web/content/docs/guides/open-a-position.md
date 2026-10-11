@@ -21,7 +21,7 @@ This guide takes you from holding IMD or sIMD to holding borrowed imdUSD, in two
 - A wallet holding IMD or sIMD on the same chain as the vault, and a little ETH for gas. Your collateral is held as sIMD either way: deposit IMD and the vault stakes it for you.
 - The terminal open at `/terminal/` with the wallet connected ([Use the terminal](./use-the-terminal.md)).
 - Prices live: the price line on the Oracle tab (and above the Position tab's actions) must not say borrowing is paused. Borrowing is refused while a price is out of date or the main and spot prices disagree; the line then offers **Update price** to buy a fresh one with your own IMD. Depositing is not refused.
-- The vault address (waiting for mainnet launch). Check it against [Contracts and addresses](../reference/contracts-and-addresses.md) before approving anything.
+- The vault address, [`0x0b69F8DA8D8cE521d74Ea69a7A3475B77302EF82`](https://etherscan.io/address/0x0b69F8DA8D8cE521d74Ea69a7A3475B77302EF82). Check it against [Contracts and addresses](../reference/contracts-and-addresses.md) before approving anything.
 
 ## Steps
 

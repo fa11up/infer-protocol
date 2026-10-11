@@ -17,7 +17,7 @@ imdUSD is a stablecoin meant to be worth one US dollar. You get it by locking st
 
 The collateral is **sIMD** (Staked IMD), the share token of IdentityMD's staking vault: each sIMD is a claim on IMD, the IdentityMD token, held by that vault. You can deposit sIMD you already hold, or deposit IMD and the vault stakes it for you in the same transaction. Everything the vault pays out (withdrawals, liquidations and redemptions) is paid in sIMD, which you unstake in the staking vault to get IMD.
 
-The vault is the only contract that can mint or burn imdUSD. The token (`ImdUSD`) has no owner, no pause switch and no upgrade path. Contract addresses: (waiting for mainnet launch).
+The vault is the only contract that can mint or burn imdUSD. The token (`ImdUSD`) has no owner, no pause switch and no upgrade path. The vault is [`0x0b69F8DA8D8cE521d74Ea69a7A3475B77302EF82`](https://etherscan.io/address/0x0b69F8DA8D8cE521d74Ea69a7A3475B77302EF82) and imdUSD is [`0x61aAF8a992A3143e2B0C9cB0030b9fE702854a25`](https://etherscan.io/address/0x61aAF8a992A3143e2B0C9cB0030b9fE702854a25) on Ethereum mainnet; every address is in [Contracts and addresses](../reference/contracts-and-addresses.md).
 
 ## Who it is for
 
