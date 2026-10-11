@@ -33,7 +33,9 @@ cd "$(dirname "$0")/../.."
 
 VOL=INFERLAUNCH; RD=/Volumes/$VOL; ENVF=$RD/launch.env
 DEPLOYER=${EXPECTED_DEPLOYER:-0x5167D014a056E43883e1BBEa5530c3c0dC993281}   # miyagod.eth
-PRIVATE_RPC=https://rpc.mevblocker.io/fullprivacy
+# Stage two's private endpoint. MEV Blocker by default; PRIVATE_RPC_URL overrides it (e.g. Flashbots Protect,
+# https://rpc.flashbots.net/fast) if MEV Blocker rate-limits the broadcast (Cloudflare 1015, seen 2026-10-11).
+PRIVATE_RPC=${PRIVATE_RPC_URL:-https://rpc.mevblocker.io/fullprivacy}
 SCRIPT=script/DeployMainnet.s.sol
 REC=deploy/mainnet/out/deployment.json
 
@@ -100,6 +102,8 @@ basefee() {
 refs() {
   [ -n "${REFERENCE_IMD_ETH_WEI:-}" ] || read -r -p "REFERENCE_IMD_ETH_WEI (wei of ETH per 1e18 IMD): " REFERENCE_IMD_ETH_WEI
   [ -n "${REFERENCE_NHI:-}" ] || read -r -p "REFERENCE_NHI (1e18-scaled): " REFERENCE_NHI
+  # Saved to the key file, so the next step (check, then vault, each a fresh process that re-reads it) keeps them.
+  sed -i '' -e "s/^REFERENCE_IMD_ETH_WEI=.*/REFERENCE_IMD_ETH_WEI=$REFERENCE_IMD_ETH_WEI/" -e "s/^REFERENCE_NHI=.*/REFERENCE_NHI=$REFERENCE_NHI/" "$ENVF"
   export REFERENCE_IMD_ETH_WEI REFERENCE_NHI
 }
 
@@ -156,7 +160,11 @@ case "${1:-}" in
     else
       "$0" stage1
     fi
-    if [ -z "$(rec vault)" ]; then
+    # Stage two, unless the record's vault has code on this chain: a broadcast that failed after forge's simulation
+    # still writes the vault into the record (2026-10-11: MEV Blocker refused the send, the record named a vault, and
+    # a rerun skipped stage two and wiped the salt). Code on chain is the only proof the vault exists.
+    V=$(rec vault)
+    if [ -z "$V" ] || [ "$(cast code "$V" --rpc-url "$(. "$ENVF"; echo "$MAINNET_RPC_URL")" 2>/dev/null </dev/null | wc -c)" -le 10 ]; then
       echo
       if [ -n "${SEED_HOOK:-}" ]; then
         echo "seeding with: $SEED_HOOK"; $SEED_HOOK </dev/null
@@ -166,7 +174,7 @@ case "${1:-}" in
       "$0" check
       "$0" vault
     else
-      echo; echo "stage two: the vault is already deployed ($(rec vault)), skipping"
+      echo; echo "stage two: the vault is already deployed ($V, it has code), skipping"
     fi
     # Source verification while the vault's salt is still on the RAM disk. It never blocks the wipe: a failure is
     # printed and `launch.sh verify` can be run again at any time.
@@ -190,7 +198,8 @@ case "${1:-}" in
       [ -f "$body" ] || die "no $body: stage one writes it"
       v=$(c "$f" "latestValue()(uint256,uint64)")
       inflight=$(cast call "$ASK" "feeds(address)(bytes32,bool,bool,uint64,uint64,uint64,bool,bytes32)" "$f" --rpc-url "$MAINNET_RPC_URL" </dev/null 2>/dev/null | tail -1)
-      if [ "$v" != "0" ]; then echo "  $role: seeded ($v)"; continue; fi
+      stale=$(cast call "$f" "isStale()(bool)" --rpc-url "$MAINNET_RPC_URL" </dev/null 2>/dev/null | head -1)
+      if [ "$v" != "0" ] && [ "$stale" != "true" ]; then echo "  $role: seeded ($v)"; continue; fi
       if [ "$inflight" != "0x0000000000000000000000000000000000000000000000000000000000000000" ]; then echo "  $role: request in flight ($inflight)"; continue; fi
       FEEDS+=("$f"); BODIES+=("$(cast from-utf8 "$(cat "$body")")"); ROLES+=("$role")
     done
@@ -209,7 +218,7 @@ case "${1:-}" in
     # Wait for every feed to hold a value. SEED_WAIT_MINUTES=0 returns at once (a rehearsal, where no plane delivers).
     WAIT=${SEED_WAIT_MINUTES:-90}; start=$(date +%s)
     while :; do
-      left=""; for role in price nhi spot; do [ "$(c "$(rec ${role}Feed)" "latestValue()(uint256,uint64)")" = "0" ] && left="$left $role"; done
+      left=""; for role in price nhi spot; do f=$(rec ${role}Feed); { [ "$(c "$f" "latestValue()(uint256,uint64)")" = "0" ] || [ "$(c "$f" "isStale()(bool)")" = "true" ]; } && left="$left $role"; done
       [ -z "$left" ] && { echo "  all three feeds hold their first answers"; break; }
       [ "$WAIT" = 0 ] && { echo "  still waiting on:$left (not waiting: SEED_WAIT_MINUTES=0)"; break; }
       [ $(( $(date +%s) - start )) -ge $(( WAIT * 60 )) ] && die "still waiting on:$left after $WAIT minutes. Run 'launch.sh seed' again: it waits on what is in flight and re-buys what the plane refused"
