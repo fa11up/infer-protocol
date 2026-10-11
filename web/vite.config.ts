@@ -435,8 +435,9 @@ export default defineConfig(({ mode }) => {
       ? [react(), renderBlocking(), publicSite(), docsPages(LAUNCH, SITE)]
       : [react(), renderBlocking(), docsPages(true)],
     // The public site reads no chain: swap the live homepage for a stub so viem and the RPC layer
-    // are not bundled at all.
-    resolve: site
+    // are not bundled at all. The launch build keeps the real one: Landing renders LiveLanding there
+    // (TERMINAL is true), so the stub would leave the homepage empty.
+    resolve: site && !LAUNCH
       ? {
           alias: [
             {
