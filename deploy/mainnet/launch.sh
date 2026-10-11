@@ -142,7 +142,11 @@ case "${1:-}" in
     forge script $SCRIPT --sig "verifySeeded()" --rpc-url "$MAINNET_RPC_URL" >/dev/null </dev/null || die "verifySeeded refuses. Do not deploy the vault."
     echo "verifySeeded passes. Stage two goes through $VAULT_RPC (simulation included)."
     confirm "Stage two (the vault) from $SIGNER."
-    forge script $SCRIPT --sig "runVault()" --rpc-url "$VAULT_RPC" --private-key "$PRIVATE_KEY" --broadcast --slow --priority-gas-price 100000000 --timeout 900 </dev/null
+    # The vault's creation uses ~16.1M gas, under EIP-7825's 16,777,216 per-transaction cap, but forge's default 30%
+    # estimate margin set a 20.9M limit that mainnet refuses ("gas limit too high", 2026-10-11). 3% keeps it under the
+    # cap (16.59M); DeployMainnet already requires the real usage to stay below it. Anvil enforces no cap, so only
+    # mainnet showed this.
+    forge script $SCRIPT --sig "runVault()" --rpc-url "$VAULT_RPC" --private-key "$PRIVATE_KEY" --broadcast --slow --priority-gas-price 100000000 --gas-estimate-multiplier 103 --timeout 900 </dev/null
     echo; echo "Next: Claude reads everything back; you send 5 IMD to the OracleAsker; then launch.sh wipe"
     ;;
   go)
