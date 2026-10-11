@@ -134,6 +134,21 @@ test("after a fast move: holds the purchase while the two-hour median would stil
   assert.ok(!a.lines.some((l) => /from your wallet/.test(l)), "no price quoted for a held purchase");
 });
 
+test("primary behind and its median not moving yet: the spot alone is held as well", () => {
+  // Live at 07:15Z: the median (3.1799e15) is within 0.5% of the primary, so only the breached spot was offered.
+  const flat = Array(13).fill(3179891121836197n);
+  const a = adviseUpdate({
+    ...base,
+    price: feed(3176230146409988n),
+    spot: feed(3381643414674661n),
+    skewBps: 500n,
+    market: { imdEth: 3408494784660689n, imdUsd: 85n * WAD / 10n },
+    projected: { median: 3179891121836197n, samples: flat, spacingBlocks: 50n },
+  });
+  assert.deepEqual(a.buy, ["SpotFeed"]);
+  assert.match(a.wait ?? "", /A fresh spot check lands at the market/);
+});
+
 test("once the median has caught up, the same rally buys the primary alone", () => {
   const caught = 3330000000000000n;
   const a = adviseUpdate({

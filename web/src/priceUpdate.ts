@@ -213,6 +213,25 @@ export function adviseUpdate(i: UpdateInput): UpdateAdvice {
       wait = `Not yet: an update now would not reopen anything. The vault's price is the average of IMD's pool over the last two hours, so after a fast move a fresh one lands behind the market${at}, still ${pct(gapTo(med, spotAfter))} from the spot check (${pct(skewBps)} allowed). ${eta !== undefined ? `If IMD holds near today's price, the average catches up in about ${minutes(eta * 60n)}.` : "It catches up once IMD steadies."} Buying now spends IMD for nothing.`;
       lines.unshift(wait);
     }
+  } else if (buy.length === 1 && buy[0] === "SpotFeed" && i.market && i.price?.value && !priceStale) {
+    // A spot alone lands at the market. If the primary is the side behind, that widens the gap: hold too.
+    const gapTo = (m: bigint, x: bigint) => ((m > x ? m - x : x - m) * 10000n) / m;
+    const allowed = (skewBps * 9n) / 10n;
+    const live = i.market.imdEth;
+    if (gapTo(i.price.value, live) > allowed) {
+      let eta: bigint | undefined;
+      const s = i.projected?.samples;
+      if (s?.length)
+        for (let k = 1; k < s.length; k++) {
+          const m = medianOf([...s.slice(k), ...Array(k).fill(live)]);
+          if (gapTo(m, live) <= allowed) {
+            eta = (BigInt(k) * i.projected!.spacingBlocks * 12n) / 60n;
+            break;
+          }
+        }
+      wait = `Not yet: an update now would not reopen anything. A fresh spot check lands at the market, ${pct(gapTo(i.price.value, live))} from the vault's price (${pct(skewBps)} allowed), and the vault's price is a two-hour average that has not caught up with the move. ${eta !== undefined ? `If IMD holds near today's price, it catches up in about ${minutes(eta * 60n)}.` : "It catches up once IMD steadies."} Buying now spends IMD for nothing.`;
+      lines.unshift(wait);
+    }
   }
 
   if (i.cost !== undefined && !wait) {
