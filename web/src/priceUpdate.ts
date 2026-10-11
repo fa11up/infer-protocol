@@ -33,8 +33,9 @@ export type UpdateInput = {
 };
 
 export type UpdateAdvice = {
-  /** The one price purchase worth making now, bought in a single transaction: the primary and the spot
-   * together (they must agree), the spot alone when only it is behind, or nothing. */
+  /** The price purchase worth making now, in a single transaction, and only the feeds that need it: the
+   * primary when it is stale or off the market, the spot when it is stale, would disagree with the primary
+   * the purchase leaves, or would run out long before it. Nothing when neither does. */
   buy: ("PriceFeed" | "SpotFeed")[];
   /** Network health is out of date: a separate, daily update. */
   health: boolean;
@@ -98,8 +99,13 @@ export function adviseUpdate(i: UpdateInput): UpdateAdvice {
       `Borrowing, withdrawing against debt, liquidating and redeeming are paused because the vault's price is out of date. An update reopens them for ${life}.`,
     );
   } else if (spotStale || breached) {
+    // Which side is behind: the one further from the live market. In a fast move it is usually the primary
+    // (an average over a window), and refreshing the spot would only widen the gap.
+    const off = (v: bigint, m: bigint) => (v > m ? v - m : m - v);
+    const primaryBehind =
+      breached && i.market !== undefined && off(i.price!.value, i.market.imdEth) > off(i.spot!.value, i.market.imdEth);
     lines.push(
-      `Borrowing, withdrawing against debt, liquidating and redeeming are paused because the spot check ${spotStale ? "is out of date" : `is ${pct(apart!)} off the primary (${pct(i.skewBps!)} allowed)`}. Refreshing the spot check reopens them.`,
+      `Borrowing, withdrawing against debt, liquidating and redeeming are paused because the spot check ${spotStale ? "is out of date" : `is ${pct(apart!)} off the primary (${pct(i.skewBps!)} allowed)`}. ${primaryBehind ? "The primary is the one behind the market: updating it reopens them once its average has caught up." : "Refreshing the spot check reopens them."}`,
     );
   }
   if (health)
@@ -147,12 +153,27 @@ export function adviseUpdate(i: UpdateInput): UpdateAdvice {
           `The move is larger than one update can carry (each may move the price at most ${pct(first ?? i.capBps)}${first !== i.capBps ? `, then ${pct(i.capBps)}` : ""}), so it takes ${steps} updates.`,
         );
     }
-    if (moved || priceStale) buy = ["PriceFeed", "SpotFeed"];
+    if (moved || priceStale) buy = ["PriceFeed"];
   } else {
     lines.push("The live market price could not be read, so the gap to the market is unknown.");
-    if (priceStale) buy = ["PriceFeed", "SpotFeed"];
+    if (priceStale) buy = ["PriceFeed"];
   }
-  if (!buy.length && (spotStale || breached)) buy = ["SpotFeed"];
+  // The spot only when the vault would still be paused without it: stale, more than half the allowed gap
+  // from the primary this purchase leaves (the market's level when the primary is bought, else today's), or
+  // a primary bought now would outlive it by more than half a lifetime. Unknown market: buy it with the price.
+  const skewBps = i.skewBps ?? 500n;
+  const nextPrimary = buy.length ? i.market?.imdEth : i.price?.value;
+  const spotGap =
+    nextPrimary && i.spot?.value
+      ? ((nextPrimary > i.spot.value ? nextPrimary - i.spot.value : i.spot.value - nextPrimary) * 10000n) / nextPrimary
+      : undefined;
+  const spotLeft = !spotStale ? i.spot!.updated + i.spot!.maxAge - i.now : 0n;
+  const needSpot =
+    spotStale ||
+    spotGap === undefined ||
+    spotGap * 2n > skewBps ||
+    (buy.length > 0 && spotLeft * 2n < (i.price?.maxAge ?? 3600n));
+  if (needSpot && (buy.length || breached || spotStale)) buy = [...buy, "SpotFeed"];
 
   if (i.cost !== undefined) {
     const cost = (n: bigint) =>
@@ -160,6 +181,10 @@ export function adviseUpdate(i: UpdateInput): UpdateAdvice {
     if (buy.length === 2)
       lines.push(
         `Updating the price buys two answers in one transaction, the primary and the spot check, because the vault acts only while they agree: ${cost(2n)} from your wallet. Each arrives within minutes. No protocol money is spent.`,
+      );
+    else if (buy[0] === "PriceFeed")
+      lines.push(
+        `Only the primary needs updating (the spot check already agrees with the market): ${cost(1n)} from your wallet, arriving within minutes.`,
       );
     else if (buy.length === 1)
       lines.push(`Only the spot check needs updating: ${cost(1n)} from your wallet, arriving within minutes.`);

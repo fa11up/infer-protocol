@@ -90,6 +90,31 @@ test("only the spot behind: offers the spot alone, and says why actions are paus
   assert.match(breached.lines[0], /is 7\.5% off the primary \(5% allowed\)/);
 });
 
+test("only what is needed: the primary alone when the spot already agrees with the market", () => {
+  // The launch-night rally: primary behind, spot fresh and at the market, vault paused on the gap.
+  const a = adviseUpdate({
+    ...base,
+    price: feed(3146n * 10n ** 12n),
+    spot: feed(3346n * 10n ** 12n),
+    skewBps: 500n,
+    market: { imdEth: 3360n * 10n ** 12n, imdUsd: 84n * WAD / 10n },
+  });
+  assert.deepEqual(a.buy, ["PriceFeed"]);
+  assert.match(a.lines[0], /primary is the one behind the market/);
+  assert.match(a.lines.at(-1), /Only the primary needs updating .*0\.5 IMD/);
+});
+
+test("the spot joins the primary when it is far from the market or would expire long before it", () => {
+  const market = { imdEth: 44n * 10n ** 14n, imdUsd: 11n * WAD };
+  const far = adviseUpdate({ ...base, skewBps: 500n, market });
+  assert.deepEqual(far.buy, ["PriceFeed", "SpotFeed"]);
+  const old = { value: 44n * 10n ** 14n, updated: 10000n - 3000n, stale: false, maxAge: 3600n }; // 10 minutes left
+  const ageing = adviseUpdate({ ...base, spot: old, skewBps: 500n, market });
+  assert.deepEqual(ageing.buy, ["PriceFeed", "SpotFeed"]);
+  const young = adviseUpdate({ ...base, spot: feed(44n * 10n ** 14n), skewBps: 500n, market });
+  assert.deepEqual(young.buy, ["PriceFeed"]);
+});
+
 test("network health is a separate daily update, never folded into the price", () => {
   const a = adviseUpdate({ ...base, nhi: feed(9n * 10n ** 17n, true), market: { imdEth: 4n * 10n ** 15n, imdUsd: 10n * WAD } });
   assert.deepEqual(a.buy, []);

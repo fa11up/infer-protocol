@@ -163,7 +163,7 @@ export function PriceStatus({
                 feed={advice.buy[0]}
                 feeds={advice.buy}
                 actions={actions}
-                label={advice.buy.length === 2 ? "Update price" : "Update spot check"}
+                label={advice.buy.includes("PriceFeed") ? "Update price" : "Update spot check"}
                 idPrefix={`price-status-${where}`}
                 info={!advice.health}
               />
