@@ -36,11 +36,18 @@ export function XLink() {
   );
 }
 
-/** imdusd.com's header chip: "Mainnet · staging", the last word pulsing. Shared with infer.imdusd.com. */
-export function StagingChip() {
+/** A header chip naming a network and its state ("Mainnet · live", "Robinhood · staging"), the state
+ * pulsing. Shared with infer.imdusd.com. */
+export function NetworkChip({
+  network,
+  state,
+}: {
+  network: string;
+  state: "live" | "staging";
+}) {
   return (
     <span className="chip">
-      Mainnet · <span className="chip-pulse">staging</span>
+      {network} · <span className={`chip-pulse chip-${state}`}>{state}</span>
     </span>
   );
 }
@@ -83,14 +90,13 @@ export function SiteHeader({
         </nav>
       </div>
       <div className="wallet-bar">
-        {TERMINAL ? (
-          mainnet ? (
-            <span className="chip">Mainnet · live</span>
-          ) : (
-            <span className="chip">{`${network ?? "Sepolia"} · testnet`}</span>
-          )
+        {TERMINAL && !mainnet ? (
+          <span className="chip">{`${network ?? "Sepolia"} · testnet`}</span>
         ) : (
-          <StagingChip />
+          <span className="chips">
+            <NetworkChip network="Mainnet" state="live" />
+            <NetworkChip network="Robinhood" state="staging" />
+          </span>
         )}
         <ThemeToggle />
         <Vibe suite={IMDUSD_VIBES} />

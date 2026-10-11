@@ -14,10 +14,19 @@ const colors = (block) =>
   );
 const light = colors(blocks[0]),
   dark = colors(blocks[1]);
+// One signal colour sits outside the seven: --live, the bright green of a live network's chip (the
+// palette's own green, #2F5D50, read too dark at 10px; user's call, 2026-10-08). It is pinned here to
+// that one role and that one value, so the palette cannot drift through it.
+const SIGNAL = { "--live": "#15803D" };
 test("both themes define identical color roles and light uses exactly the seven approved hexes", () => {
   assert.deepEqual(Object.keys(light).sort(), Object.keys(dark).sort());
+  for (const [role, hex] of Object.entries(SIGNAL))
+    assert.equal(light[role], hex);
+  const palette = Object.entries(light)
+    .filter(([role]) => !(role in SIGNAL))
+    .map(([, v]) => v);
   assert.deepEqual(
-    [...new Set(Object.values(light).filter((v) => v.startsWith("#")))].sort(),
+    [...new Set(palette.filter((v) => v.startsWith("#")))].sort(),
     [
       "#F7F5EF",
       "#FFFDF8",

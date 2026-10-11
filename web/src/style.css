@@ -11,6 +11,8 @@
   --control: #5a6472;
   --focus: #16202e;
   --healthy: #2f5d50;
+  /* A network that is live: brighter than --healthy, still 4.6:1 on --bg at the chip's 10px. */
+  --live: #15803d;
   --danger: #8c2f2f;
   --clear: transparent;
 }
@@ -25,6 +27,7 @@
   --control: #777777;
   --focus: #eeeeee;
   --healthy: #92b5a6;
+  --live: #4ade80;
   --danger: #e19a9a;
   --clear: transparent;
 }
@@ -717,6 +720,7 @@ dialog [role="status"] {
     --focus: Highlight;
     --control: ButtonText;
     --healthy: CanvasText;
+    --live: CanvasText;
     --danger: CanvasText;
   }
 }
@@ -2346,6 +2350,20 @@ html.app-page body {
     color: var(--text);
   }
 }
+/* "live" is a bright green (--live), pulsing in strength rather than from muted to ink. */
+.chip-pulse.chip-live {
+  color: var(--live);
+  animation-name: chip-pulse-live;
+}
+@keyframes chip-pulse-live {
+  0%,
+  100% {
+    opacity: 0.8;
+  }
+  50% {
+    opacity: 1;
+  }
+}
 @media (prefers-reduced-motion: reduce) {
   .chip-pulse {
     animation: none;
@@ -3783,11 +3801,21 @@ html.app-terminal body:has(> .vibe-canvas:not([hidden])) :is(input, textarea) {
     flex-wrap: wrap;
   }
 }
-/* On a phone the chip does not fit beside the wordmark and the three buttons, so it takes a short row
-   of its own at the foot of the header (the buttons stay pinned top right above). */
+/* The network chips, side by side just before the theme and background buttons. */
+.chips {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+/* On a phone the chips do not fit beside the wordmark and the buttons, so they take a short row of their
+   own at the foot of the header (the buttons stay pinned top right above). */
 @media (max-width: 760px) {
   .topbar .wallet-bar {
     width: 100%;
+  }
+  .topbar .wallet-bar .chips {
+    flex-wrap: wrap;
+    gap: 6px;
   }
 }
 

@@ -19,7 +19,7 @@ import { Vibe } from "../vibe";
 import { INFER_VIBES } from "./vibes";
 import { Sound } from "../score";
 import { INFER_SCORE } from "./score";
-import { StagingChip } from "../site";
+import { NetworkChip } from "../site";
 import { LAUNCH, LIVE } from "./config";
 import { ERC20, client, message } from "./chain";
 import { NATIVE } from "./swap";
@@ -811,7 +811,7 @@ export function Shell({
           </a>
         </nav>
         <div className="infer-tools">
-          {LIVE ? <span className="chip">Mainnet</span> : <StagingChip />}
+          <NetworkChip network="Mainnet" state={LIVE ? "live" : "staging"} />
           <ThemeToggle />
           <Vibe suite={INFER_VIBES} />
           <Sound score={INFER_SCORE} />
