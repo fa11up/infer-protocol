@@ -59,6 +59,7 @@ export type UpdateAdvice = {
 };
 
 const DEAD_BAND_BPS = 50n; // closer than 0.5% is "in line with the market"
+const SPOT_MIN_LEFT = 600n; // a spot with less life than this would lapse before a fresh primary lands
 
 export function pct(bps: bigint) {
   const whole = bps / 100n;
@@ -181,9 +182,10 @@ export function adviseUpdate(i: UpdateInput): UpdateAdvice {
     lines.push("The live market price could not be read, so the gap to the market is unknown.");
     if (priceStale) buy = ["PriceFeed"];
   }
-  // The spot only when the vault would still be paused without it: stale, more than half the allowed gap
-  // from the primary this purchase leaves (the market's level when the primary is bought, else today's), or
-  // a primary bought now would outlive it by more than half a lifetime. Unknown market: buy it with the price.
+  // The spot only when the vault would still be paused without it: stale, beyond the allowed gap (less a tenth)
+  // from the primary this purchase leaves (the window's median when read, else the market's level; today's
+  // primary when only the spot is in question), or running out before a fresh answer could land (10 minutes).
+  // A spot with longer left is not paid for now: it gets its own update when it runs out. Unknown market: buy it.
   const skewBps = i.skewBps ?? 500n;
   const nextPrimary = buy.length ? (i.projected?.median ?? i.market?.imdEth) : i.price?.value;
   const spotGap =
@@ -194,8 +196,8 @@ export function adviseUpdate(i: UpdateInput): UpdateAdvice {
   const needSpot =
     spotStale ||
     spotGap === undefined ||
-    spotGap * 2n > skewBps ||
-    (buy.length > 0 && spotLeft * 2n < (i.price?.maxAge ?? 3600n));
+    spotGap * 10n > skewBps * 9n ||
+    (buy.length > 0 && spotLeft < SPOT_MIN_LEFT);
   if (needSpot && (buy.length || breached || spotStale)) buy = [...buy, "SpotFeed"];
 
   // Would the purchase reopen the vault? The primary lands at the window's median, the spot at the market (or
@@ -256,7 +258,9 @@ export function adviseUpdate(i: UpdateInput): UpdateAdvice {
       );
     else if (buy[0] === "PriceFeed")
       lines.push(
-        `Only the primary needs updating (the spot check already agrees with the market): ${cost(1n)} from your wallet, arriving within minutes.`,
+        `Only the primary needs updating: ${cost(1n)} from your wallet, arriving within minutes.${
+          !spotStale && spotLeft < (i.price?.maxAge ?? 3600n) ? ` The spot check runs out in ${minutes(spotLeft)}; it needs its own update then.` : ""
+        }`,
       );
     else if (buy.length === 1)
       lines.push(`Only the spot check needs updating: ${cost(1n)} from your wallet, arriving within minutes.`);

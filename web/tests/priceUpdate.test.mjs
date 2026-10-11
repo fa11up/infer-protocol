@@ -101,7 +101,7 @@ test("only what is needed: the primary alone when the spot already agrees with t
   });
   assert.deepEqual(a.buy, ["PriceFeed"]);
   assert.match(a.lines[0], /primary is the one behind the market/);
-  assert.match(a.lines.at(-1), /Only the primary needs updating .*0\.5 IMD/);
+  assert.match(a.lines.at(-1), /Only the primary needs updating: 0\.5 IMD/);
 });
 
 test("the spot joins the primary when it is far from the market or would expire long before it", () => {
@@ -110,7 +110,9 @@ test("the spot joins the primary when it is far from the market or would expire 
   assert.deepEqual(far.buy, ["PriceFeed", "SpotFeed"]);
   const old = { value: 44n * 10n ** 14n, updated: 10000n - 3000n, stale: false, maxAge: 3600n }; // 10 minutes left
   const ageing = adviseUpdate({ ...base, spot: old, skewBps: 500n, market });
-  assert.deepEqual(ageing.buy, ["PriceFeed", "SpotFeed"]);
+  assert.deepEqual(ageing.buy, ["PriceFeed"], "10 minutes left is still enough: the spot gets its own update later");
+  const lapsing = { value: 44n * 10n ** 14n, updated: 10000n - 3200n, stale: false, maxAge: 3600n }; // 6 minutes left
+  assert.deepEqual(adviseUpdate({ ...base, spot: lapsing, skewBps: 500n, market }).buy, ["PriceFeed", "SpotFeed"]);
   const young = adviseUpdate({ ...base, spot: feed(44n * 10n ** 14n), skewBps: 500n, market });
   assert.deepEqual(young.buy, ["PriceFeed"]);
 });
@@ -189,6 +191,22 @@ test("impact: the viewer's own sentence, only when an update is worth buying, at
   // In line with the market: nothing worth buying, no sentence.
   const d = adviseUpdate({ ...base, market: { imdEth: 4n * 10n ** 15n, imdUsd: 10n * WAD }, position });
   assert.equal(d.impact, undefined);
+});
+
+test("stale primary, fresh spot 2.7% from where the new primary lands: the primary alone (0.5 IMD)", () => {
+  // Live 2026-10-11 ~13:25Z: primary stale, spot with 16 minutes left, the window's median 2.7% above the spot.
+  const a = adviseUpdate({
+    ...base,
+    now: 1791732297n,
+    price: { value: 3597801470372494n, updated: 1791722906n, stale: true, maxAge: 3600n },
+    spot: { value: 3537587969348307n, updated: 1791729644n, stale: false, maxAge: 3600n },
+    skewBps: 500n,
+    market: { imdEth: 3576626424680667n, imdUsd: 9n * WAD },
+    projected: { median: 3635669380452870n, samples: Array(13).fill(3635669380452870n), spacingBlocks: 50n },
+  });
+  assert.deepEqual(a.buy, ["PriceFeed"]);
+  assert.equal(a.wait, undefined);
+  assert.match(a.lines.at(-1), /Only the primary needs updating: 0\.5 IMD.*runs out in 15 minutes/);
 });
 
 test("network health is a separate daily update, never folded into the price", () => {
