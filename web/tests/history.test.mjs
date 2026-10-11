@@ -211,6 +211,38 @@ test("book discovers distinct deposit owners, reads the same block, drops zero d
     global.fetch = originalFetch;
   }
 });
+test("a fresh vault with verified logs but no deposit is an empty book, not an error", async () => {
+  global.fetch = async () => {
+    throw Error("no network in this test");
+  };
+  // Real logs in range (the constructor's events), none of them a Lock.
+  const other = depositLogs.map((l) => ({
+    ...l,
+    topics: [`0x${"ab".repeat(32)}`, ...l.topics.slice(1)],
+  }));
+  const r = runtime({
+    getCode: async ({ blockNumber }) => (blockNumber >= 16n ? "0x01" : "0x"),
+    getLogs: async ({ fromBlock, toBlock }) =>
+      other.filter(
+        (l) =>
+          BigInt(l.blockNumber) >= fromBlock &&
+          BigInt(l.blockNumber) <= toBlock,
+      ),
+    readContract: async () => {
+      throw Error("no owner should be read");
+    },
+  });
+  try {
+    const book = await loanBook(r, {
+      targets: { ParameterizedVault: t },
+      block: 256n,
+    });
+    assert.equal(book.positions.length, 0);
+    assert.ok(book.history.logs.length > 0);
+  } finally {
+    global.fetch = originalFetch;
+  }
+});
 test("accepted points pair the preceding value within the same transaction; reporter values excluded", () => {
   const logs = normalized(fixtureLogs(state, feed.address));
   const points = acceptedPoints(feed, logs);

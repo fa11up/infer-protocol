@@ -268,7 +268,9 @@ export async function loanBook(r: Runtime, s: Snapshot): Promise<Book> {
         getAddress((event.args as unknown as { account: Address }).account),
       );
   }
-  if (!owners.size) throw Error("No verifiable deposit logs were returned.");
+  // history() already refused an unverified empty read (rangeLogs throws on [] from both sources), so
+  // these logs are real; no Lock among them is an empty book (a fresh vault), not missing data.
+  if (!owners.size) return { positions: [], history: h };
   const positions: Loan[] = [];
   // Bound concurrent calls, and reject the whole result if any owner cannot be read.
   const list = [...owners].sort();
