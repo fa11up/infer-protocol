@@ -24,7 +24,7 @@ import { message, fmt } from "./math";
 import { explained } from "./explain";
 import { onChain, onChainArgs } from "./names";
 import { ThemeToggle } from "./theme";
-import { SiteHeader } from "./site";
+import { SiteHeader, href } from "./site";
 import { LoanBook, useCharts } from "./Charts";
 import { Points, usePoints } from "./Points";
 import { Ticker } from "./motion";
@@ -645,7 +645,7 @@ function Terminal({ r }: { r: Runtime }) {
                 ? `Read ${Math.max(0, Math.floor((Date.now() - s.loadedAt) / 1000))}s ago`
                 : "Awaiting RPC"}
             </span>
-            <a href="./imd-deployment.json" target="_blank" rel="noreferrer">
+            <a href={href("imd-deployment.json")} target="_blank" rel="noreferrer">
               Deployment ↗
             </a>
           </div>

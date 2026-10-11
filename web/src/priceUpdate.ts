@@ -230,7 +230,12 @@ export function adviseUpdate(i: UpdateInput): UpdateAdvice {
           }
         }
       const at = i.usd?.value && i.price?.value ? `about ${dollars((i.usd.value * med) / i.price.value)}` : "a price";
-      wait = `Not yet. The vault's price is a two-hour average, so an update now would land at ${at}, still ${pct(gapTo(med, spotAfter))} from the spot check (${pct(skewBps)} allowed) and reopen nothing. ${eta !== undefined ? `If IMD holds here, it catches up in about ${minutes(eta * 60n)}.` : "It catches up once IMD steadies."}`;
+      // Name where each side would land: a spot bought with it lands at the market, a kept one stays where it is.
+      const usdAt = (v: bigint) => (i.usd?.value && i.price?.value ? dollars((i.usd.value * v) / i.price.value) : undefined);
+      const spotWhere = buy.includes("SpotFeed")
+        ? `a fresh spot check would land at the market${usdAt(spotAfter) ? ` (${usdAt(spotAfter)})` : ""}`
+        : `the spot check is at${usdAt(spotAfter) ? ` ${usdAt(spotAfter)}` : " its last value"}`;
+      wait = `Not yet. The vault's price is a two-hour average, so a fresh one would land at ${at} while ${spotWhere}: ${pct(gapTo(med, spotAfter))} apart (${pct(skewBps)} allowed), so buying now reopens nothing. ${eta !== undefined ? `If IMD holds here, the average catches up in about ${minutes(eta * 60n)}.` : "The average catches up once IMD steadies."}`;
       waitShort = eta !== undefined ? `Wait about ${minutes(eta * 60n)}` : "Wait for IMD to steady";
       lines.unshift(wait);
     }

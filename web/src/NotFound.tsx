@@ -1,4 +1,4 @@
-import { SiteHeader, WHITEPAPER, INFER_SITE, href, XLink } from "./site";
+import { SiteHeader, WHITEPAPER, INFER_SITE, TERMINAL, href, XLink } from "./site";
 
 /** The public site's not-found page (404.html). The host serves it at any unknown path, so every
  * link resolves from the site root (the build rewrites this page's URLs to absolute ones). */
@@ -10,16 +10,17 @@ export function NotFound() {
         <p className="doc-meta">404</p>
         <h1>Page not found</h1>
         <p className="lede">
-          There is nothing at this address. The homepage and the docs are where
-          the site lives.
+          There is nothing at this address. Try the homepage{TERMINAL ? ", the terminal" : ""} or the docs.
         </p>
         <nav aria-label="Where to go instead">
           <a href={href()}>Home</a>
+          {TERMINAL && <a href={href("terminal/")}>Terminal</a>}
           <a href={href("docs/")}>Docs</a>
         </nav>
       </main>
       <footer className="site-footer">
         <nav aria-label="Footer">
+          {TERMINAL && <a href={href("terminal/")}>Terminal</a>}
           <a href={href("docs/")}>Docs</a>
           <a href={INFER_SITE} target="_blank" rel="noreferrer">
             INFER ↗

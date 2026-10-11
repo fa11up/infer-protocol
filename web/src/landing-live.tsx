@@ -141,7 +141,14 @@ export function LiveLanding() {
           )}
           <div className="contract-list">
             {r ? (
-              r.config.contracts.map((c) => (
+              [
+                // The token, its Treasury and Parameters are created by the vault; listed once the snapshot has
+                // read them from it and checked each names the vault back.
+                ...(s?.targets.stablecoin ? [{ name: "imdUSD", address: s.targets.stablecoin.address }] : []),
+                ...r.config.contracts,
+                ...(s?.targets.treasury ? [{ name: "Treasury", address: s.targets.treasury.address }] : []),
+                ...(s?.targets.parameters ? [{ name: "Parameters", address: s.targets.parameters.address }] : []),
+              ].map((c) => (
                 <AddressLink
                   key={c.name}
                   value={c.address}

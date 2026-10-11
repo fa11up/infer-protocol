@@ -133,7 +133,7 @@ test("after a fast move: holds the purchase while the two-hour median would stil
   assert.match(a.wait, /Not yet/);
   assert.match(a.wait, /about 30 minutes/);
   assert.equal(a.waitShort, "Wait about 30 minutes");
-  assert.match(a.wait, /land at about \$8\.\d\d, still/);
+  assert.match(a.wait, /land at about \$8\.\d\d while a fresh spot check would land at the market \(\$8\.\d\d\): 7\.\d% apart/);
   assert.equal(a.lines[0], a.wait);
   assert.ok(!a.lines.some((l) => /from your wallet/.test(l)), "no price quoted for a held purchase");
 });
@@ -231,6 +231,20 @@ test("the mirror: spot stale, primary fresh and close to the market: the spot al
     projected: { median: 422n * 10n ** 13n, samples: Array(13).fill(422n * 10n ** 13n), spacingBlocks: 50n },
   });
   assert.deepEqual(b.buy, ["PriceFeed", "SpotFeed"]);
+});
+
+test("both stale after a fast move: held, and says the fresh spot would land at the market (not the stale value)", () => {
+  const a = adviseUpdate({
+    ...base,
+    price: { value: 3597801470372494n, updated: 1000n, stale: true, maxAge: 3600n },
+    spot: { value: 3537587969348307n, updated: 1000n, stale: true, maxAge: 3600n },
+    usd: feed(915n * WAD / 100n, true),
+    skewBps: 500n,
+    market: { imdEth: 3958000000000000n, imdUsd: 1007n * WAD / 100n },
+    projected: { median: 3657000000000000n, samples: Array(13).fill(3657000000000000n), spacingBlocks: 50n },
+  });
+  assert.deepEqual(a.buy, ["PriceFeed", "SpotFeed"]);
+  assert.match(a.wait ?? "", /a fresh spot check would land at the market \(\$10\.\d\d\)/);
 });
 
 test("network health is a separate daily update, never folded into the price", () => {

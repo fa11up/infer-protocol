@@ -10,12 +10,14 @@ import { LiveLanding } from "./landing-live";
  * this one table, so they cannot disagree with each other. Governance changes wait 48 hours.
  */
 export const LAUNCH = {
-  minRatio: "Pending",
-  bonus: "Pending",
-  redemptionFee: "Pending",
-  grace: "Pending",
-  priceMaxAge: "Pending",
-  stabilityFee: "Pending",
+  // Read from the mainnet vault (0x0b69…EF82) on 2026-10-11: mat, CHOP_PERCENT, the redemption fee's floor and cap,
+  // lull, PriceFeed.maxAge, duty.
+  minRatio: "170%",
+  bonus: "20%",
+  redemptionFee: "0.5–5%",
+  grace: "6 h",
+  priceMaxAge: "1 h",
+  stabilityFee: "4.44%",
 };
 
 /** The public homepage's panel: launch parameters, not a live read of any chain. */

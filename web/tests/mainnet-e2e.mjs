@@ -12,7 +12,7 @@ import { resolve, extname } from "node:path";
 import { fileURLToPath } from "node:url";
 import assert from "node:assert/strict";
 import { chromium } from "playwright";
-import { createPublicClient, http, parseAbi, getAddress } from "viem";
+import { createPublicClient, http, parseAbi, getAddress, keccak256, encodeAbiParameters } from "viem";
 
 const RPC = process.env.E2E_RPC ?? "http://127.0.0.1:8546";
 if (!/^http:\/\/(127\.0\.0\.1|localhost):\d+$/.test(RPC))
@@ -128,6 +128,35 @@ for (const who of [BORROWER, KEEPER])
   assert.ok((await bal(IMD, who)) >= 3000n * E18, "funded");
 
 // SwarmFeed storage: slot 2 = value, slot 3 = hasValue << 64 | updatedAt (as rehearsal2.sh seeds it).
+/**
+ * A calm market on the fork: pin IMD's pool to the median the price feed's question would answer now (13
+ * samples over two hours), so the market and a fresh primary agree. The fork carries mainnet's real history,
+ * and after a fast move the terminal rightly holds the purchase (a fresh primary would still breach skew);
+ * this test is about buying one. Only sqrtPriceX96 (the low 160 bits of slot0) is rewritten; nothing here swaps.
+ */
+async function calmMarket() {
+  const POOL_ID = "0xb07d640fd9e2eb9dc81b953c8e4fd006bdfeaf276010fb5418eb763ca15abfb3";
+  const slot = keccak256(encodeAbiParameters([{ type: "bytes32" }, { type: "uint256" }], [POOL_ID, 6n]));
+  const extsload = parseAbi(["function extsload(bytes32) view returns (bytes32)"]);
+  const head = await chain.getBlockNumber();
+  const price = async (blockNumber) => {
+    const w = BigInt(await chain.readContract({ address: POOL_MANAGER, abi: extsload, functionName: "extsload", args: [slot], blockNumber }));
+    const sq = w & ((1n << 160n) - 1n);
+    return ((10n ** 18n) << 192n) / (sq * sq);
+  };
+  const samples = await Promise.all(Array.from({ length: 13 }, (_, i) => price(head - 600n + (BigInt(i) * 600n) / 12n)));
+  const median = samples.sort((x, y) => (x < y ? -1 : x > y ? 1 : 0))[6];
+  // sqrtPriceX96 for `median` wei ETH per 1e18 IMD: sqrt(1e18 · 2^192 / median).
+  const target = ((10n ** 18n) << 192n) / median;
+  let r = 1n << 96n;
+  for (let i = 0; i < 200; i++) r = (r + target / r) >> 1n;
+  const word = BigInt(await chain.readContract({ address: POOL_MANAGER, abi: extsload, functionName: "extsload", args: [slot] }));
+  const next = (word & ~((1n << 160n) - 1n)) | r;
+  await rpc("anvil_setStorageAt", [POOL_MANAGER, slot, "0x" + next.toString(16).padStart(64, "0")]);
+  await rpc("evm_mine");
+  return median;
+}
+
 async function setFeed(feed, value) {
   const block = await chain.getBlock();
   const hex = (n) => "0x" + n.toString(16).padStart(64, "0");
@@ -416,12 +445,11 @@ try {
   p = after;
 
   // ---------- buy an update through the OracleAsker (pays the live Intake v2 on the fork) ----------
-  // The button appears only when the market has moved away from the vault's price: walk both feeds 15%
-  // under the pool, as a fall in the feed's last answer would leave them.
-  for (const f of [byName.PriceFeed, byName.SpotFeed]) {
-    const [v] = await read(f, feedAbi, "latestValue");
-    await setFeed(f, (v * 85n) / 100n);
-  }
+  // The button appears only when the market has moved away from the vault's price AND a fresh primary (the
+  // window's median) would agree with a fresh spot. Calm the market at the median, then walk both feeds 15% under
+  // it, as a fall in the feed's last answer would leave them.
+  const median = await calmMarket();
+  for (const f of [byName.PriceFeed, byName.SpotFeed]) await setFeed(f, (median * 85n) / 100n);
   await refresh(a);
   await tab(a, "Oracle");
   const panel = a.locator(".pane-oracle .price-status");
