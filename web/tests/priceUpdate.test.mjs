@@ -175,6 +175,22 @@ test("fresh and off the market but the median has not moved: nothing to buy", ()
   assert.deepEqual(a.buy, []);
 });
 
+test("impact: the viewer's own sentence, only when an update is worth buying, at the median it would land at", () => {
+  const market = { imdEth: 44n * 10n ** 14n, imdUsd: 11n * WAD }; // +10%
+  const position = { cr: 200n, debt: 1000n * WAD, maxDebt: 1176n * WAD };
+  const a = adviseUpdate({ ...base, market, position });
+  assert.match(a.impact ?? "", /^Your collateral ratio would go from 200% to 220%, and you could borrow up to 293\.6 imdUSD \(176 today\)\.$/);
+  // The window's median is only 5% up: the sentence uses it, not the market.
+  const b = adviseUpdate({ ...base, spot: feed(42n * 10n ** 14n), market, position, skewBps: 500n, projected: { median: 42n * 10n ** 14n, samples: [], spacingBlocks: 50n } });
+  assert.match(b.impact ?? "", /from 200% to 210%/);
+  // No position: the equivalent for everyone.
+  const c = adviseUpdate({ ...base, market });
+  assert.equal(c.impact, "After an update, collateral counts for 10% more.");
+  // In line with the market: nothing worth buying, no sentence.
+  const d = adviseUpdate({ ...base, market: { imdEth: 4n * 10n ** 15n, imdUsd: 10n * WAD }, position });
+  assert.equal(d.impact, undefined);
+});
+
 test("network health is a separate daily update, never folded into the price", () => {
   const a = adviseUpdate({ ...base, nhi: feed(9n * 10n ** 17n, true), market: { imdEth: 4n * 10n ** 15n, imdUsd: 10n * WAD } });
   assert.deepEqual(a.buy, []);

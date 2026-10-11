@@ -82,14 +82,13 @@ export function PriceStatus({
       : advice.ratio >= 10n ** 18n
         ? `${pct(((advice.ratio - 10n ** 18n) * 10000n) / 10n ** 18n)} vs primary`
         : `${pct(((10n ** 18n - advice.ratio) * 10000n) / 10n ** 18n)} vs primary`;
-  // One sentence on the page, chosen for what matters most to this viewer: a warning first, then "actions
-  // are paused", then what it does to their own position.
+  // One sentence, and only when it matters: why the button waits, a warning, or what an update worth buying does
+  // for this viewer. A paused vault with nothing to gain from an update says why it is paused. Otherwise none.
   const headline =
     advice.wait ||
     (advice.warning && advice.lines.find((l) => /minimum/.test(l))) ||
-    advice.lines.find((l) => /paused/.test(l)) ||
-    advice.lines.find((l) => /^Your collateral ratio/.test(l)) ||
-    advice.lines[0];
+    advice.impact ||
+    advice.lines.find((l) => /paused/.test(l));
   const freshness = price?.updated ? (
     open ? (
       <span className="healthy-text">fresh{left !== undefined && left > 0n ? ` ${remaining(left)}` : ""}</span>

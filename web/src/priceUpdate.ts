@@ -53,6 +53,9 @@ export type UpdateAdvice = {
   wait?: string;
   /** The same, in a few words for under the disabled button. */
   waitShort?: string;
+  /** What buying the update does for this viewer, in one sentence: their position's ratio and borrowing room,
+   * or (with no position) what collateral counts for. Set only when an update is worth buying now. */
+  impact?: string;
 };
 
 const DEAD_BAND_BPS = 50n; // closer than 0.5% is "in line with the market"
@@ -91,6 +94,7 @@ export function adviseUpdate(i: UpdateInput): UpdateAdvice {
   const lines: string[] = [];
   let buy: UpdateAdvice["buy"] = [];
   let warning = false;
+  let yours: string | undefined;
   const stale = (f?: FeedReading) => !f || f.stale || !f.updated;
   const priceStale = stale(i.price);
   const spotStale = stale(i.spot);
@@ -135,16 +139,20 @@ export function adviseUpdate(i: UpdateInput): UpdateAdvice {
         `IMD trades ${pct(diffBps)} below the vault's price. An update lowers what collateral counts for by ${pct(diffBps)}.`,
       );
     }
+    // What an update would actually set the price to: the window's median when it has been read (after a fast
+    // move it lands short of the market), else the market's level.
+    const eff = i.projected?.median !== undefined ? (i.projected.median * WAD) / i.price.value : ratio;
     if (moved && i.position && i.position.debt > 0n) {
-      const after = (i.position.cr * ratio) / WAD;
+      const after = (i.position.cr * eff) / WAD;
       let sentence = `Your collateral ratio would go from ${i.position.cr}% to ${after}%`;
-      if (ratio > WAD) {
-        const room = (i.position.maxDebt * ratio) / WAD - i.position.debt;
+      if (eff > WAD) {
+        const room = (i.position.maxDebt * eff) / WAD - i.position.debt;
         const now = i.position.maxDebt > i.position.debt ? i.position.maxDebt - i.position.debt : 0n;
-        sentence += `, and you could borrow up to ${fmtWad(room)} ${i.unit} (${fmtWad(now)} today).`;
+        sentence += `, and you could borrow up to ${fmtWad(room > 0n ? room : 0n)} ${i.unit} (${fmtWad(now)} today).`;
       } else sentence += ".";
       lines.push(sentence);
-      if (i.mat !== undefined && after < i.mat && ratio < WAD) {
+      yours = sentence;
+      if (i.mat !== undefined && after < i.mat && eff < WAD) {
         warning = true;
         lines.push(
           `That is below the ${i.mat}% minimum: once the price updates, your position can be marked for liquidation. Add collateral or repay first.`,
@@ -254,7 +262,15 @@ export function adviseUpdate(i: UpdateInput): UpdateAdvice {
       lines.push(`Only the spot check needs updating: ${cost(1n)} from your wallet, arriving within minutes.`);
     if (health) lines.push(`Updating network health costs ${cost(1n)}.`);
   }
-  return { buy, health, ratio, lines, warning, wait, waitShort };
+  // With no position, the equivalent: what an update does to every position's collateral.
+  if (!yours && ratio !== undefined && i.price?.value) {
+    const eff = i.projected?.median !== undefined ? (i.projected.median * WAD) / i.price.value : ratio;
+    const bps = eff >= WAD ? ((eff - WAD) * 10000n) / WAD : ((WAD - eff) * 10000n) / WAD;
+    if (bps >= DEAD_BAND_BPS)
+      yours = `After an update, collateral counts for ${pct(bps)} ${eff >= WAD ? "more" : "less"}.`;
+  }
+  const impact = buy.includes("PriceFeed") && !wait ? yours : undefined;
+  return { buy, health, ratio, lines, warning, wait, waitShort, impact };
 }
 
 function medianOf(values: bigint[]) {
