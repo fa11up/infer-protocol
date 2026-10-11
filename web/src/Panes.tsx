@@ -50,7 +50,7 @@ import {
 } from "./math";
 import { useEns, ensName, displayName } from "./ens";
 import { PriceStatus } from "./PriceStatus";
-import { describePending, utc, countdown } from "./governance";
+import { describePending, utc, countdown, CHANGE_KINDS } from "./governance";
 const amt = (name: string) => ({ name, kind: "amount" as const });
 const addr = (name: string) => ({ name, kind: "address" as const });
 const num = (name: string) => ({ name, kind: "uint" as const });
@@ -1189,16 +1189,8 @@ export function Governance({
     disabled: !isGov,
     reason: "Only the governor can propose or cancel changes.",
   };
-  const kind = pending
-    ? ([
-        "None",
-        "Economics",
-        "Work ratio",
-        "Reserve asset",
-        "Pay per task",
-        "Redemption spread",
-      ][Number(pending[0])] ?? String(pending[0]))
-    : "—";
+  // The contract's Change enum has no "None" (nothing pending is eta 0), so the kind indexes the decoder's table.
+  const kind = pending ? (CHANGE_KINDS[Number(pending[0])] ?? String(pending[0])) : "—";
   // Nothing pending: the block as it always was. Something pending: what it changes, current → proposed,
   // and exactly when anyone may apply it.
   const proposal = eta
