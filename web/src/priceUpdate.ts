@@ -30,6 +30,9 @@ export type UpdateInput = {
   unit: string;
   /** The vault's allowed primary/spot divergence, in bps. */
   skewBps?: bigint;
+  /** What a fresh primary would say now: the median of the request's own pool samples (market.ts). Absent:
+   * the market's level stands in for it, which overstates how far one update moves after a fast move. */
+  projected?: { median: bigint; samples: bigint[]; spacingBlocks: bigint };
 };
 
 export type UpdateAdvice = {
@@ -45,6 +48,9 @@ export type UpdateAdvice = {
   lines: string[];
   /** True when an update would put the viewer's position below the minimum ratio. */
   warning: boolean;
+  /** Set when buying now would spend IMD without reopening the vault (or would close it): why, and how long to
+   * wait. The page shows the button disabled with this as the reason. */
+  wait?: string;
 };
 
 const DEAD_BAND_BPS = 50n; // closer than 0.5% is "in line with the market"
@@ -153,7 +159,14 @@ export function adviseUpdate(i: UpdateInput): UpdateAdvice {
           `The move is larger than one update can carry (each may move the price at most ${pct(first ?? i.capBps)}${first !== i.capBps ? `, then ${pct(i.capBps)}` : ""}), so it takes ${steps} updates.`,
         );
     }
-    if (moved || priceStale) buy = ["PriceFeed"];
+    if (priceStale) buy = ["PriceFeed"];
+    else if (moved) {
+      // Fresh and off the market: worth buying only if the window's median has moved off today's value too.
+      const med = i.projected?.median;
+      const medBps = med !== undefined ? ((med > i.price.value ? med - i.price.value : i.price.value - med) * 10000n) / i.price.value : undefined;
+      if (medBps === undefined || medBps >= DEAD_BAND_BPS) buy = ["PriceFeed"];
+      else lines.push("An update would not move the vault's price yet: it is an average of the last two hours, and that average is still within 0.5% of today's value.");
+    }
   } else {
     lines.push("The live market price could not be read, so the gap to the market is unknown.");
     if (priceStale) buy = ["PriceFeed"];
@@ -162,7 +175,7 @@ export function adviseUpdate(i: UpdateInput): UpdateAdvice {
   // from the primary this purchase leaves (the market's level when the primary is bought, else today's), or
   // a primary bought now would outlive it by more than half a lifetime. Unknown market: buy it with the price.
   const skewBps = i.skewBps ?? 500n;
-  const nextPrimary = buy.length ? i.market?.imdEth : i.price?.value;
+  const nextPrimary = buy.length ? (i.projected?.median ?? i.market?.imdEth) : i.price?.value;
   const spotGap =
     nextPrimary && i.spot?.value
       ? ((nextPrimary > i.spot.value ? nextPrimary - i.spot.value : i.spot.value - nextPrimary) * 10000n) / nextPrimary
@@ -175,7 +188,34 @@ export function adviseUpdate(i: UpdateInput): UpdateAdvice {
     (buy.length > 0 && spotLeft * 2n < (i.price?.maxAge ?? 3600n));
   if (needSpot && (buy.length || breached || spotStale)) buy = [...buy, "SpotFeed"];
 
-  if (i.cost !== undefined) {
+  // Would the purchase reopen the vault? The primary lands at the window's median, the spot at the market (or
+  // stays). If they would still be more than skew apart (with a tenth of it to spare), buying now spends IMD and
+  // changes nothing; wait for the average to catch up. The estimate assumes IMD holds at today's price.
+  let wait: string | undefined;
+  const med = i.projected?.median;
+  if (med !== undefined && buy.includes("PriceFeed")) {
+    const spotAfter = buy.includes("SpotFeed") ? i.market?.imdEth : i.spot?.value;
+    const gapTo = (m: bigint, x: bigint) => ((m > x ? m - x : x - m) * 10000n) / m;
+    const allowed = (skewBps * 9n) / 10n;
+    if (spotAfter !== undefined && gapTo(med, spotAfter) > allowed) {
+      let eta: bigint | undefined;
+      const live = i.market?.imdEth;
+      const s = i.projected!.samples;
+      if (live !== undefined)
+        for (let k = 1; k < s.length; k++) {
+          const m = medianOf([...s.slice(k), ...Array(k).fill(live)]);
+          if (gapTo(m, live) <= allowed) {
+            eta = (BigInt(k) * i.projected!.spacingBlocks * 12n) / 60n;
+            break;
+          }
+        }
+      const at = i.usd?.value && i.price?.value ? ` (about ${dollars((i.usd.value * med) / i.price.value)})` : "";
+      wait = `Not yet: an update now would not reopen anything. The vault's price is the average of IMD's pool over the last two hours, so after a fast move a fresh one lands behind the market${at}, still ${pct(gapTo(med, spotAfter))} from the spot check (${pct(skewBps)} allowed). ${eta !== undefined ? `If IMD holds near today's price, the average catches up in about ${minutes(eta * 60n)}.` : "It catches up once IMD steadies."} Buying now spends IMD for nothing.`;
+      lines.unshift(wait);
+    }
+  }
+
+  if (i.cost !== undefined && !wait) {
     const cost = (n: bigint) =>
       `${fmtWad(i.cost! * n)} IMD${i.market ? ` (about ${dollars((i.cost! * n * i.market.imdUsd) / WAD)})` : ""}`;
     if (buy.length === 2)
@@ -190,7 +230,13 @@ export function adviseUpdate(i: UpdateInput): UpdateAdvice {
       lines.push(`Only the spot check needs updating: ${cost(1n)} from your wallet, arriving within minutes.`);
     if (health) lines.push(`Updating network health costs ${cost(1n)}.`);
   }
-  return { buy, health, ratio, lines, warning };
+  return { buy, health, ratio, lines, warning, wait };
+}
+
+function medianOf(values: bigint[]) {
+  const s = [...values].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  const mid = Math.floor(s.length / 2);
+  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2n;
 }
 
 /** A wad to at most four decimals, trailing zeros trimmed. */

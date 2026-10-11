@@ -91,6 +91,7 @@ export function BuyUpdate({
   label = "Buy update",
   idPrefix = "buy-update",
   info = true,
+  hold,
 }: {
   r: Runtime;
   s?: Snapshot;
@@ -104,6 +105,8 @@ export function BuyUpdate({
   idPrefix?: string;
   /** Show the info icon (one per group of buttons is enough when they share a reason). */
   info?: boolean;
+  /** Why buying now would be wasted (priceUpdate's `wait`): the button shows, disabled, with this reason. */
+  hold?: string;
 }) {
   const cfg = r.config.oracleAsker;
   const id = `${idPrefix}-${feed}`;
@@ -138,7 +141,9 @@ export function BuyUpdate({
   const total = a.price * BigInt(toBuy.length || 1);
   const short = a.allowance === undefined || a.allowance < total;
   const what = toBuy.length > 1 ? `${toBuy.length} updates` : "an update";
-  const blocked = all.some((n) => !cfg.requests?.[n])
+  const blocked = hold
+    ? hold
+    : all.some((n) => !cfg.requests?.[n])
     ? "This deployment lists no request for this feed."
     : all.some((n) => !a.ready[n])
       ? "The configured request does not match the question this feed pins. Nothing will be sent."

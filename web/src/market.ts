@@ -61,3 +61,74 @@ export function useMarket(): Market | undefined {
   }, []);
   return m;
 }
+
+// WHAT A FRESH PRIMARY WOULD SAY. The price feed's question is the median of N evenly spaced pool samples over
+// a window of hours ending at the request (the deployment's request body: window.hours, "samples N"). After a
+// fast move that median lags the live pool, and a purchase can land still too far from the spot for the vault
+// to act. Reading the same samples tells a buyer before paying. Past blocks need archive state: drpc serves
+// it, publicnode does not.
+const archive = createPublicClient({
+  chain: mainnet,
+  transport: http("https://eth.drpc.org", { timeout: 8000, retryCount: 1 }),
+  batch: { multicall: false },
+});
+const BLOCKS_PER_HOUR = 300n;
+
+export type Projection = { median: bigint; samples: bigint[]; spacingBlocks: bigint; readAt: number };
+
+/** { hours, samples } from a request body (hex of its JSON bytes), or undefined. */
+export function windowOf(body: `0x${string}` | undefined) {
+  if (!body) return undefined;
+  try {
+    const bytes = new Uint8Array((body.slice(2).match(/../g) ?? []).map((h) => parseInt(h, 16)));
+    const j = JSON.parse(new TextDecoder().decode(bytes));
+    const m = /samples (\d+)/.exec(j.definitions?.recipe ?? "");
+    const hours = Number(j.window?.hours);
+    return hours && m && Number(m[1]) > 1 ? { hours: BigInt(hours), samples: Number(m[1]) } : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+export function median(values: bigint[]) {
+  const s = [...values].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+  const mid = Math.floor(s.length / 2);
+  return s.length % 2 ? s[mid] : (s[mid - 1] + s[mid]) / 2n;
+}
+
+export async function readProjection(win: { hours: bigint; samples: number }): Promise<Projection> {
+  const head = await archive.getBlockNumber();
+  const span = win.hours * BLOCKS_PER_HOUR;
+  const n = BigInt(win.samples - 1);
+  const samples = await Promise.all(
+    Array.from({ length: win.samples }, async (_, i) => {
+      const blockNumber = head - span + (BigInt(i) * span) / n;
+      const word = await archive.readContract({ address: POOL_MANAGER, abi, functionName: "extsload", args: [SLOT0], blockNumber });
+      const sqrt = BigInt(word) & ((1n << 160n) - 1n);
+      if (sqrt === 0n) throw Error("IMD's pool is not initialised");
+      return (10n ** 18n << 192n) / (sqrt * sqrt);
+    }),
+  );
+  return { median: median(samples), samples, spacingBlocks: span / n, readAt: Date.now() };
+}
+
+/** The projected primary, refreshed every two minutes; undefined until read, unreadable, or no window. */
+export function useProjection(body: `0x${string}` | undefined): Projection | undefined {
+  const [p, setP] = useState<Projection>();
+  useEffect(() => {
+    const win = windowOf(body);
+    if (!win) return;
+    let live = true;
+    const tick = () =>
+      readProjection(win)
+        .then((x) => live && setP(x))
+        .catch(() => live && setP((old) => (old && Date.now() - old.readAt < 300_000 ? old : undefined)));
+    tick();
+    const id = setInterval(tick, 120_000);
+    return () => {
+      live = false;
+      clearInterval(id);
+    };
+  }, [body]);
+  return p;
+}

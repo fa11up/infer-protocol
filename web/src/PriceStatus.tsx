@@ -4,7 +4,7 @@ import { Info, type Actions } from "./actions";
 import { BuyUpdate } from "./BuyUpdate";
 import { age, maxDebt } from "./math";
 import { unit } from "./unit";
-import { useMarket } from "./market";
+import { useMarket, useProjection } from "./market";
 import { adviseUpdate, dollars, pct } from "./priceUpdate";
 
 /** Time left on a fresh price: "42m more", "23h 57m more". */
@@ -37,6 +37,7 @@ export function PriceStatus({
   slim?: boolean;
 }) {
   const market = useMarket();
+  const projected = useProjection(r.config.oracleAsker?.requests?.PriceFeed);
   const f = s?.feeds ?? {};
   const v = s?.v ?? {};
   const price = f.PriceFeed;
@@ -63,6 +64,7 @@ export function PriceStatus({
     cost: asker?.price,
     unit: unit(),
     skewBps: v.skew,
+    projected,
   });
   const open = feedsReady(s);
   // The spot check: the attested spot against the primary (both wei ETH per IMD), in bps, and its USD price.
@@ -83,6 +85,7 @@ export function PriceStatus({
   // One sentence on the page, chosen for what matters most to this viewer: a warning first, then "actions
   // are paused", then what it does to their own position.
   const headline =
+    advice.wait ||
     (advice.warning && advice.lines.find((l) => /minimum/.test(l))) ||
     advice.lines.find((l) => /paused/.test(l)) ||
     advice.lines.find((l) => /^Your collateral ratio/.test(l)) ||
@@ -166,6 +169,7 @@ export function PriceStatus({
                 label={advice.buy.includes("PriceFeed") ? "Update price" : "Update spot check"}
                 idPrefix={`price-status-${where}`}
                 info={!advice.health}
+                hold={advice.wait}
               />
             )}
             {advice.health && (

@@ -115,6 +115,49 @@ test("the spot joins the primary when it is far from the market or would expire 
   assert.deepEqual(young.buy, ["PriceFeed"]);
 });
 
+test("after a fast move: holds the purchase while the two-hour median would still breach, and says how long", () => {
+  // Live at 07:03Z on launch day: primary 3.176e15, spot 3.382e15, market 3.442e15, the window's 13 samples.
+  const samples = [3131930148117727n, 3124863421768617n, 3144194454130257n, 3146616819404886n, 3146819993308866n, 3202801260795796n, 3162021725278561n, 3214285841209328n, 3230466764168853n, 3320138776540740n, 3359470635798236n, 3360906314931220n, 3440845137599674n];
+  const a = adviseUpdate({
+    ...base,
+    price: feed(3176230146409988n),
+    spot: feed(3381643414674661n),
+    usd: feed(8n * WAD),
+    skewBps: 500n,
+    market: { imdEth: 3441947689663575n, imdUsd: 86n * WAD / 10n },
+    projected: { median: 3202801260795796n, samples, spacingBlocks: 50n },
+  });
+  assert.ok(a.wait, "a purchase now is held");
+  assert.match(a.wait, /Not yet/);
+  assert.match(a.wait, /about 30 minutes/);
+  assert.equal(a.lines[0], a.wait);
+  assert.ok(!a.lines.some((l) => /from your wallet/.test(l)), "no price quoted for a held purchase");
+});
+
+test("once the median has caught up, the same rally buys the primary alone", () => {
+  const caught = 3330000000000000n;
+  const a = adviseUpdate({
+    ...base,
+    price: feed(3176230146409988n),
+    spot: feed(3381643414674661n),
+    skewBps: 500n,
+    market: { imdEth: 3441947689663575n, imdUsd: 86n * WAD / 10n },
+    projected: { median: caught, samples: Array(13).fill(caught), spacingBlocks: 50n },
+  });
+  assert.equal(a.wait, undefined);
+  assert.deepEqual(a.buy, ["PriceFeed"]);
+});
+
+test("fresh and off the market but the median has not moved: nothing to buy", () => {
+  const a = adviseUpdate({
+    ...base,
+    skewBps: 500n,
+    market: { imdEth: 41n * 10n ** 14n, imdUsd: 10n * WAD },
+    projected: { median: 4001n * 10n ** 12n, samples: [], spacingBlocks: 50n },
+  });
+  assert.deepEqual(a.buy, []);
+});
+
 test("network health is a separate daily update, never folded into the price", () => {
   const a = adviseUpdate({ ...base, nhi: feed(9n * 10n ** 17n, true), market: { imdEth: 4n * 10n ** 15n, imdUsd: 10n * WAD } });
   assert.deepEqual(a.buy, []);
