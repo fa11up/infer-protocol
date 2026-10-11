@@ -159,6 +159,15 @@ export function requiredCollateral(debt: bigint, mat: bigint, price: bigint) {
   if (price <= 0n) throw Error("A valid USD price is required.");
   return ceilDiv(debt * mat * CR_SCALE, price);
 }
+/** The terminal's "Can still borrow" stops this many points above `mat`: borrowing to the limit itself lands
+ * exactly on it, and the stability fee alone then tips the position under within a block or two. */
+export const BORROW_BUFFER = 10n;
+/** A borrow leaving the position under `mat` + this many points is warned about before it is signed. */
+export const BORROW_WARN = 5n;
+/** Whole-percent collateral ratio at `price` (rounded down, as the vault does); undefined with no debt. */
+export function ratioPercent(collateral: bigint, debt: bigint, price: bigint) {
+  return debt > 0n ? (collateral * price) / (debt * CR_SCALE) : undefined;
+}
 /** Most imdUSD a position can owe in total at `mat`, given its collateral. */
 export function maxDebt(collateral: bigint, mat: bigint, price: bigint) {
   if (mat <= 0n) throw Error("A valid mat is required.");

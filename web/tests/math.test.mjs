@@ -11,6 +11,8 @@ import {
   cushion,
   requiredCollateral,
   maxDebt,
+  ratioPercent,
+  BORROW_BUFFER,
   CR_SCALE,
   nextStep,
 } from "../src/math.ts";
@@ -118,4 +120,17 @@ test("the keeper's Act button names the next step for the position's state", () 
   assert.equal(at(140n, [1_000n, 6_000n, true]), "Liquidate keeper.eth →");
   assert.equal(at(140n, [0n, 1_000n, true]), "Mark keeper.eth again →");
   assert.equal(at(160n, [1_000n, 6_000n, true]), "View actions →");
+});
+
+test("ratioPercent matches the vault, and the offered borrow stays BORROW_BUFFER above mat", () => {
+  // Live mainnet, block 26166985: 0x72cF…EF78, which the vault's collateralRatio() read as 223.
+  const collateral = 16727031346025263568135964n;
+  const debt = 464803677577311193648n;
+  const price = 61972783490591n; // collateralPriceFeed: USD per 1e18 raw sIMD
+  assert.equal(ratioPercent(collateral, debt, price), 223n);
+  assert.equal(ratioPercent(collateral, 0n, price), undefined);
+  const mat = 170n;
+  const offered = maxDebt(collateral, mat + BORROW_BUFFER, price);
+  assert.ok(ratioPercent(collateral, offered, price) >= mat + BORROW_BUFFER);
+  assert.ok(offered < maxDebt(collateral, mat, price));
 });

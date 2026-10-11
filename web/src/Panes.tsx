@@ -44,6 +44,9 @@ import {
   maxDebt,
   requiredCollateral,
   nextStep,
+  ratioPercent,
+  BORROW_BUFFER,
+  BORROW_WARN,
 } from "./math";
 import { useEns, ensName, displayName } from "./ens";
 import { PriceStatus } from "./PriceStatus";
@@ -185,8 +188,9 @@ export function Position({
   const debt = v.debtOf as bigint | undefined;
   const sized = held !== undefined && debt !== undefined && !!v.mat && !!price;
   const liq = sized ? perImd(liquidationPrice(held, debt, v.mat)) : undefined;
-  const most = sized ? maxDebt(held, v.mat, price) : undefined;
-  const keep = sized ? requiredCollateral(debt, v.mat, price) : undefined;
+  // What the terminal offers stops BORROW_BUFFER points above mat (math.ts); the vault itself allows mat.
+  const most = sized ? maxDebt(held, v.mat + BORROW_BUFFER, price) : undefined;
+  const keep = sized ? requiredCollateral(debt, v.mat + BORROW_BUFFER, price) : undefined;
   const worth = g.share ? asImd(held) : undefined;
   const connected = !!actions.account;
   const stable = { connected, symbol: unit(), decimals: Number(v.compDecimals ?? 18) };
@@ -242,6 +246,12 @@ export function Position({
             ? "—"
             : `${fmtGem(held > keep ? held - keep : 0n)} ${gemUnit()}`}
         </Row>
+        {most !== undefined && (
+          <p className="micro">
+            Both stop at {String(v.mat + BORROW_BUFFER)}%. The vault allows down to {String(v.mat)}%, but a
+            loan there is liquidatable within a block or two: the stability fee alone tips it under.
+          </p>
+        )}
         <Row label="Wallet">
           {g.share && `${fmt(v.underlyingBalance)} ${g.underlyingSymbol} / `}
           {fmtGem(v.gemBalance)} {gemUnit()} / {fmt(v.compBalance)} {unit()}
@@ -353,6 +363,15 @@ export function Position({
             fn="draw"
             fields={[{ ...amt(`Borrow ${unit()}`), balance: { ...stable, amount: room, label: "Available" } }]}
             summary={`Add ${unit()} debt to your position.`}
+            warn={([a]) => {
+              if (!sized || typeof a !== "bigint") return;
+              const after = ratioPercent(held, debt + a, price);
+              return after !== undefined && after < v.mat + BORROW_WARN
+                ? `This leaves your position at ${after}%, ${after < v.mat ? "under" : after === v.mat ? "exactly at" : "just above"} the ${v.mat}% minimum. ` +
+                    `The stability fee adds debt every block, so ${after < v.mat ? "the vault will refuse it" : "it can be marked for liquidation within minutes"}; ` +
+                    `a liquidation pays the liquidator a bonus out of your collateral. Borrow less or deposit more to stay above ${String(v.mat + BORROW_BUFFER)}%.`
+                : undefined;
+            }}
             disabled={!fresh || !!cap?.reached}
             reason={
               cap?.reached
@@ -387,6 +406,15 @@ export function Position({
               },
             ]}
             summary={`Remove ${gemUnit()} collateral if the remaining position meets minCR.`}
+            warn={([a]) => {
+              if (!sized || !debt || typeof a !== "bigint") return;
+              const after = ratioPercent(held > a ? held - a : 0n, debt, price);
+              return after !== undefined && after < v.mat + BORROW_WARN
+                ? `This leaves your position at ${after}%, ${after < v.mat ? "under" : after === v.mat ? "exactly at" : "just above"} the ${v.mat}% minimum. ` +
+                    `The stability fee adds debt every block, so ${after < v.mat ? "the vault will refuse it" : "it can be marked for liquidation within minutes"}; ` +
+                    `a liquidation pays the liquidator a bonus out of your collateral. Withdraw less or repay first to stay above ${String(v.mat + BORROW_BUFFER)}%.`
+                : undefined;
+            }}
             disabled={!fresh && v.debtOf !== 0n}
             reason="An indebted position needs fresh feeds to withdraw."
           />

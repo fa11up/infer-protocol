@@ -666,6 +666,11 @@ function Terminal({ r }: { r: Runtime }) {
         {review && (
           <>
             <p>{review.request.summary}</p>
+            {review.request.warning && (
+              <p className="danger-text review-warning" role="alert">
+                {review.request.warning}
+              </p>
+            )}
             <AddressLink
               value={review.request.target.address}
               explorer={r.config.network.explorer}

@@ -19,6 +19,8 @@ export type Request = {
   fn: string;
   args: readonly unknown[];
   summary: string;
+  /** Shown above the confirm button in the review: a risk the viewer should see before signing. */
+  warning?: string;
   /** Figures only this call site knows, e.g. an inspected borrower's ratio. */
   explain?: (f: Failure) => string | undefined;
 };
@@ -187,6 +189,7 @@ export function ActionForm({
   reason = "",
   mapArgs,
   explain,
+  warn,
 }: {
   id: string;
   label: string;
@@ -199,6 +202,8 @@ export function ActionForm({
   reason?: string;
   mapArgs?: (v: any[]) => readonly unknown[];
   explain?: Request["explain"];
+  /** From the parsed inputs: a warning for the review, or undefined. */
+  warn?: (args: unknown[]) => string | undefined;
 }) {
   const [values, setValues] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
@@ -240,6 +245,7 @@ export function ActionForm({
             fn,
             args: mapArgs ? mapArgs(args) : args,
             explain,
+            warning: warn?.(args),
             summary: `${summary}${args.length ? " Inputs: " + fields.map((f, i) => `${f.name}: ${values[f.name] ?? f.default ?? ""}`).join("; ") : ""}`,
           });
         } catch (e) {
