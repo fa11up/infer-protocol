@@ -2796,6 +2796,12 @@ html.app-page body {
   gap: 4px;
   justify-items: start;
 }
+/* A note under a price button wraps at a button's width: a long one used to set the column's width and push
+   the label off the pane. */
+.price-status-buttons .action-note {
+  max-width: 28ch;
+  margin-block: 2px 0;
+}
 .price-status .price-status-actions .buy-update button {
   min-height: 0;
   padding: 2px 8px;

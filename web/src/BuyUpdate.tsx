@@ -92,6 +92,7 @@ export function BuyUpdate({
   idPrefix = "buy-update",
   info = true,
   hold,
+  holdNote,
 }: {
   r: Runtime;
   s?: Snapshot;
@@ -107,6 +108,8 @@ export function BuyUpdate({
   info?: boolean;
   /** Why buying now would be wasted (priceUpdate's `wait`): the button shows, disabled, with this reason. */
   hold?: string;
+  /** A few words under the held button; the full reason is the panel's sentence and the info icon. */
+  holdNote?: string;
 }) {
   const cfg = r.config.oracleAsker;
   const id = `${idPrefix}-${feed}`;
@@ -161,7 +164,7 @@ export function BuyUpdate({
         label={short && !blocked ? `Approve ${fmt(total)} IMD · ${label}` : label}
         actions={actions}
         disabled={!!blocked}
-        reason={blocked}
+        reason={hold ? (holdNote ?? "") : blocked}
         request={() => {
           if (blocked) throw Error(blocked);
           if (short)
@@ -188,7 +191,7 @@ export function BuyUpdate({
       />
       {info && (<Info
         label={label}
-        text={`Pays ${fmt(total)} IMD from your wallet${toBuy.length > 1 ? `, in one transaction, for ${toBuy.length} answers` : " for a fresh answer"} from swarm panels, usually within minutes. No protocol funds are spent.`}
+        text={hold ? hold : `Pays ${fmt(total)} IMD from your wallet${toBuy.length > 1 ? `, in one transaction, for ${toBuy.length} answers` : " for a fresh answer"} from swarm panels, usually within minutes. No protocol funds are spent.`}
       />)}
     </div>
   );

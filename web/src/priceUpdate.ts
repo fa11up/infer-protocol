@@ -51,6 +51,8 @@ export type UpdateAdvice = {
   /** Set when buying now would spend IMD without reopening the vault (or would close it): why, and how long to
    * wait. The page shows the button disabled with this as the reason. */
   wait?: string;
+  /** The same, in a few words for under the disabled button. */
+  waitShort?: string;
 };
 
 const DEAD_BAND_BPS = 50n; // closer than 0.5% is "in line with the market"
@@ -192,6 +194,7 @@ export function adviseUpdate(i: UpdateInput): UpdateAdvice {
   // stays). If they would still be more than skew apart (with a tenth of it to spare), buying now spends IMD and
   // changes nothing; wait for the average to catch up. The estimate assumes IMD holds at today's price.
   let wait: string | undefined;
+  let waitShort: string | undefined;
   const med = i.projected?.median;
   if (med !== undefined && buy.includes("PriceFeed")) {
     const spotAfter = buy.includes("SpotFeed") ? i.market?.imdEth : i.spot?.value;
@@ -209,8 +212,9 @@ export function adviseUpdate(i: UpdateInput): UpdateAdvice {
             break;
           }
         }
-      const at = i.usd?.value && i.price?.value ? ` (about ${dollars((i.usd.value * med) / i.price.value)})` : "";
-      wait = `Not yet: an update now would not reopen anything. The vault's price is the average of IMD's pool over the last two hours, so after a fast move a fresh one lands behind the market${at}, still ${pct(gapTo(med, spotAfter))} from the spot check (${pct(skewBps)} allowed). ${eta !== undefined ? `If IMD holds near today's price, the average catches up in about ${minutes(eta * 60n)}.` : "It catches up once IMD steadies."} Buying now spends IMD for nothing.`;
+      const at = i.usd?.value && i.price?.value ? `about ${dollars((i.usd.value * med) / i.price.value)}` : "a price";
+      wait = `Not yet. The vault's price is a two-hour average, so an update now would land at ${at}, still ${pct(gapTo(med, spotAfter))} from the spot check (${pct(skewBps)} allowed) and reopen nothing. ${eta !== undefined ? `If IMD holds here, it catches up in about ${minutes(eta * 60n)}.` : "It catches up once IMD steadies."}`;
+      waitShort = eta !== undefined ? `Wait about ${minutes(eta * 60n)}` : "Wait for IMD to steady";
       lines.unshift(wait);
     }
   } else if (buy.length === 1 && buy[0] === "SpotFeed" && i.market && i.price?.value && !priceStale) {
@@ -229,7 +233,8 @@ export function adviseUpdate(i: UpdateInput): UpdateAdvice {
             break;
           }
         }
-      wait = `Not yet: an update now would not reopen anything. A fresh spot check lands at the market, ${pct(gapTo(i.price.value, live))} from the vault's price (${pct(skewBps)} allowed), and the vault's price is a two-hour average that has not caught up with the move. ${eta !== undefined ? `If IMD holds near today's price, it catches up in about ${minutes(eta * 60n)}.` : "It catches up once IMD steadies."} Buying now spends IMD for nothing.`;
+      wait = `Not yet. A fresh spot check would land at the market, ${pct(gapTo(i.price.value, live))} from the vault's two-hour average (${pct(skewBps)} allowed), and reopen nothing. ${eta !== undefined ? `If IMD holds here, the average catches up in about ${minutes(eta * 60n)}.` : "The average catches up once IMD steadies."}`;
+      waitShort = eta !== undefined ? `Wait about ${minutes(eta * 60n)}` : "Wait for IMD to steady";
       lines.unshift(wait);
     }
   }
@@ -249,7 +254,7 @@ export function adviseUpdate(i: UpdateInput): UpdateAdvice {
       lines.push(`Only the spot check needs updating: ${cost(1n)} from your wallet, arriving within minutes.`);
     if (health) lines.push(`Updating network health costs ${cost(1n)}.`);
   }
-  return { buy, health, ratio, lines, warning, wait };
+  return { buy, health, ratio, lines, warning, wait, waitShort };
 }
 
 function medianOf(values: bigint[]) {

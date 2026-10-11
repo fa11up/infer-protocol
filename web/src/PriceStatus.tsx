@@ -170,6 +170,7 @@ export function PriceStatus({
                 idPrefix={`price-status-${where}`}
                 info={!advice.health}
                 hold={advice.wait}
+                holdNote={advice.waitShort}
               />
             )}
             {advice.health && (

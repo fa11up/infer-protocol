@@ -130,6 +130,8 @@ test("after a fast move: holds the purchase while the two-hour median would stil
   assert.ok(a.wait, "a purchase now is held");
   assert.match(a.wait, /Not yet/);
   assert.match(a.wait, /about 30 minutes/);
+  assert.equal(a.waitShort, "Wait about 30 minutes");
+  assert.match(a.wait, /land at about \$8\.\d\d, still/);
   assert.equal(a.lines[0], a.wait);
   assert.ok(!a.lines.some((l) => /from your wallet/.test(l)), "no price quoted for a held purchase");
 });
@@ -146,7 +148,7 @@ test("primary behind and its median not moving yet: the spot alone is held as we
     projected: { median: 3179891121836197n, samples: flat, spacingBlocks: 50n },
   });
   assert.deepEqual(a.buy, ["SpotFeed"]);
-  assert.match(a.wait ?? "", /A fresh spot check lands at the market/);
+  assert.match(a.wait ?? "", /A fresh spot check would land at the market/);
 });
 
 test("once the median has caught up, the same rally buys the primary alone", () => {
