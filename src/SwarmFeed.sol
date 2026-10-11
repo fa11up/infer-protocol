@@ -93,6 +93,8 @@ abstract contract SwarmFeed is ISwarmFeed {
     error ReplayedAttestation();
     error PanelTooSmall();
     error NotEnoughAgreement();
+    error InvalidAnswer();
+    error AnswerMismatch();
 
     event ValueUpdated(uint256 value, uint64 updatedAt);
     event AttestationAccepted(bytes32 indexed requestId, bytes32 questionHash);
@@ -101,9 +103,16 @@ abstract contract SwarmFeed is ISwarmFeed {
     /// @dev Attestation v2 signs panelSize/quorum/agreed, so the CONSUMER sets the real bar instead of
     /// trusting the request's own quorum. A request may therefore ask for a low quorum so that it
     /// attests at all, while this contract still refuses anything thinner than these floors.
-    uint16 public constant MIN_PANEL_SIZE = 25;
-    /// @notice Smallest number of members that must have given the signed answer.
-    uint16 public constant MIN_AGREED = 15;
+    /// RAISED 2026-10-11 from 25/15 (operator's call, before the vault was deployed): the request's own panel and
+    /// quorum are not part of the question, so anyone may buy an answer to this feed's question from a small panel
+    /// and relay it; these floors are the whole bar. 100 is the plane's largest paid panel, and 51 a strict
+    /// majority of it, so two disagreeing answers can never both clear it. A higher floor would refuse honest
+    /// answers: on the first mainnet NHI answer only 20 of 35 members agreed, while 15 read the plane's /swarm
+    /// endpoint during a fault and agreed on a wrong figure (request d0203e1a).
+    uint16 public constant MIN_PANEL_SIZE = 100;
+    /// @notice Smallest number of members that must have given the signed answer: a strict majority of the panel.
+    /// A feed whose answers are deterministic may demand more (`minAgreed`); none may demand less.
+    uint16 public constant MIN_AGREED = 51;
     /// @notice How much wider an epoch's allowance is when it opens on a stale value.
     uint256 public constant STALE_DEVIATION_MULTIPLE = 2;
     /// @notice How much further the allowance widens for every further STALE_GROWTH_PERIOD the value has
@@ -229,6 +238,12 @@ abstract contract SwarmFeed is ISwarmFeed {
         return !_hasValue || _tooOld(_updatedAt);
     }
 
+    /// @notice How many members must have given the signed answer for this feed to take it. MIN_AGREED here;
+    /// the price and spot feeds, whose answers are deterministic chain reads, demand two thirds of the panel.
+    function minAgreed() public pure virtual returns (uint16) {
+        return MIN_AGREED;
+    }
+
     /// @notice Accept an IdentityMD EIP-712 attestation through the configured relayer, or anyone if zero.
     /// @dev Uses the signed issue time, so delayed delivery cannot extend freshness. requestId is the
     /// replay nonce. The immutable consumer domain binds the deployment chain and this feed, stopping
@@ -240,12 +255,15 @@ abstract contract SwarmFeed is ISwarmFeed {
     /// it is SwarmRelay, which forwards for anyone. Nothing on chain bounds the FIRST value, which is why
     /// the deployment buys and relays it, and DeployMainnet.verifySeeded checks it against the pool
     /// before the operator deploys the vault (from a salt no one else knows, so no one else can deploy it first).
-    /// Payload chainId and answerType must match the configured policy. Zero figures revert.
+    /// Payload chainId and answerType must match the configured policy. Zero values revert.
+    /// THE VALUE IS THE SIGNED `answer` (32 bytes, a uint256), not `figure`: the plane stopped filling `figure` for
+    /// panel-evidence answers (mainnet NHI request d0203e1a, 2026-10-11: answer 0.98699e18, figure 0), and both
+    /// fields are covered by the signature. A nonzero `figure` must equal the answer, so the two can never disagree.
     function submitAttestation(OracleAttestation calldata a, bytes calldata sig) external {
         if (relayer != address(0) && msg.sender != relayer) revert UnauthorizedRelayer();
         if (a.chainId != attestationChainId) revert InvalidAttestationChain();
         if (a.panelSize < MIN_PANEL_SIZE) revert PanelTooSmall();
-        if (a.agreed < MIN_AGREED || a.agreed > a.panelSize) revert NotEnoughAgreement();
+        if (a.agreed < minAgreed() || a.agreed > a.panelSize) revert NotEnoughAgreement();
         if (a.answerType != attestationAnswerType) revert InvalidAnswerType();
         if (block.timestamp > a.expiresAt) revert ExpiredAttestation();
         if (a.issuedAt > block.timestamp || a.issuedAt > a.expiresAt) revert InvalidTimestamp();
@@ -255,7 +273,10 @@ abstract contract SwarmFeed is ISwarmFeed {
         if (_recover(digest, sig) != attester) revert InvalidSignature();
         usedRequests[a.requestId] = true;
         _requireQuestion(a);
-        _accept(a.figure, a.issuedAt);
+        if (a.answer.length != 32) revert InvalidAnswer();
+        uint256 value = abi.decode(a.answer, (uint256));
+        if (a.figure != 0 && a.figure != value) revert AnswerMismatch();
+        _accept(value, a.issuedAt);
         emit AttestationAccepted(a.requestId, a.questionHash);
     }
 

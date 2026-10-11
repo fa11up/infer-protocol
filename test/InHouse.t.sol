@@ -77,8 +77,9 @@ contract InHouseTest is LegacyWorkBacking {
     // 0xb07d640fd9e2eb9dc81b953c8e4fd006bdfeaf276010fb5418eb763ca15abfb3. The v3 WETH pool we first
     // used is drained (liquidity() == 0), so its price was a frozen leftover.
     uint256 constant PRICE = 2_219_784_507_040_719;
-    uint16 constant MIN_PANEL_SIZE = 25; // mirrors SwarmFeed.MIN_PANEL_SIZE
-    uint16 constant MIN_AGREED = 15; // mirrors SwarmFeed.MIN_AGREED
+    uint16 constant MIN_PANEL_SIZE = 100; // mirrors SwarmFeed.MIN_PANEL_SIZE
+    uint16 constant MIN_AGREED = 51; // mirrors SwarmFeed.MIN_AGREED
+    uint16 constant PRICE_MIN_AGREED = 67; // mirrors PriceFeed.minAgreed() / SpotFeed.minAgreed()
 
     SeedablePriceFeed priceFeed;
     SeedableNhiFeed nhiFeed;
@@ -120,6 +121,7 @@ contract InHouseTest is LegacyWorkBacking {
         assertEq(priceFeed.attestationAnswerType(), ANSWER_TYPE_UINT256, "answerType must be 3 = uint256");
         assertEq(priceFeed.MIN_PANEL_SIZE(), MIN_PANEL_SIZE, "panel floor changed");
         assertEq(priceFeed.MIN_AGREED(), MIN_AGREED, "agreement floor changed");
+        assertEq(priceFeed.minAgreed(), PRICE_MIN_AGREED, "the price feed's agreement floor changed");
         assertEq(nhiFeed.attestationAnswerType(), ANSWER_TYPE_UINT256, "answerType must be 3 = uint256");
         assertTrue(priceFeed.isStale() && nhiFeed.isStale(), "feeds must open unseeded");
         assertEq(comp.vault(), address(vault), "comp not bound");
@@ -248,11 +250,12 @@ contract InHouseTest is LegacyWorkBacking {
         SwarmFeed.OracleAttestation memory a;
         a.chainId = 1;
         a.panelSize = MIN_PANEL_SIZE;
-        a.agreed = MIN_AGREED;
+        a.agreed = PRICE_MIN_AGREED;
         a.answerType = 0; // bool, not uint256
         a.expiresAt = uint64(block.timestamp + 600);
         a.issuedAt = uint64(block.timestamp);
         a.figure = PRICE;
+        a.answer = abi.encode(a.figure);
         vm.prank(RELAYER);
         vm.expectRevert(SwarmFeed.InvalidAnswerType.selector);
         priceFeed.submitAttestation(a, new bytes(65));
@@ -269,7 +272,7 @@ contract InHouseTest is LegacyWorkBacking {
         SwarmFeed.OracleAttestation memory a;
         a.chainId = 1;
         a.panelSize = MIN_PANEL_SIZE;
-        a.agreed = MIN_AGREED;
+        a.agreed = PRICE_MIN_AGREED;
         a.answerType = ANSWER_TYPE_UINT256;
         vm.prank(address(0xBEEF));
         vm.expectRevert(SwarmFeed.UnauthorizedRelayer.selector);
@@ -301,7 +304,7 @@ contract InHouseTest is LegacyWorkBacking {
             panelJobId: keccak256("panel"),
             panelSize: MIN_PANEL_SIZE,
             quorum: 10,
-            agreed: MIN_AGREED,
+            agreed: PRICE_MIN_AGREED,
             issuedAt: uint64(block.timestamp),
             expiresAt: uint64(block.timestamp + 3600)
         });
@@ -330,9 +333,10 @@ contract InHouseTest is LegacyWorkBacking {
         SwarmFeed.OracleAttestation memory a;
         a.chainId = 1;
         a.panelSize = MIN_PANEL_SIZE;
-        a.agreed = MIN_AGREED;
+        a.agreed = PRICE_MIN_AGREED;
         a.answerType = ANSWER_TYPE_UINT256;
         a.figure = PRICE;
+        a.answer = abi.encode(a.figure);
         a.issuedAt = uint64(block.timestamp);
         a.expiresAt = uint64(block.timestamp + 3600);
         // Build the signature first: _sign staticcalls the feed, and an armed expectRevert
@@ -375,13 +379,13 @@ contract InHouseTest is LegacyWorkBacking {
         a.chainId = 1;
         a.answerType = ANSWER_TYPE_UINT256;
         a.panelSize = MIN_PANEL_SIZE - 1;
-        a.agreed = MIN_AGREED;
+        a.agreed = PRICE_MIN_AGREED;
         vm.prank(RELAYER);
         vm.expectRevert(SwarmFeed.PanelTooSmall.selector);
         priceFeed.submitAttestation(a, new bytes(65));
 
         a.panelSize = MIN_PANEL_SIZE;
-        a.agreed = MIN_AGREED - 1;
+        a.agreed = PRICE_MIN_AGREED - 1;
         vm.prank(RELAYER);
         vm.expectRevert(SwarmFeed.NotEnoughAgreement.selector);
         priceFeed.submitAttestation(a, new bytes(65));

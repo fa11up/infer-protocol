@@ -94,6 +94,7 @@ abstract contract SwarmFeedTest is Test {
         a.requestId = keccak256("request-2");
         a.questionHash = keccak256("same question with a new pinned block window");
         a.figure = 1.1 ether;
+        a.answer = abi.encode(a.figure);
         sig = _sign(a, SIGNER_KEY);
         vm.expectEmit(true, false, false, true, address(feed));
         emit SwarmFeed.AttestationAccepted(a.requestId, a.questionHash);
@@ -127,7 +128,8 @@ abstract contract SwarmFeedTest is Test {
         vm.warp(block.timestamp + 2 hours + 1); // a whole hour stale: the stale base applies
         a = _attestation();
         a.requestId = keccak256("request-2");
-        a.figure = 1.2 ether; // inside the stale bound: 2 x the 10% cap
+        a.figure = 1.2 ether;
+        a.answer = abi.encode(a.figure); // inside the stale bound: 2 x the 10% cap
         sig = _sign(a, SIGNER_KEY);
         vm.prank(address(0xD00D)); // any caller that is not the pinned relayer
         vm.expectRevert(SwarmFeed.UnauthorizedRelayer.selector);
@@ -310,10 +312,12 @@ abstract contract SwarmFeedTest is Test {
         a = _attestation();
         a.requestId = keccak256("request-2");
         a.figure = 1.1 ether + 1;
+        a.answer = abi.encode(a.figure);
         bytes memory sig = _sign(a, SIGNER_KEY);
         vm.expectRevert(SwarmFeed.ExcessDeviation.selector);
         feed.submitAttestation(a, sig);
         a.figure = 0.9 ether - 1;
+        a.answer = abi.encode(a.figure);
         sig = _sign(a, SIGNER_KEY);
         vm.expectRevert(SwarmFeed.ExcessDeviation.selector);
         feed.submitAttestation(a, sig);
@@ -322,6 +326,7 @@ abstract contract SwarmFeedTest is Test {
         assertEq(updatedAt, initialTime);
         assertFalse(feed.usedRequests(a.requestId));
         a.figure = 0.9 ether;
+        a.answer = abi.encode(a.figure);
         feed.submitAttestation(a, _sign(a, SIGNER_KEY));
         (value, updatedAt) = feed.latestValue();
         assertEq(value, a.figure);
@@ -343,17 +348,21 @@ abstract contract SwarmFeedTest is Test {
         a = _attestation();
         a.requestId = keccak256("request-2");
         a.figure = 10 ether;
+        a.answer = abi.encode(a.figure);
         bytes memory sig = _sign(a, SIGNER_KEY);
         vm.expectRevert(SwarmFeed.ExcessDeviation.selector);
         feed.submitAttestation(a, sig);
 
         uint256 widest = 1 ether + 1 ether * cap * feed.STALE_DEVIATION_MULTIPLE() / 10_000;
         a.figure = widest + 1;
+        a.answer = abi.encode(a.figure);
         sig = _sign(a, SIGNER_KEY);
         vm.expectRevert(SwarmFeed.ExcessDeviation.selector);
         feed.submitAttestation(a, sig);
 
         a.figure = widest;
+
+        a.answer = abi.encode(a.figure);
         feed.submitAttestation(a, _sign(a, SIGNER_KEY));
         (uint256 value, uint64 updatedAt) = feed.latestValue();
         assertEq(value, widest);
@@ -365,6 +374,7 @@ abstract contract SwarmFeedTest is Test {
         a = _attestation();
         a.requestId = keccak256("request-3");
         a.figure = widest + 1;
+        a.answer = abi.encode(a.figure);
         sig = _sign(a, SIGNER_KEY);
         vm.expectRevert(SwarmFeed.ExcessDeviation.selector);
         feed.submitAttestation(a, sig);
@@ -376,11 +386,13 @@ abstract contract SwarmFeedTest is Test {
         // anchor is inside the band but more than the cap from `widest`, and is refused; one within the cap
         // of `widest` is fine (review of cc4103f, 2026-10-07).
         a.figure = 1 ether;
+        a.answer = abi.encode(a.figure);
         sig = _sign(a, SIGNER_KEY);
         vm.expectRevert(SwarmFeed.ExcessDeviation.selector);
         feed.submitAttestation(a, sig);
         uint256 back = widest - widest * cap / 10_000;
         a.figure = back;
+        a.answer = abi.encode(a.figure);
         feed.submitAttestation(a, _sign(a, SIGNER_KEY));
         // An hour on, the next acceptance opens a new epoch from the current value with the plain cap.
         vm.warp(block.timestamp + 1 hours);
@@ -390,10 +402,12 @@ abstract contract SwarmFeedTest is Test {
         // (its first value, `widest`): the way back (SwarmFeed._returnAnchor, final sweep panel 4) reaches no
         // further than the expired epoch already allowed.
         a.figure = widest + widest * cap / 10_000 + 1;
+        a.answer = abi.encode(a.figure);
         sig = _sign(a, SIGNER_KEY);
         vm.expectRevert(SwarmFeed.ExcessDeviation.selector);
         feed.submitAttestation(a, sig);
         a.figure = back + back * cap / 10_000;
+        a.answer = abi.encode(a.figure);
         feed.submitAttestation(a, _sign(a, SIGNER_KEY));
         (anchor, openedAt, allowance) = feed.epoch();
         assertEq(anchor, back, "the new epoch is anchored where the feed stood, not at the new value");
@@ -416,6 +430,7 @@ abstract contract SwarmFeedTest is Test {
         a = _attestation();
         a.requestId = keccak256("chain-1");
         a.figure = value;
+        a.answer = abi.encode(a.figure);
         feed.submitAttestation(a, _sign(a, SIGNER_KEY));
         // Every further step in the same block, each within the cap of the LAST value, is refused.
         for (uint256 i = 2; i <= 6; ++i) {
@@ -423,6 +438,7 @@ abstract contract SwarmFeedTest is Test {
             a = _attestation();
             a.requestId = keccak256(abi.encode("chain", i));
             a.figure = value;
+            a.answer = abi.encode(a.figure);
             bytes memory sig = _sign(a, SIGNER_KEY);
             vm.expectRevert(SwarmFeed.ExcessDeviation.selector);
             feed.submitAttestation(a, sig);
@@ -565,6 +581,7 @@ abstract contract SwarmFeedTest is Test {
         a = _attestation();
         a.requestId = keccak256("held");
         a.figure = 1 ether + 1 ether * cap / 10_000;
+        a.answer = abi.encode(a.figure);
         a.issuedAt = uint64(block.timestamp - 55 minutes); // signed 55 minutes ago, relayed now
         feed.submitAttestation(a, _sign(a, SIGNER_KEY));
         vm.warp(block.timestamp + 65 minutes);
@@ -583,6 +600,7 @@ abstract contract SwarmFeedTest is Test {
         SwarmFeed.OracleAttestation memory a = _attestation();
         a.requestId = id;
         a.figure = figure;
+        a.answer = abi.encode(a.figure);
         feed.submitAttestation(a, _sign(a, SIGNER_KEY));
     }
 
@@ -590,6 +608,7 @@ abstract contract SwarmFeedTest is Test {
         SwarmFeed.OracleAttestation memory a = _attestation();
         a.requestId = id;
         a.figure = figure;
+        a.answer = abi.encode(a.figure);
         bytes memory sig = _sign(a, SIGNER_KEY);
         vm.expectRevert(SwarmFeed.ExcessDeviation.selector);
         feed.submitAttestation(a, sig);
@@ -702,17 +721,17 @@ abstract contract SwarmFeedTest is Test {
         a.chainId = 1;
         a.questionHash = QUESTION;
         a.answerType = 1;
-        a.answer = bytes("one");
         a.figure = 1 ether;
+        a.answer = abi.encode(a.figure);
         a.fromBlock = 100;
         a.toBlock = 200;
         a.blockHash = keccak256("block");
         a.panelJobId = keccak256("panel");
         // Attestation v2: signed panel figures. Set at or above the feed's floors so these tests
         // exercise the guard each one is about rather than tripping the panel check first.
-        a.panelSize = 30;
-        a.quorum = 10;
-        a.agreed = 20;
+        a.panelSize = 100;
+        a.quorum = 51;
+        a.agreed = 51;
         a.issuedAt = uint64(block.timestamp);
         a.expiresAt = uint64(block.timestamp + 1 hours);
     }

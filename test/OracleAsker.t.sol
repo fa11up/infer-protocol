@@ -731,13 +731,14 @@ contract OracleAskerTest is Test {
         a.answerType = 3;
         a.answer = abi.encode(figure);
         a.figure = figure;
+        a.answer = abi.encode(a.figure);
         a.fromBlock = 100;
         a.toBlock = 200;
         a.blockHash = keccak256("b");
         a.panelJobId = keccak256("panel");
-        a.panelSize = 60;
-        a.quorum = 20;
-        a.agreed = 40;
+        a.panelSize = 100;
+        a.quorum = 67;
+        a.agreed = 67;
         a.issuedAt = uint64(block.timestamp);
         a.expiresAt = uint64(block.timestamp + 1 hours);
     }

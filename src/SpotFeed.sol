@@ -32,6 +32,13 @@ contract SpotFeed is SwarmFeed {
         )
     {}
 
+    /// @notice Two thirds of the 100-member panel (2026-10-11): this answer is a deterministic read of the chain, so
+    /// honest members agree exactly (20 of 20 and 21 of 21 on the first mainnet answers) and the higher bar costs
+    /// nothing but makes a captured answer need two thirds of the panel. It is the feed an attacker would move.
+    function minAgreed() public pure override returns (uint16) {
+        return 67;
+    }
+
     /// @notice The exact question this feed accepts answers to, and the window span it allows.
     /// @dev DERIVED, NEVER HAND-WRITTEN: emitted by `node oracle/question-prefix.mjs
     /// whitepaper/requests/spot-univ4-quote.json`. It is the canonical question document with the window's

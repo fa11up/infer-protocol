@@ -74,7 +74,7 @@ contract SwarmRelayTest is Test {
 
         // A panel under the feed's floor is refused through the relay too.
         SwarmFeed.OracleAttestation memory thin = _attestation(keccak256("r4"), 1 ether);
-        thin.agreed = priceFeed.MIN_AGREED() - 1;
+        thin.agreed = priceFeed.minAgreed() - 1;
         bytes memory thinSig = _sign(priceFeed, thin);
         vm.prank(STRANGER);
         vm.expectRevert(SwarmFeed.NotEnoughAgreement.selector);
@@ -157,13 +157,14 @@ contract SwarmRelayTest is Test {
         a.answerType = 3;
         a.answer = abi.encode(figure);
         a.figure = figure;
+        a.answer = abi.encode(a.figure);
         a.fromBlock = 100;
         a.toBlock = 200;
         a.blockHash = keccak256("b");
         a.panelJobId = keccak256("panel");
-        a.panelSize = 60;
-        a.quorum = 20;
-        a.agreed = 40;
+        a.panelSize = 100;
+        a.quorum = 67;
+        a.agreed = 67;
         a.issuedAt = uint64(block.timestamp);
         a.expiresAt = uint64(block.timestamp + 1 hours);
     }
