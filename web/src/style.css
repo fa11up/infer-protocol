@@ -2775,11 +2775,21 @@ html.app-page body {
 .price-hero {
   margin-block-end: 12px;
 }
+/* The sentence sits beside the button while it has room for a readable line (28ch), and otherwise drops
+   under it at full width: a narrow pane (a wallet popup shrinking the window) squeezed it into a tall,
+   few-words-per-line column. */
 .price-status-actions {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: start;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
   gap: 4px 12px;
+}
+.price-status-actions > .price-status-buttons {
+  flex: 0 0 auto;
+}
+.price-status-actions > .price-status-line {
+  flex: 1 1 28ch;
+  min-width: 0;
 }
 .price-status-buttons {
   display: grid;
