@@ -815,8 +815,18 @@ export function Shell({
           <ThemeToggle />
           <Vibe suite={INFER_VIBES} />
           <Sound score={INFER_SCORE} />
-          {/* No connect button: an amount box's "disconnected" label is the way in (Balance). Connected,
-              the header gains only the disconnect box. */}
+          {/* Disconnected, a Connect button (the amount boxes' "disconnected" label connects too); connected, the
+              disconnect box in its place. People looked for the button and missed the label (2026-10-11). */}
+          {!wallet.account && (
+            <button
+              type="button"
+              className="infer-head-connect"
+              disabled={wallet.busy}
+              onClick={() => void wallet.connect()}
+            >
+              {wallet.busy ? "Connecting…" : "Connect"}
+            </button>
+          )}
           <DisconnectBox
             connected={!!wallet.account}
             label={wallet.account ? `Disconnect ${wallet.account}` : "Disconnect"}
@@ -957,7 +967,7 @@ export function Balance({
       title={`Use the whole balance: ${formatUnits(value, decimals)} ${symbol}`}
       onClick={() => onUse(formatUnits(value, decimals))}
     >
-      {tokens(value, 4, decimals)} {symbol}
+      Max {tokens(value, 4, decimals)} {symbol}
     </button>
   );
 }

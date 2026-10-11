@@ -3186,6 +3186,12 @@ button.balance-hint.balance-connect:hover {
   letter-spacing: 0.12em;
   text-transform: uppercase;
 }
+/* The site-wide `button:not(:disabled):hover` (background: --raised) outranks `.infer-go`, and turned this dark button
+   light under the pointer with its light label on it: the label vanished on hover (claim page, 2026-10-11). */
+button.infer-go:not(:disabled):hover {
+  background: var(--text);
+  color: var(--bg);
+}
 .infer-go:disabled {
   background: transparent;
   color: var(--muted);
@@ -3490,6 +3496,9 @@ button.balance-hint.balance-connect:hover {
     grid-area: sound;
   }
   /* In the phone grid the slot is its own track: an empty track takes no room, so no gap to undo. */
+  .infer-tools .infer-head-connect {
+    grid-area: wallet;
+  }
   .infer-tools .disconnect-slot {
     grid-area: wallet;
     --bar-gap: 0px;
@@ -4229,4 +4238,28 @@ body:has(.infer-buy-sheet[open]) .infer-buy-main {
   border-top: 1px solid var(--text);
   font-size: 12px;
   color: var(--danger);
+}
+
+/* The INFER header's Connect button, shown only while no wallet is connected (ui.tsx Shell). */
+.infer-head-connect {
+  height: 36px;
+  padding: 0 12px;
+  border: 1px solid var(--text);
+  background: var(--bg);
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  white-space: nowrap;
+}
+button.infer-head-connect:not(:disabled):hover,
+.infer-head-connect:focus-visible {
+  background: var(--text);
+  color: var(--bg);
+}
+.infer-head-connect:disabled {
+  opacity: 0.6;
+  cursor: progress;
 }

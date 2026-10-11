@@ -384,18 +384,28 @@ export function Claim() {
                       v={`${tokens(st?.left, 0)} INFER`}
                     />
                   </dl>
-                  <button
-                    className="infer-go"
-                    disabled={
-                      !toAddress || amount === 0n || tx.status === "pending"
-                    }
-                  >
-                    {!toAddress
-                      ? "Connect a wallet"
-                      : st && st.allowance < amount
-                        ? `Approve ${r.symbol}`
-                        : "Redeem"}
-                  </button>
+                  {!toAddress ? (
+                    // It was disabled like the others, so the one button a visitor could find did nothing.
+                    <button
+                      type="button"
+                      className="infer-go"
+                      disabled={w.busy}
+                      onClick={() => void w.connect()}
+                    >
+                      {w.busy ? "Connecting…" : "Connect a wallet"}
+                    </button>
+                  ) : (
+                    <button
+                      className="infer-go"
+                      disabled={amount === 0n || tx.status === "pending"}
+                    >
+                      {amount === 0n
+                        ? "Enter an amount"
+                        : st && st.allowance < amount
+                          ? `Approve ${r.symbol}`
+                          : "Redeem"}
+                    </button>
+                  )}
                 </form>
               )}
             </section>
