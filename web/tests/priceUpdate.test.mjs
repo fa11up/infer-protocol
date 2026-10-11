@@ -209,6 +209,30 @@ test("stale primary, fresh spot 2.7% from where the new primary lands: the prima
   assert.match(a.lines.at(-1), /Only the primary needs updating: 0\.5 IMD.*runs out in 15 minutes/);
 });
 
+test("the mirror: spot stale, primary fresh and close to the market: the spot alone (0.5 IMD)", () => {
+  const market = { imdEth: 404n * 10n ** 13n, imdUsd: 101n * WAD / 10n }; // +1%
+  const a = adviseUpdate({
+    ...base,
+    spot: feed(4n * 10n ** 15n, true),
+    skewBps: 500n,
+    market,
+    projected: { median: 403n * 10n ** 13n, samples: Array(13).fill(403n * 10n ** 13n), spacingBlocks: 50n },
+  });
+  assert.deepEqual(a.buy, ["SpotFeed"]);
+  assert.equal(a.wait, undefined);
+  assert.match(a.lines.at(-1), /Only the spot check needs updating: 0\.5 IMD/);
+  // Spot stale and the market 6% from a fresh primary whose median has caught up: the primary is needed too.
+  const far = { imdEth: 424n * 10n ** 13n, imdUsd: 106n * WAD / 10n };
+  const b = adviseUpdate({
+    ...base,
+    spot: feed(4n * 10n ** 15n, true),
+    skewBps: 500n,
+    market: far,
+    projected: { median: 422n * 10n ** 13n, samples: Array(13).fill(422n * 10n ** 13n), spacingBlocks: 50n },
+  });
+  assert.deepEqual(b.buy, ["PriceFeed", "SpotFeed"]);
+});
+
 test("network health is a separate daily update, never folded into the price", () => {
   const a = adviseUpdate({ ...base, nhi: feed(9n * 10n ** 17n, true), market: { imdEth: 4n * 10n ** 15n, imdUsd: 10n * WAD } });
   assert.deepEqual(a.buy, []);

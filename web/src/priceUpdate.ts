@@ -199,6 +199,13 @@ export function adviseUpdate(i: UpdateInput): UpdateAdvice {
     spotGap * 10n > skewBps * 9n ||
     (buy.length > 0 && spotLeft < SPOT_MIN_LEFT);
   if (needSpot && (buy.length || breached || spotStale)) buy = [...buy, "SpotFeed"];
+  // The mirror: a fresh primary is not bought just because the spot is. When the spot is what pauses the vault
+  // and a fresh one (at the market) would sit within the allowed gap of today's primary, the spot alone reopens
+  // it; refreshing the primary as well only adds borrowing room, which nobody has to pay for to get unpaused.
+  if (!priceStale && (spotStale || breached) && buy.length === 2 && i.market && i.price?.value) {
+    const alone = ((i.market.imdEth > i.price.value ? i.market.imdEth - i.price.value : i.price.value - i.market.imdEth) * 10000n) / i.price.value;
+    if (alone * 10n <= skewBps * 9n) buy = ["SpotFeed"];
+  }
 
   // Would the purchase reopen the vault? The primary lands at the window's median, the spot at the market (or
   // stays). If they would still be more than skew apart (with a tenth of it to spare), buying now spends IMD and
