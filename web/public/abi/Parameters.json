@@ -12,7 +12,7 @@
   },
   {
     "type": "function",
-    "name": "MAX_COMP_PER_TASK_WAD",
+    "name": "MAX_DUTY_BPS",
     "inputs": [],
     "outputs": [
       {
@@ -25,7 +25,7 @@
   },
   {
     "type": "function",
-    "name": "MAX_DIVERGENCE_BPS_LIMIT",
+    "name": "MAX_EARN_MAT_BPS",
     "inputs": [],
     "outputs": [
       {
@@ -38,7 +38,7 @@
   },
   {
     "type": "function",
-    "name": "MAX_REDEMPTION_SPREAD",
+    "name": "MAX_GAP",
     "inputs": [],
     "outputs": [
       {
@@ -51,7 +51,7 @@
   },
   {
     "type": "function",
-    "name": "MAX_STABILITY_FEE_BPS",
+    "name": "MAX_REDEMPTION_DIVISOR",
     "inputs": [],
     "outputs": [
       {
@@ -64,7 +64,33 @@
   },
   {
     "type": "function",
-    "name": "MAX_WORK_RATIO_BPS",
+    "name": "MAX_SKEW_BPS",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "MAX_STREAM_PER_DAY",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "MAX_WAGE_WAD",
     "inputs": [],
     "outputs": [
       {
@@ -90,7 +116,20 @@
   },
   {
     "type": "function",
-    "name": "MIN_REDEMPTION_SPREAD",
+    "name": "MIN_GAP",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "MIN_REDEMPTION_DIVISOR",
     "inputs": [],
     "outputs": [
       {
@@ -130,7 +169,7 @@
   },
   {
     "type": "function",
-    "name": "compPerTaskWad",
+    "name": "chip",
     "inputs": [],
     "outputs": [
       {
@@ -152,27 +191,27 @@
         "internalType": "struct Parameters.ParamSet",
         "components": [
           {
-            "name": "debtCeiling",
+            "name": "line",
             "type": "uint256",
             "internalType": "uint256"
           },
           {
-            "name": "protocolBonusShareBps",
+            "name": "cut",
             "type": "uint256",
             "internalType": "uint256"
           },
           {
-            "name": "stabilityFeeBps",
+            "name": "duty",
             "type": "uint256",
             "internalType": "uint256"
           },
           {
-            "name": "maxDivergenceBps",
+            "name": "skew",
             "type": "uint256",
             "internalType": "uint256"
           },
           {
-            "name": "markerShareBps",
+            "name": "chip",
             "type": "uint256",
             "internalType": "uint256"
           }
@@ -183,7 +222,46 @@
   },
   {
     "type": "function",
-    "name": "debtCeiling",
+    "name": "cut",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "duty",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "earnMat",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "gap",
     "inputs": [],
     "outputs": [
       {
@@ -209,7 +287,7 @@
   },
   {
     "type": "function",
-    "name": "markerShareBps",
+    "name": "line",
     "inputs": [],
     "outputs": [
       {
@@ -222,7 +300,7 @@
   },
   {
     "type": "function",
-    "name": "maxDivergenceBps",
+    "name": "oracleBudget",
     "inputs": [],
     "outputs": [
       {
@@ -266,6 +344,24 @@
   },
   {
     "type": "function",
+    "name": "pendingEarnMat",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "bps",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "eta",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
     "name": "pendingEta",
     "inputs": [],
     "outputs": [
@@ -279,11 +375,47 @@
   },
   {
     "type": "function",
-    "name": "pendingRedemptionSpread",
+    "name": "pendingGap",
     "inputs": [],
     "outputs": [
       {
         "name": "spread",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "eta",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "pendingOracleBudget",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "imdPerDay",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "eta",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "pendingRedemptionDivisor",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "divisor",
         "type": "uint256",
         "internalType": "uint256"
       },
@@ -334,27 +466,27 @@
         "internalType": "struct Parameters.ParamSet",
         "components": [
           {
-            "name": "debtCeiling",
+            "name": "line",
             "type": "uint256",
             "internalType": "uint256"
           },
           {
-            "name": "protocolBonusShareBps",
+            "name": "cut",
             "type": "uint256",
             "internalType": "uint256"
           },
           {
-            "name": "stabilityFeeBps",
+            "name": "duty",
             "type": "uint256",
             "internalType": "uint256"
           },
           {
-            "name": "maxDivergenceBps",
+            "name": "skew",
             "type": "uint256",
             "internalType": "uint256"
           },
           {
-            "name": "markerShareBps",
+            "name": "chip",
             "type": "uint256",
             "internalType": "uint256"
           }
@@ -370,11 +502,16 @@
   },
   {
     "type": "function",
-    "name": "pendingWorkRatio",
+    "name": "pendingStream",
     "inputs": [],
     "outputs": [
       {
-        "name": "bps",
+        "name": "payee",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "perDay",
         "type": "uint256",
         "internalType": "uint256"
       },
@@ -396,27 +533,27 @@
         "internalType": "struct Parameters.ParamSet",
         "components": [
           {
-            "name": "debtCeiling",
+            "name": "line",
             "type": "uint256",
             "internalType": "uint256"
           },
           {
-            "name": "protocolBonusShareBps",
+            "name": "cut",
             "type": "uint256",
             "internalType": "uint256"
           },
           {
-            "name": "stabilityFeeBps",
+            "name": "duty",
             "type": "uint256",
             "internalType": "uint256"
           },
           {
-            "name": "maxDivergenceBps",
+            "name": "skew",
             "type": "uint256",
             "internalType": "uint256"
           },
           {
-            "name": "markerShareBps",
+            "name": "chip",
             "type": "uint256",
             "internalType": "uint256"
           }
@@ -428,10 +565,10 @@
   },
   {
     "type": "function",
-    "name": "proposeCompPerTask",
+    "name": "proposeEarnMat",
     "inputs": [
       {
-        "name": "wad",
+        "name": "bps",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -441,10 +578,36 @@
   },
   {
     "type": "function",
-    "name": "proposeRedemptionSpread",
+    "name": "proposeGap",
     "inputs": [
       {
         "name": "spread",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "proposeOracleBudget",
+    "inputs": [
+      {
+        "name": "imdPerDay",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "proposeRedemptionDivisor",
+    "inputs": [
+      {
+        "name": "divisor",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -477,10 +640,15 @@
   },
   {
     "type": "function",
-    "name": "proposeWorkRatio",
+    "name": "proposeStream",
     "inputs": [
       {
-        "name": "bps",
+        "name": "payee",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "perDay",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -490,7 +658,33 @@
   },
   {
     "type": "function",
-    "name": "protocolBonusShareBps",
+    "name": "proposeWage",
+    "inputs": [
+      {
+        "name": "wad",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "proposeWorkOracle",
+    "inputs": [
+      {
+        "name": "next",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "outputs": [],
+    "stateMutability": "nonpayable"
+  },
+  {
+    "type": "function",
+    "name": "redemptionDivisor",
     "inputs": [],
     "outputs": [
       {
@@ -503,7 +697,7 @@
   },
   {
     "type": "function",
-    "name": "redemptionSpread",
+    "name": "skew",
     "inputs": [],
     "outputs": [
       {
@@ -516,7 +710,20 @@
   },
   {
     "type": "function",
-    "name": "stabilityFeeBps",
+    "name": "streamPayee",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "streamPerDay",
     "inputs": [],
     "outputs": [
       {
@@ -542,13 +749,26 @@
   },
   {
     "type": "function",
-    "name": "workRatioBps",
+    "name": "wage",
     "inputs": [],
     "outputs": [
       {
         "name": "",
         "type": "uint256",
         "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "view"
+  },
+  {
+    "type": "function",
+    "name": "workOracle",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "",
+        "type": "address",
+        "internalType": "address"
       }
     ],
     "stateMutability": "view"
@@ -600,10 +820,10 @@
   },
   {
     "type": "error",
-    "name": "CompPerTaskTooHigh",
+    "name": "DivergenceOutOfRange",
     "inputs": [
       {
-        "name": "wad",
+        "name": "bps",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -611,7 +831,7 @@
   },
   {
     "type": "error",
-    "name": "DivergenceOutOfRange",
+    "name": "EarnMatTooHigh",
     "inputs": [
       {
         "name": "bps",
@@ -633,6 +853,22 @@
   },
   {
     "type": "error",
+    "name": "GapOutOfRange",
+    "inputs": [
+      {
+        "name": "spread",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
+    "name": "InvalidWorkOracle",
+    "inputs": []
+  },
+  {
+    "type": "error",
     "name": "NotGovernor",
     "inputs": []
   },
@@ -643,15 +879,26 @@
   },
   {
     "type": "error",
+    "name": "OracleBudgetTooHigh",
+    "inputs": [
+      {
+        "name": "imdPerDay",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "ProposalPending",
     "inputs": []
   },
   {
     "type": "error",
-    "name": "RedemptionSpreadOutOfRange",
+    "name": "RedemptionDivisorOutOfRange",
     "inputs": [
       {
-        "name": "spread",
+        "name": "divisor",
         "type": "uint256",
         "internalType": "uint256"
       }
@@ -675,6 +922,22 @@
   },
   {
     "type": "error",
+    "name": "StreamPayeeMissing",
+    "inputs": []
+  },
+  {
+    "type": "error",
+    "name": "StreamTooHigh",
+    "inputs": [
+      {
+        "name": "perDay",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ]
+  },
+  {
+    "type": "error",
     "name": "TooEarly",
     "inputs": [
       {
@@ -686,14 +949,19 @@
   },
   {
     "type": "error",
-    "name": "WorkRatioTooHigh",
+    "name": "WageTooHigh",
     "inputs": [
       {
-        "name": "bps",
+        "name": "wad",
         "type": "uint256",
         "internalType": "uint256"
       }
     ]
+  },
+  {
+    "type": "error",
+    "name": "WorkMintingOn",
+    "inputs": []
   },
   {
     "type": "error",
