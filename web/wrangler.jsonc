@@ -1,5 +1,5 @@
 // imdusd.com: the public site (homepage + docs), served as static assets by Cloudflare Workers.
-// worker/index.js runs first only to redirect http:// to https://; every other request goes to the
+// worker/index.js runs only for /rpc (the terminal's own RPC, worker/rpc.js); every other request goes to the
 // assets, where `_headers` and `_redirects` in dist-public/ apply as written.
 // Build first with `npm run build:public`; deploy with `npm run deploy:public`.
 {
@@ -9,11 +9,9 @@
   "assets": {
     "directory": "../dist-public",
     "binding": "ASSETS",
-    // So the http -> https redirect sees every request, including ones for files that exist.
-    // Static only: no file runs the Worker, so pages are served straight from Cloudflare's cache with no
-    // request cap. HTTP -> HTTPS and www -> imdusd.com are the zone's "Always Use HTTPS" setting and a
+    // Only /rpc runs the Worker; every page and file is served straight from Cloudflare's cache. HTTP -> HTTPS and www -> imdusd.com are the zone's "Always Use HTTPS" setting and a
     // Redirect Rule (set in the dashboard, 2026-10-08).
-    "run_worker_first": false,
+    "run_worker_first": ["/rpc"],
     // /docs serves /docs/ and the site's relative links keep working.
     "html_handling": "auto-trailing-slash",
     // An unknown path is a 404 with the site's own not-found page (404.html, built from
@@ -23,8 +21,14 @@
   // No *.workers.dev copy: the site answers only on its own hostname, where the zone's HTTPS and redirect rules apply.
   "workers_dev": false,
   // Cloudflare creates the DNS records and certificates for custom domains itself.
-  // Static only, so the Worker rarely runs; the cap bounds what one hostile request can cost (busiest hour: 3 ms p99).
-  "limits": { "cpu_ms": 50 },
+  // /rpc per visitor (keyed by IP): requests, and calls that miss the cache. The terminal makes ~22 uncached calls
+  // per 15-second refresh (~90/min) and more on first load and around actions, so twice infer.imdusd.com's 120.
+  // The CPU cap bounds what one hostile request can cost (Multicall3 decoding needs more than the old 50 ms).
+  "ratelimits": [
+    { "name": "RPC_REQUESTS", "namespace_id": "1003", "simple": { "limit": 300, "period": 60 } },
+    { "name": "RPC_UPSTREAM", "namespace_id": "1004", "simple": { "limit": 240, "period": 60 } }
+  ],
+  "limits": { "cpu_ms": 100 },
   "routes": [
     // www.imdusd.com is NOT a route: it is a proxied DNS record plus the zone's www -> imdusd.com Redirect
     // Rule. Listing it here would make every deploy recreate a custom domain that serves the site on www.

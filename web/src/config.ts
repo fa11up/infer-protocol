@@ -45,6 +45,10 @@ export type Deployment = {
   oracleAsker?: { address: Address; requests: Record<string, `0x${string}`> };
 };
 export type Target = { address: Address; abi: Abi };
+/** Multicall3 (same address everywhere): the block it was created in, per chain the terminal runs on. */
+const MULTICALL3_CREATED: Record<number, number> = { 1: 14_353_601, 11155111: 751_532 };
+/** Hosts whose Worker serves /rpc for the mainnet deployment (worker/index.js). */
+const OWN_RPC_HOSTS = ["imdusd.com"];
 function sort(v: unknown): unknown {
   return Array.isArray(v)
     ? v.map(sort)
@@ -126,15 +130,42 @@ export async function loadConfig() {
     name: config.network.name,
     nativeCurrency: config.network.nativeCurrency,
     rpcUrls: { default: { http: config.network.rpcUrls } },
+    // Without it viem cannot bundle reads into Multicall3 and silently sends each one alone.
+    ...(MULTICALL3_CREATED[config.chainId] !== undefined && {
+      contracts: {
+        multicall3: {
+          address: "0xcA11bde05977b3631167028862bE2a173976CA11",
+          blockCreated: MULTICALL3_CREATED[config.chainId],
+        },
+      },
+    }),
   });
+  // On imdusd.com the terminal reads through the site's own RPC first (worker/rpc.js: one upstream call per
+  // block however many visitors, keyed providers, the deployment's contracts only), then the public RPCs
+  // directly if it is unreachable. JSON-RPC batches (at most 20 calls, the Worker's limit) and Multicall3
+  // bundles keep a refresh to a few requests: one browser's unbundled reads were throttled by publicnode
+  // (HTTP 403) and would exceed /rpc's per-visitor limits.
+  const own =
+    config.chainId === 1 && OWN_RPC_HOSTS.includes(location.hostname)
+      ? [
+          http(new URL("/rpc", location.origin).href, {
+            timeout: 8000,
+            retryCount: 0,
+            batch: { batchSize: 20, wait: 16 },
+          }),
+        ]
+      : [];
   const client = createPublicClient({
     chain,
-    transport: fallback(
-      config.network.rpcUrls.map((url) =>
+    transport: fallback([
+      ...own,
+      ...config.network.rpcUrls.map((url) =>
         http(url, { timeout: 8000, retryCount: 0 }),
       ),
-    ),
-    batch: { multicall: false },
+    ]),
+    // Bundles only reads made in the same moment at the same block; a revert in one call still fails only
+    // that read. batchSize is calldata bytes: 512 keeps a bundle under the Worker's 64 calls.
+    batch: { multicall: { batchSize: 512, wait: 16 } },
   });
   return { config, abis, targets, chain, client };
 }
@@ -211,6 +242,13 @@ export const historyConfig = {
     1: "https://eth.blockscout.com/api/v2/",
     11155111: "https://eth-sepolia.blockscout.com/api/v2/",
   } as Record<number, string>,
+  /**
+   * Per deployment (launchId): a block no earlier than which none of its contracts emitted anything, so history
+   * starts there instead of binary-searching each contract's deployment block (~25 archive eth_getCode calls per
+   * contract on every page load). Mainnet: the first stage-one block (26165887, SwarmRelay, unchanged since);
+   * every contract the terminal reads was deployed at or after it.
+   */
+  historyFloor: { "imdusd-mainnet-26166417": 26165887n } as Record<string, bigint>,
   chunkSize: 2000n,
   maxChunks: 10000,
   maxPages: 2000,

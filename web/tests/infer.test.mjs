@@ -237,3 +237,40 @@ test("/rpc serves only the pages' methods and contracts, caches shared reads, an
   assert.equal((await rpc(call(OURS), env(null))).status, 404);
   resetAllowlist();
 });
+
+test("imdusd.com/rpc (worker/index.js) serves the terminal's event logs: allowlisted contracts, numbered ranges, bounded span", async () => {
+  const { handleRpc, resetAllowlist } = await import("../worker/rpc.js");
+  const worker = (await import("../worker/index.js")).default;
+  const OURS = "0x1111111111111111111111111111111111111111";
+  const OTHER = "0x2222222222222222222222222222222222222222";
+  let calls = 0;
+  const env = { ASSETS: { fetch: async (r) => (new URL(r.url).pathname === "/rpc-allow.json" ? new Response(JSON.stringify([OURS])) : new Response("page")) } };
+  const deps = { fetch: async () => (calls++, new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: [] }))), cache: null };
+  const logs = (filter) => ({ jsonrpc: "2.0", id: 1, method: "eth_getLogs", params: [filter] });
+  const post = (body, opts = { logs: true, pages: "the imdUSD terminal" }) =>
+    handleRpc(new Request("https://imdusd.com/rpc", { method: "POST", body: JSON.stringify(body) }), env, deps, opts).then((r) => r.json());
+  resetAllowlist();
+  const ok = { address: OURS, fromBlock: "0x18f4000", toBlock: "0x18f47cf", topics: [] };
+  assert.deepEqual((await post(logs(ok))).result, []);
+  assert.deepEqual((await post(logs({ ...ok, address: [OURS] }))).result, []);
+  assert.equal(calls, 2);
+  for (const [filter, why] of [
+    [{ ...ok, address: OTHER }, /not one the imdUSD terminal read/],
+    [{ ...ok, address: [OURS, OTHER] }, /not one the imdUSD terminal read/],
+    [{ ...ok, address: undefined }, /name its contracts/],
+    [{ ...ok, fromBlock: "earliest" }, /numbered/],
+    [{ ...ok, toBlock: "latest" }, /numbered/],
+    [{ ...ok, toBlock: "0x18f6710" }, /at most 10000 blocks/],
+    [{ ...ok, toBlock: "0x18f3fff" }, /at most 10000 blocks/],
+    [{ address: OURS, blockHash: "0x" + "1".repeat(64) }, /block hash/],
+  ])
+    assert.match((await post(logs(filter))).error.message, why, JSON.stringify(filter));
+  assert.equal(calls, 2, "nothing refused reached an upstream");
+  // Without the option (infer.imdusd.com), logs stay refused.
+  assert.equal((await post(logs(ok), {})).error.code, -32601);
+  // The Worker routes /rpc to it; every other path is the assets.
+  resetAllowlist();
+  const r = await worker.fetch(new Request("https://imdusd.com/rpc", { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_getLogs", params: [{ ...ok, address: OTHER }] }) }), env);
+  assert.match((await r.json()).error.message, /imdUSD terminal/);
+  assert.equal(await (await worker.fetch(new Request("https://imdusd.com/terminal/"), env)).text(), "page");
+});

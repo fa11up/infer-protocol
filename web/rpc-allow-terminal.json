@@ -1,0 +1,20 @@
+{
+ "note": "Contracts the terminal reads that deployment-source.json does not list (the vault's linked contracts, from the mainnet deployment record). worker/rpc.js serves only these, the deployment's own, the addresses in src/, and Multicall3. A read refused for a missing contract shows in the Worker's logs as 'rpc refused'.",
+ "contracts": {
+  "vault": "0x0b69F8DA8D8cE521d74Ea69a7A3475B77302EF82",
+  "stablecoin": "0x61aAF8a992A3143e2B0C9cB0030b9fE702854a25",
+  "treasury": "0x6Ac8fF96Fb8DCF5d79A8eF1E59D9AC23f2BD27Bc",
+  "parameters": "0x3D96A6Ffada9C2E5B8fF8eb3f8AFB360116dA881",
+  "gem": "0x9Efa934D9fAd4AE28c998a40195646b965a97247",
+  "imd": "0xD34a99Bc0f67aE1bbd63C660e6d0b0dd03E263B7",
+  "priceFeed": "0x070e0603737242B01aBC1D223f7C92D63E86EC97",
+  "spotFeed": "0x77E1684402869Bf2B7c70B8bf21E1C7Ca7104951",
+  "nhiFeed": "0x014DabF6F940c9C383D9ef48636F70D842F65D7A",
+  "usdPriceFeed": "0x297b85afc6bbF9d9cCa636F7ED74c56DA79287A0",
+  "collateralPriceFeed": "0xF065C8b65AA9Ac6fd9cBAd15301738e91389d9e1",
+  "workOracle": "0xC7335a836ad85a6ac0830c6CEf602d735B9d8a8A",
+  "oracleAsker": "0x00856Bd495941f3b95dA5b7e374c76d822C9059E",
+  "intake": "0xa43e6F75ee006411F79Ac1C84120606C2330DE82",
+  "relay": "0x9AEb55c7A16C11B37DC96BD22a33906D1668e20B"
+ }
+}

@@ -39,6 +39,33 @@ function launchConnect(): string[] {
   if (BLOCKSCOUT[deployment.chainId]) origins.push(BLOCKSCOUT[deployment.chainId]);
   return [...new Set(origins)];
 }
+/**
+ * The contracts imdusd.com/rpc (worker/rpc.js) serves for the terminal: the deployment's own and its OracleAsker,
+ * the linked contracts in rpc-allow-terminal.json, every address in the terminal's source, and Multicall3, which
+ * bundles its reads. Anything else is refused (and logged by the Worker).
+ */
+function terminalRpcAllow(): string[] {
+  const deployment = JSON.parse(readFileSync(resolve(import.meta.dirname, "deployment-source.json"), "utf8"));
+  const extra = JSON.parse(readFileSync(resolve(import.meta.dirname, "rpc-allow-terminal.json"), "utf8"));
+  const ADDRESS = /0x[0-9a-fA-F]{40}(?![0-9a-fA-F])/g;
+  const src = resolve(import.meta.dirname, "src");
+  const source = readdirSync(src)
+    .filter((f) => /\.(ts|tsx|json)$/.test(f))
+    .flatMap((f) => readFileSync(resolve(src, f), "utf8").match(ADDRESS) ?? []);
+  return [
+    ...new Set(
+      [
+        ...deployment.contracts.map((c: { address: string }) => c.address),
+        ...(deployment.oracleAsker?.address ? [deployment.oracleAsker.address] : []),
+        ...Object.values(extra.contracts as Record<string, string>),
+        ...source,
+        "0xcA11bde05977b3631167028862bE2a173976CA11",
+      ]
+        .map((a) => a.toLowerCase())
+        .filter((a) => !/^0x0{40}$/.test(a)),
+    ),
+  ].sort();
+}
 const PUBLIC_REDIRECTS = `/terminal / 302
 /terminal/* / 302
 `;
@@ -107,6 +134,13 @@ function publicSite(): Plugin {
           source: PUBLIC_REDIRECTS,
         });
       this.emitFile({ type: "asset", fileName: "robots.txt", source: ROBOTS });
+      // The terminal's own RPC serves only these contracts; the public build has no terminal, so no /rpc.
+      if (LAUNCH)
+        this.emitFile({
+          type: "asset",
+          fileName: "rpc-allow.json",
+          source: JSON.stringify(terminalRpcAllow(), null, 1) + "\n",
+        });
     },
     writeBundle(options) {
       const dir = options.dir!;

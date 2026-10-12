@@ -61,6 +61,17 @@ if (LAUNCH) {
     ...new Set([...deployment.network.rpcUrls, ...ens].map((u) => new URL(u).origin).concat("https://eth.blockscout.com")),
   ].join(" ");
   if (connect !== want) fail(`connect-src is "${connect}", expected "${want}"`);
+  // imdusd.com/rpc (worker/rpc.js) serves only the contracts in rpc-allow.json: every contract the deployment
+  // names must be in it, and Multicall3, which bundles the terminal's reads.
+  const rpcAllow = JSON.parse(await readFile(`${dir}/rpc-allow.json`, "utf8").catch(() => "null"));
+  if (!Array.isArray(rpcAllow)) fail("rpc-allow.json is missing");
+  else
+    for (const a of [
+      ...deployment.contracts.map((c) => c.address),
+      deployment.oracleAsker.address,
+      "0xca11bde05977b3631167028862be2a173976ca11",
+    ])
+      if (!rpcAllow.includes(a.toLowerCase())) fail(`rpc-allow.json lacks ${a}`);
   if (/terminal/.test(await readFile(`${dir}/_redirects`, "utf8").catch(() => "")))
     fail("_redirects still sends /terminal home");
 } else if (connect !== "'self' https://cloudflareinsights.com")
@@ -75,6 +86,7 @@ for (const f of files.filter((f) => f.endsWith(".html")))
 if (builds.size !== 1 || builds.has(undefined)) fail(`pages disagree on <meta name="build">: ${[...builds]}`);
 if (!LAUNCH && files.some((f) => f.startsWith("terminal/")))
   fail("the terminal was built into the public site");
+if (!LAUNCH && files.includes("rpc-allow.json")) fail("the public site ships rpc-allow.json, but it has no terminal");
 // The public site connects to no chain: no deployment file, no ABIs.
 for (const f of LAUNCH ? [] : files)
   if (f === "imd-deployment.json" || f.startsWith("abi/"))

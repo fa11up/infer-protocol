@@ -13,6 +13,19 @@ export const read = async (
   blockNumber?: bigint,
 ): Promise<any> =>
   r.client.readContract({ ...t, functionName: onChain(fn), args, blockNumber });
+// Whether an address has code, checked once per page load: these contracts cannot self-destruct (no
+// SELFDESTRUCT in their runtime, launch check), so code seen once stays. Re-reading it for every contract on every
+// 15-second refresh was a third of the terminal's RPC calls. A miss is not remembered: it is re-read next time.
+const withCode = new WeakMap<Runtime, Set<string>>();
+async function hasCode(r: Runtime, address: Address, blockNumber: bigint) {
+  let seen = withCode.get(r);
+  if (!seen) withCode.set(r, (seen = new Set()));
+  if (seen.has(address.toLowerCase())) return true;
+  const code = await r.client.getCode({ address, blockNumber });
+  if (!code || code === "0x") return false;
+  seen.add(address.toLowerCase());
+  return true;
+}
 // Reads newer than the pinned ABIs. They are called through inline fragments rather than by
 // editing public/abi (which the manifest verifies against the deployment's source commit), and a
 // deployment that predates them reads as "unavailable" in its own field, never as a failed snapshot.
@@ -63,11 +76,7 @@ export async function snapshot(
   const targets = { ...r.targets };
   await Promise.all(
     Object.entries(targets).map(async ([n, t]) => {
-      const code = await r.client.getCode({
-        address: t.address,
-        blockNumber: bn,
-      });
-      if (!code || code === "0x")
+      if (!(await hasCode(r, t.address, bn)))
         throw Error(`No deployed code for ${n}. Transactions disabled.`);
     }),
   );
@@ -85,8 +94,7 @@ export async function snapshot(
       const a = (await read(r, vault, fn, [], bn)) as Address;
       if (a === zeroAddress) throw Error(`Missing linked contract: ${fn}`);
       targets[fn] = { address: a, abi: r.abis[abiName] };
-      const code = await r.client.getCode({ address: a, blockNumber: bn });
-      if (!code || code === "0x") throw Error(`No code for linked ${fn}`);
+      if (!(await hasCode(r, a, bn))) throw Error(`No code for linked ${fn}`);
     }),
   );
   await Promise.all(

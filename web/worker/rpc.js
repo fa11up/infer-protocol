@@ -1,4 +1,4 @@
-// infer.imdusd.com/rpc: the INFER pages' own Ethereum RPC. The browser calls this instead of a public RPC; the
+// infer.imdusd.com/rpc and imdusd.com/rpc: each site's own Ethereum RPC (the INFER pages; the imdUSD terminal). The browser calls this instead of a public RPC; the
 // Worker answers from Cloudflare's cache or forwards to a keyed provider, so:
 //
 // * reads every visitor shares (prices, pool state, supply, staking totals) cost one upstream call per block
@@ -7,6 +7,8 @@
 // * it is not a free RPC for anyone else: only the methods the pages use, and every eth_call and gas estimate
 //   must target a contract the pages read (rpc-allow.json, written by the build from the launch config and the
 //   page source), including each call inside a Multicall3 bundle.
+// * the terminal also reads its loan book and history from event logs, so imdusd.com's Worker passes
+//   `{ logs: true }`: eth_getLogs, only for allowlisted contracts and a numbered range of at most MAX_LOG_SPAN.
 //
 // Per visitor (Cloudflare's rate limiting bindings, keyed by the connecting IP; see wrangler.infer.jsonc):
 // RPC_REQUESTS caps requests to /rpc, and RPC_UPSTREAM caps the calls that miss the cache and reach a provider,
@@ -42,6 +44,9 @@ const ALLOWED = new Set([
   "eth_feeHistory",
 ]);
 const BLOCK_MS = 12_000;
+// The terminal reads logs in 2,000-block chunks (src/config.ts historyConfig.chunkSize); public RPCs refuse
+// spans above 50,000. One request may not ask a provider for more than this.
+const MAX_LOG_SPAN = 10_000n;
 const MAX_BODY = 64 * 1024;
 const MAX_BATCH = 20;
 const MAX_INNER = 64;
@@ -50,11 +55,11 @@ const AGGREGATE3 = parseAbi([
 ]);
 
 // The build's rpc-allow.json as a Set of lowercase addresses, read once per isolate; false when the build has
-// none (the whitepaper runs this same Worker), which turns /rpc into a 404.
+// none (the whitepaper runs the INFER Worker), which turns /rpc into a 404.
 let allow = null;
-async function allowlist(env) {
+async function allowlist(env, origin) {
   if (allow !== null) return allow;
-  const r = await env.ASSETS.fetch(new Request("https://infer.imdusd.com/rpc-allow.json"));
+  const r = await env.ASSETS.fetch(new Request(`${origin}/rpc-allow.json`));
   allow = r.ok ? new Set((await r.json()).map((a) => a.toLowerCase())) : false;
   return allow;
 }
@@ -63,9 +68,28 @@ export const resetAllowlist = () => (allow = null);
 
 const fail = (id, code, message) => ({ jsonrpc: "2.0", id: id ?? null, error: { code, message } });
 
+const block = (tag) => (typeof tag === "string" && /^0x[0-9a-f]{1,16}$/i.test(tag) ? BigInt(tag) : null);
+
+/** Why an eth_getLogs is refused, or null: allowlisted addresses only, over a numbered range of at most MAX_LOG_SPAN. */
+function logRefusal(filter, allowed, pages) {
+  if (!filter || typeof filter !== "object") return "a log filter is required";
+  if (filter.blockHash !== undefined) return "log filters by block hash are not served here";
+  const addresses = [filter.address ?? []].flat();
+  if (!addresses.length) return "a log filter must name its contracts";
+  for (const a of addresses)
+    if (typeof a !== "string" || !allowed.has(a.toLowerCase())) return `contract ${a} is not one ${pages} read`;
+  const from = block(filter.fromBlock);
+  const to = block(filter.toBlock);
+  if (from === null || to === null) return "a log filter must give numbered fromBlock and toBlock";
+  if (to < from || to - from >= MAX_LOG_SPAN) return `at most ${MAX_LOG_SPAN} blocks per log request`;
+  return null;
+}
+
 /** Why a call is refused, or null when it may go upstream. */
-function refusal(call, allowed) {
+function refusal(call, allowed, opts) {
+  const pages = opts.pages ?? "the INFER pages";
   if (!call || call.jsonrpc !== "2.0" || typeof call.method !== "string") return "not a JSON-RPC request";
+  if (call.method === "eth_getLogs" && opts.logs) return logRefusal(call.params?.[0], allowed, pages);
   if (!ALLOWED.has(call.method)) return `method ${call.method} is not served here`;
   if (call.method !== "eth_call" && call.method !== "eth_estimateGas") return null;
   const [tx, , overrides] = call.params ?? [];
@@ -81,10 +105,10 @@ function refusal(call, allowed) {
       return "only Multicall3 aggregate3 is served here";
     }
     if (inner.length > MAX_INNER) return `at most ${MAX_INNER} calls per bundle`;
-    for (const c of inner) if (!allowed.has(c.target.toLowerCase())) return `contract ${c.target} is not one the INFER pages read`;
+    for (const c of inner) if (!allowed.has(c.target.toLowerCase())) return `contract ${c.target} is not one ${pages} read`;
     return null;
   }
-  return allowed.has(to) ? null : `contract ${tx.to} is not one the INFER pages read`;
+  return allowed.has(to) ? null : `contract ${tx.to} is not one ${pages} read`;
 }
 
 /**
@@ -109,18 +133,21 @@ function shareable(call) {
       return at(p[1]);
     case "eth_getBlockByNumber":
       return p[1] === false ? at(p[0]) : 0;
+    case "eth_getLogs":
+      // A numbered range near the head can still be reorganised, so logs are shared for one block only.
+      return BLOCK_MS;
     default:
       return 0;
   }
 }
 
-async function cacheKey(call, ttl) {
+async function cacheKey(call, ttl, origin) {
   const bytes = new TextEncoder().encode(JSON.stringify([call.method, call.params ?? []]));
   const hash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))]
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
   // One key per block window, so an answer is never served past its window even if a cache keeps it longer.
-  return new Request(`https://infer.imdusd.com/__rpc/${hash}/${Math.floor(Date.now() / ttl)}`);
+  return new Request(`${origin}/__rpc/${hash}/${Math.floor(Date.now() / ttl)}`);
 }
 
 const providerTrouble = (e) =>
@@ -168,11 +195,15 @@ async function under(binding, key) {
   }
 }
 
-async function answer(call, env, allowed, upstreams, fetcher, cache, who) {
-  const no = refusal(call, allowed);
-  if (no) return { body: fail(call?.id, -32601, no), source: "refused" };
+async function answer(call, env, allowed, upstreams, fetcher, cache, who, opts, origin) {
+  const no = refusal(call, allowed, opts);
+  if (no) {
+    // Logged so a contract the page reads but the allowlist lacks shows up in the Worker's logs.
+    console.log(`rpc refused: ${no}`);
+    return { body: fail(call?.id, -32601, no), source: "refused" };
+  }
   const ttl = shareable(call);
-  const key = ttl && cache ? await cacheKey(call, ttl) : null;
+  const key = ttl && cache ? await cacheKey(call, ttl, origin) : null;
   if (key) {
     const hit = await cache.match(key);
     if (hit) return { body: { jsonrpc: "2.0", id: call.id, ...(await hit.json()) }, source: "cache" };
@@ -185,8 +216,12 @@ async function answer(call, env, allowed, upstreams, fetcher, cache, who) {
   return { body: { jsonrpc: "2.0", id: call.id, ...got }, source: "upstream" };
 }
 
-/** POST /rpc. `deps` lets tests pass a fetch and a cache. */
-export async function handleRpc(request, env, deps = {}) {
+/**
+ * POST /rpc. `deps` lets tests pass a fetch and a cache. `opts`: `logs` serves eth_getLogs (imdusd.com's
+ * terminal), `pages` names the site in refusals.
+ */
+export async function handleRpc(request, env, deps = {}, opts = {}) {
+  const origin = new URL(request.url).origin;
   const fetcher = deps.fetch ?? fetch;
   const cache = deps.cache === undefined ? (typeof caches !== "undefined" ? caches.default : null) : deps.cache;
   const json = (body, status = 200, source = "") =>
@@ -194,7 +229,7 @@ export async function handleRpc(request, env, deps = {}) {
       status,
       headers: { "content-type": "application/json", "cache-control": "no-store", ...(source ? { "x-rpc": source } : {}) },
     });
-  const allowed = await allowlist(env);
+  const allowed = await allowlist(env, origin);
   if (!allowed) return new Response("Not found", { status: 404 });
   if (request.method !== "POST") return json(fail(null, -32600, "POST a JSON-RPC request"), 405);
   const who = request.headers.get("cf-connecting-ip") ?? "unknown";
@@ -219,9 +254,9 @@ export async function handleRpc(request, env, deps = {}) {
   ];
   if (Array.isArray(body)) {
     if (body.length === 0 || body.length > MAX_BATCH) return json(fail(null, -32600, `send 1 to ${MAX_BATCH} calls`), 400);
-    const out = await Promise.all(body.map((c) => answer(c, env, allowed, upstreams, fetcher, cache, who)));
+    const out = await Promise.all(body.map((c) => answer(c, env, allowed, upstreams, fetcher, cache, who, opts, origin)));
     return json(out.map((o) => o.body), 200, out.map((o) => o.source).join(","));
   }
-  const o = await answer(body, env, allowed, upstreams, fetcher, cache, who);
+  const o = await answer(body, env, allowed, upstreams, fetcher, cache, who, opts, origin);
   return json(o.body, 200, o.source);
 }

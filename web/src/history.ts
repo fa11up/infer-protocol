@@ -96,6 +96,8 @@ async function deploymentBlock(
   }
   const old = map.get(t.address);
   if (old) return old;
+  const floor = historyConfig.historyFloor[r.config.launchId];
+  if (floor !== undefined && floor <= head) return floor;
   const pending = (async () => {
     try {
       let lo = 0n,

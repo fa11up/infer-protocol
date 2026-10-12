@@ -1,7 +1,12 @@
-// imdusd.com's Worker. NOT RUN in normal operation (run_worker_first is false, so Cloudflare serves every file
-// straight from its cache and never invokes it): both redirects below are now the zone's "Always Use HTTPS"
-// setting and a www -> imdusd.com Redirect Rule. Kept as the fallback if those are ever switched off: set
-// run_worker_first back to true in wrangler.jsonc and this restores them.
+// imdusd.com's Worker. Cloudflare serves every file straight from its cache without invoking it, except /rpc
+// (run_worker_first in wrangler.jsonc): the terminal's own Ethereum RPC (worker/rpc.js), cached per block,
+// keyed upstreams, an allowlist of the deployment's contracts, plus the event logs its loan book reads.
+//
+// The redirects below are now the zone's "Always Use HTTPS" setting and a www -> imdusd.com Redirect Rule, so
+// they never run for pages. Kept as the fallback if those are ever switched off: set run_worker_first back to
+// true in wrangler.jsonc and this restores them.
+import { handleRpc } from "./rpc.js";
+
 const HOST = "imdusd.com";
 export default {
   async fetch(request, env) {
@@ -12,6 +17,8 @@ export default {
       if (url.hostname === `www.${HOST}`) url.hostname = HOST;
       return Response.redirect(url.toString(), 301);
     }
+    // Only a build that ships rpc-allow.json (the launch build, with the terminal) serves it; otherwise 404.
+    if (url.pathname === "/rpc") return handleRpc(request, env, {}, { logs: true, pages: "the imdUSD terminal" });
     return env.ASSETS.fetch(request);
   },
 };
