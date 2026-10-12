@@ -247,7 +247,12 @@ async function round(page, direction, shot) {
   await dialog.waitFor();
   await dialog.getByRole("button", { name: direction, exact: true }).click();
   const max = dialog.locator("button.balance-use");
-  await until("a maximum", async () => (await max.isEnabled()) && /Max [1-9]|Max 0\.[0-9]*[1-9]/.test(await max.textContent()), 240_000);
+  await until("a maximum", async () => (await max.isEnabled()) && /Max [1-9]|Max 0\.[0-9]*[1-9]/.test(await max.textContent()), 240_000).catch(
+    async (e) => {
+      if (SHOTS) await page.screenshot({ path: `${SHOTS}/${shot}-no-max.png` });
+      throw Error(`${e.message}\nwindow: ${await dialog.innerText().catch(() => "")}`);
+    },
+  );
   await max.click();
   const start = dialog.getByRole("button", { name: /Start round|Start deleverage|Confirm round in wallet/ });
   await until("the round quoted", () => start.isEnabled());

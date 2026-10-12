@@ -190,7 +190,12 @@ export function pegQuoter(
         args: [{ poolKey: PEG_KEY, zeroForOne: side === "sell", exactAmount: amount, hookData: "0x" }],
       })
       .then((r: readonly [bigint, bigint]) => r[0])
-      .catch(() => undefined);
+      // A revert means the pool cannot fill the amount; anything else (a timeout, a refused read) is not an answer
+      // about the pool, and is thrown so the window says "could not be read" rather than "the peg is at its edge".
+      .catch((e: any) => {
+        if (e?.name === "ContractFunctionExecutionError" && e?.cause?.name === "ContractFunctionRevertedError") return undefined;
+        throw e;
+      });
 }
 export const PEG_POOL_CHECK = () => poolId(PEG_KEY) === PEG_POOL_ID;
 
