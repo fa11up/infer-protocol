@@ -80,7 +80,7 @@ const normalized = (logs) =>
   }));
 const runtime = (client) => ({ config: { chainId: 11155111 }, client });
 
-test("historical ranges are contiguous, inclusive, and at most 2,000 blocks", async () => {
+test("historical ranges are contiguous, inclusive, end on multiples of 2,000 (so /rpc can cache them), the first at least a full chunk", async () => {
   const ranges = [];
   const r = runtime({
     getLogs: async (params) => {
@@ -93,9 +93,8 @@ test("historical ranges are contiguous, inclusive, and at most 2,000 blocks", as
   assert.deepEqual(
     ranges.map((p) => [p.fromBlock, p.toBlock]),
     [
-      [16n, 2015n],
-      [2016n, 4015n],
-      [4016n, 5020n],
+      [16n, 3999n],
+      [4000n, 5020n],
     ],
   );
 });

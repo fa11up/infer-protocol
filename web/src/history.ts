@@ -176,29 +176,43 @@ export async function rangeLogs(
   to: bigint,
 ): Promise<{ logs: ChainLog[]; source: History["source"] }> {
   try {
-    const logs: ChainLog[] = [];
-    let chunks = 0;
-    for (let start = from; start <= to; start += historyConfig.chunkSize) {
-      if (++chunks > historyConfig.maxChunks)
+    // Windows end on multiples of chunkSize, so every visitor asks for the same closed windows and /rpc can serve
+    // them from its cache; they are read several at a time, and any one failing fails the range as before. The first
+    // runs at least a full chunk (up to two), so a start just before a boundary is not a sliver that holds no logs
+    // and fails as unverified.
+    const size = historyConfig.chunkSize;
+    const windows: [bigint, bigint][] = [];
+    for (let start = from; start <= to; ) {
+      if (windows.length >= historyConfig.maxChunks)
         throw Error("History range limit");
-      const end = start + historyConfig.chunkSize - 1n;
+      const end = ((start + size - 1n) / size + 1n) * size - 1n;
+      windows.push([start, end < to ? end : to]);
+      start = end + 1n;
+    }
+    const read = async ([start, end]: [bigint, bigint]) => {
       const batch = await r.client.getLogs({
         address: t.address,
         fromBlock: start,
-        toBlock: end < to ? end : to,
+        toBlock: end,
       });
       // Some providers silently refuse ranges with []. Never treat that as proof of absence.
       if (!batch.length) throw Error("Empty RPC log range is unverified");
       const normalized = batch.map((log) => normalize(log, t.address));
-      if (
-        normalized.some(
-          (log) =>
-            log.blockNumber < start || log.blockNumber > (end < to ? end : to),
-        )
-      )
+      if (normalized.some((log) => log.blockNumber < start || log.blockNumber > end))
         throw Error("RPC returned logs outside the requested range");
-      logs.push(...normalized);
-    }
+      return normalized;
+    };
+    const got: ChainLog[][] = new Array(windows.length);
+    let next = 0;
+    await Promise.all(
+      Array.from({ length: Math.min(historyConfig.parallel, windows.length) }, async () => {
+        while (next < windows.length) {
+          const i = next++;
+          got[i] = await read(windows[i]);
+        }
+      }),
+    );
+    const logs = got.flat();
     if (!logs.length) throw Error("No verifiable logs");
     return { logs, source: "RPC" };
   } catch {
@@ -210,6 +224,34 @@ export async function rangeLogs(
     return { logs, source: "Blockscout" };
   }
 }
+// History kept in the browser between visits, so a returning visitor reads only the blocks since: per deployment and
+// contract, with bigints as strings. Storage may be missing or full (private windows, previews): then it is skipped.
+const stored = (r: Runtime, address: Address) => `history:${r.config.chainId}:${r.config.launchId}:${address.toLowerCase()}`;
+function load(r: Runtime, address: Address): History | undefined {
+  try {
+    const raw = localStorage.getItem(stored(r, address));
+    if (!raw) return undefined;
+    const h = JSON.parse(raw);
+    return {
+      from: BigInt(h.from),
+      through: BigInt(h.through),
+      source: h.source,
+      logs: h.logs.map((l: any) => normalize({ ...l, blockNumber: BigInt(l.blockNumber) }, address)),
+    };
+  } catch {
+    return undefined;
+  }
+}
+function save(r: Runtime, address: Address, h: History) {
+  try {
+    localStorage.setItem(
+      stored(r, address),
+      JSON.stringify({ ...h, from: h.from.toString(), through: h.through.toString(), logs: h.logs.map((l) => ({ ...l, blockNumber: l.blockNumber.toString() })) }),
+    );
+  } catch {
+    /* No storage: the next visit reads from the start again. */
+  }
+}
 export async function history(
   r: Runtime,
   t: Target,
@@ -219,6 +261,10 @@ export async function history(
   if (!map) {
     map = new Map();
     caches.set(r, map);
+  }
+  if (!map.has(t.address)) {
+    const kept = load(r, t.address);
+    if (kept) map.set(t.address, kept);
   }
   const old = map.get(t.address);
   const from = old?.from ?? (await deploymentBlock(r, t, head));
@@ -243,6 +289,7 @@ export async function history(
   );
   const result = { logs, from, through: head, source: next.source };
   map.set(t.address, result);
+  save(r, t.address, result);
   return result;
 }
 function decode(t: Target, log: ChainLog) {
@@ -273,32 +320,18 @@ export async function loanBook(r: Runtime, s: Snapshot): Promise<Book> {
   // history() already refused an unverified empty read (rangeLogs throws on [] from both sources), so
   // these logs are real; no Lock among them is an empty book (a fresh vault), not missing data.
   if (!owners.size) return { positions: [], history: h };
-  const positions: Loan[] = [];
-  // Bound concurrent calls, and reject the whole result if any owner cannot be read.
+  // Every owner at once (the client bundles them into multicalls), rejecting the whole result if any cannot be read.
   const list = [...owners].sort();
-  for (let i = 0; i < list.length; i += 6) {
-    const batch = await Promise.all(
-      list.slice(i, i + 6).map(async (owner) => {
-        const [collateral, debt] = (await read(
-          r,
-          t,
-          "positions",
-          [owner],
-          s.block,
-        )) as [bigint, bigint];
-        if (!debt) return undefined;
-        const cr = (await read(
-          r,
-          t,
-          "collateralRatio",
-          [owner],
-          s.block,
-        )) as bigint;
-        return { owner, collateral, debt, cr };
-      }),
-    );
-    positions.push(...batch.filter((p): p is Loan => !!p));
-  }
+  const rows = await Promise.all(
+    list.map(async (owner) => {
+      const [[collateral, debt], cr] = (await Promise.all([
+        read(r, t, "positions", [owner], s.block),
+        read(r, t, "collateralRatio", [owner], s.block),
+      ])) as [[bigint, bigint], bigint];
+      return debt ? { owner, collateral, debt, cr } : undefined;
+    }),
+  );
+  const positions = rows.filter((p): p is Loan => !!p);
   return { positions, history: h };
 }
 export function acceptedPoints(t: Target, logs: ChainLog[]): AcceptedPoint[] {

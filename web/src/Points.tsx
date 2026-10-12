@@ -32,18 +32,46 @@ async function pegLiquidityTxs(r: Runtime, head: number): Promise<Set<string> | 
   const pool = pointsConfig.pegPools[r.config.chainId];
   const pm = pointsConfig.poolManagers[r.config.chainId];
   if (!pool || !pm) return undefined;
-  const old = lpScans.get(r);
+  // Kept in the browser between visits (missing or full storage just means a full scan), and re-read from 64 blocks
+  // before where the last scan stopped, so a reorganised block is read again.
+  const storeKey = `lp-scan:${r.config.chainId}:${pool.poolId}`;
+  let old = lpScans.get(r);
+  if (!old)
+    try {
+      const kept = JSON.parse(localStorage.getItem(storeKey) ?? "null");
+      if (kept && Number.isSafeInteger(kept.through) && Array.isArray(kept.txs)) old = { through: kept.through, txs: new Set(kept.txs) };
+    } catch {
+      /* no storage */
+    }
   const txs = new Set(old?.txs);
   const step = Number(historyConfig.chunkSize);
-  for (let a = old ? old.through + 1 : pool.fromBlock; a <= head; a += step) {
-    const b = Math.min(head, a + step - 1);
-    const logs = (await r.client.request({
-      method: "eth_getLogs",
-      params: [{ address: pm as `0x${string}`, topics: [MODIFY_LIQUIDITY, pool.poolId], fromBlock: `0x${a.toString(16)}`, toBlock: `0x${b.toString(16)}` }],
-    })) as { transactionHash: string }[];
-    for (const l of logs) txs.add(l.transactionHash.toLowerCase());
+  // Windows aligned to multiples of the chunk size, as history.ts reads them, so /rpc can serve closed ones from
+  // its cache; several at a time.
+  const windows: [number, number][] = [];
+  for (let a = old ? Math.max(pool.fromBlock, old.through - 63) : pool.fromBlock; a <= head; ) {
+    const b = (Math.floor((a + step - 1) / step) + 1) * step - 1;
+    windows.push([a, Math.min(head, b)]);
+    a = b + 1;
   }
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(historyConfig.parallel, windows.length) }, async () => {
+      while (next < windows.length) {
+        const [a, b] = windows[next++];
+        const logs = (await r.client.request({
+          method: "eth_getLogs",
+          params: [{ address: pm as `0x${string}`, topics: [MODIFY_LIQUIDITY, pool.poolId], fromBlock: `0x${a.toString(16)}`, toBlock: `0x${b.toString(16)}` }],
+        })) as { transactionHash: string }[];
+        for (const l of logs) txs.add(l.transactionHash.toLowerCase());
+      }
+    }),
+  );
   lpScans.set(r, { through: head, txs });
+  try {
+    localStorage.setItem(storeKey, JSON.stringify({ through: head, txs: [...txs] }));
+  } catch {
+    /* no storage */
+  }
   return txs;
 }
 
