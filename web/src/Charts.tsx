@@ -48,8 +48,10 @@ export function useCharts(r: Runtime, s?: Snapshot) {
       }
     };
     void Promise.all([
+      // A failed read keeps the last good book on screen with its error, rather than emptying the chart.
       load(() => loanBook(r, s)).then((result) => {
-        if (mounted.current) setBook(result);
+        if (mounted.current)
+          setBook((old) => (result.error && old.data ? { ...old, loading: false, error: result.error } : result));
       }),
       ...[
         "PriceFeed",
@@ -63,7 +65,11 @@ export function useCharts(r: Runtime, s?: Snapshot) {
             [name]: { ...old[name], loading: true },
           }));
         const result = await load(() => cadence(r, s.targets[name], s.block));
-        if (mounted.current) setFeeds((old) => ({ ...old, [name]: result }));
+        if (mounted.current)
+          setFeeds((old) => ({
+            ...old,
+            [name]: result.error && old[name]?.data ? { ...old[name], loading: false, error: result.error } : result,
+          }));
       }),
     ]).finally(() => {
       running.current = false;

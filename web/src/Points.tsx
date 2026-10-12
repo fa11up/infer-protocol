@@ -136,8 +136,9 @@ export function usePoints(r: Runtime, s?: Snapshot) {
     let live = true;
     setState((old) => ({ ...old, loading: true }));
     loadPoints(r, s).then(
-      (data) => live && setState({ data, loading: false, at: Date.now() }),
-      (e) => live && setState({ error: message(e), loading: false }),
+      (data) => live && setState({ data, loading: false, at: Date.now(), error: undefined }),
+      // A failed refresh keeps the last board (with the error noted under it) rather than replacing it.
+      (e) => live && setState((old) => ({ ...old, error: message(e), loading: false })),
     );
     return () => {
       live = false;
@@ -147,7 +148,7 @@ export function usePoints(r: Runtime, s?: Snapshot) {
 }
 
 /** A figure that keeps counting between blocks, from the points at the snapshot and the rate since. */
-function useLive(base: bigint, perBlock: bigint, since: number | undefined) {
+function useLive(base: bigint, perBlock: bigint, since: number | undefined, id: string) {
   const [now, setNow] = useState(() => Date.now());
   const reduced = useRef(
     typeof matchMedia === "function" &&
@@ -165,10 +166,15 @@ function useLive(base: bigint, perBlock: bigint, since: number | undefined) {
     since === undefined
       ? 0
       : Math.max(0, (now - since) / 1000 / SECONDS_PER_BLOCK);
-  return (
+  const value =
     displayNumber(base, pointsConfig.blocksPerDay) +
-    displayNumber(perBlock, pointsConfig.blocksPerDay) * blocks
-  );
+    displayNumber(perBlock, pointsConfig.blocksPerDay) * blocks;
+  // Never backwards. The count runs on from when the points were read, which is some seconds after the block
+  // they were read at, so it runs a little ahead and the next read would pull it back. It holds instead,
+  // until the chain catches up. Another account (`id`) starts afresh.
+  const shown = useRef({ id: "", value: 0 });
+  if (shown.current.id !== id || value >= shown.current.value) shown.current = { id, value };
+  return shown.current.value;
 }
 
 // Rounded DOWN, like every exact figure the engine displays, so the counter never shows a point the
@@ -204,15 +210,17 @@ export function Points({
     mine?.points ?? 0n,
     mine?.ratePerBlock ?? 0n,
     points.at,
+    account?.toLowerCase() ?? "",
   );
   const liveTotal = useLive(
     data?.total ?? 0n,
     data?.totalRatePerBlock ?? 0n,
     points.at,
+    "total",
   );
   const testnet = r.config.chainId !== 1;
 
-  if (points.error)
+  if (points.error && !data)
     return (
       <div className="desk-col">
         <p className="notice" role="alert">

@@ -125,14 +125,23 @@ function Terminal({ r }: { r: Runtime }) {
     try {
       const next = await snapshot(r, account);
       if (id === serial.current) {
-        setSnapshot(next);
+        // A read that failed this round (it is named in `errors`) keeps the value the last snapshot had, so
+        // one slow RPC answer no longer blanks a figure for a refresh. Actions stay locked while `errors` is
+        // non-empty, so nothing is ever sent against a carried-over value.
+        setSnapshot((old) => {
+          if (!old || !next.errors.length) return next;
+          const v = { ...next.v };
+          for (const [k, x] of Object.entries(old.v))
+            if ((v as Record<string, unknown>)[k] === undefined && x !== undefined)
+              (v as Record<string, unknown>)[k] = x;
+          return { ...next, v };
+        });
         setReadError("");
       }
     } catch (e) {
-      if (id === serial.current) {
-        setReadError(message(e));
-        setSnapshot(undefined);
-      }
+      // A failed refresh keeps what is on screen (actions lock and the notice says why) instead of emptying
+      // the whole terminal until the next read succeeds.
+      if (id === serial.current) setReadError(message(e));
     } finally {
       if (id === serial.current) setRefreshing(false);
     }

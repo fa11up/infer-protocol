@@ -55,14 +55,12 @@ export function Redemption({
     version.current++;
     setQ(undefined);
   }, [input, candidate, slippage, actions.account]);
-  // A new snapshot (every 15 s) clears a quote already shown, which names an older block, but lets one in
-  // flight land: voiding that too meant a quote slower than the refresh never appeared, with no error.
-  useEffect(() => {
-    setQ(undefined);
-  }, [s]);
+  // A quote stays through refreshes (it names its block, and submitting simulates again against the minimum
+  // it carries); clearing it every 15 s made it vanish while it was being read.
   useEffect(() => {
     let active = true;
-    setCurve([]);
+    // The last curve stays until the new one is read: emptied first, the table blinked "Supply —" each refresh.
+    if (s && !(s.v.supply > 0n)) setCurve([]);
     if (s && s.v.supply > 0n) {
       Promise.all(
         [1, 5, 10].map(async (pct) => {
