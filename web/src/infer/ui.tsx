@@ -20,6 +20,7 @@ import { INFER_VIBES } from "./vibes";
 import { Sound } from "../score";
 import { INFER_SCORE } from "./score";
 import { NetworkChip } from "../site";
+import { useInferMarket, usdCompact, usdPrice } from "./price";
 import { LAUNCH, LIVE } from "./config";
 import { ERC20, client, message } from "./chain";
 import { NATIVE } from "./swap";
@@ -810,6 +811,7 @@ export function Shell({
             imdUSD ↗
           </a>
         </nav>
+        {LIVE && <InferTicker />}
         <div className="infer-tools">
           <NetworkChip network="Mainnet" state={LIVE ? "live" : "staging"} />
           <ThemeToggle />
@@ -846,6 +848,21 @@ export function Shell({
       )}
       {children}
     </div>
+  );
+}
+
+/** INFER's price and market cap in the masthead, as on the /buy/ card (launch pool × IMD's ETH pool × ETH/USD,
+ * every 30 s while the page is on screen). Dashes until the first read. */
+function InferTicker() {
+  const m = useInferMarket();
+  return (
+    <p className="infer-ticker" title="INFER in USD: the launch pool, IMD's ETH pool and Chainlink ETH/USD">
+      <span className="sr-only">INFER price </span>
+      <b>{m ? usdPrice(m.priceUsd) : "—"}</b>
+      <span className="infer-ticker-cap">
+        <span aria-hidden="true">{" · "}</span>MC <b>{m ? usdCompact(m.marketCapUsd) : "—"}</b>
+      </span>
+    </p>
   );
 }
 

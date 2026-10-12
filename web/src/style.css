@@ -3472,7 +3472,8 @@ button.infer-go:not(:disabled):hover {
     grid-template-columns: minmax(0, 1fr) auto auto auto auto auto;
     grid-template-areas:
       "mark chip theme vibe sound wallet"
-      "nav nav nav nav nav nav";
+      "nav nav nav nav nav nav"
+      "ticker ticker ticker ticker ticker ticker";
     align-items: center;
     gap: 4px 10px;
     padding: 8px 16px 0;
@@ -3515,6 +3516,12 @@ button.infer-go:not(:disabled):hover {
     .infer-tools .chip {
       display: none;
     }
+  }
+  /* INFER's price and market cap: a short row of their own under the nav. */
+  .infer-ticker {
+    grid-area: ticker;
+    padding: 0 0 8px;
+    font-size: 10.5px;
   }
   .infer-nav {
     grid-area: nav;
@@ -3825,6 +3832,27 @@ html.app-terminal body:has(> .vibe-canvas:not([hidden])) :is(input, textarea) {
     /* Four links do not fit a 320px phone on one line: let them wrap rather than push the page wide. */
     flex-wrap: wrap;
   }
+}
+/* Market prices in the headers: imdUSD's peg on imdusd.com (a chip beside the network chips), INFER's price and
+   market cap on infer.imdusd.com (beside the nav). Figures in the ink colour, labels muted. */
+.chip.ticker {
+  text-decoration: none;
+}
+.chip.ticker b,
+.infer-ticker b {
+  color: var(--text);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.chip.ticker b.ticker-off {
+  color: var(--danger);
+}
+.infer-ticker {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  white-space: nowrap;
 }
 /* The network chips, side by side just before the theme and background buttons. */
 .chips {

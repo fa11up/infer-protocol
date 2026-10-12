@@ -4,6 +4,7 @@ import { Vibe } from "./vibe";
 import { IMDUSD_VIBES } from "./vibe-imdusd";
 import { Sound } from "./score";
 import { IMDUSD_SCORE } from "./score-imdusd";
+import { PegTicker } from "./peg-price";
 
 // The site is three static pages (/, /terminal/, /docs/), so any host serves it with no routing
 // rules. Each page names the site root relative to itself in <meta name="app-root">; every shared
@@ -94,6 +95,7 @@ export function SiteHeader({
           <span className="chip">{`${network} · testnet`}</span>
         ) : (
           <span className="chips">
+            <PegTicker />
             <NetworkChip network="Mainnet" state="live" />
             <NetworkChip network="Robinhood" state="staging" />
           </span>
