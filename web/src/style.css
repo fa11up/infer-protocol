@@ -4303,3 +4303,59 @@ button.infer-head-connect:not(:disabled):hover,
   opacity: 0.6;
   cursor: progress;
 }
+/* The leverage window (src/Loop.tsx): the review dialog's frame, a little wider for the round's figures. */
+.loop-open {
+  width: 100%;
+  min-height: 30px;
+  font-size: 11px;
+  margin-block: 0 10px;
+}
+dialog.loop-dialog {
+  width: min(560px, calc(100% - 32px));
+}
+.loop-dialog h2 {
+  margin-bottom: 14px;
+}
+.loop-now,
+.loop-plan {
+  border-top: 1px solid var(--rule);
+  padding-top: 6px;
+  margin-block: 10px;
+}
+.loop-dialog .field {
+  margin-block: 8px;
+}
+.loop-dialog .choice {
+  margin-block: 4px 8px;
+}
+.loop-check {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 11px;
+  margin-block: 10px;
+}
+.loop-steps {
+  margin: 10px 0 0;
+  padding-inline-start: 20px;
+  font-size: 11px;
+  line-height: 1.7;
+  color: var(--muted);
+}
+.loop-steps li[data-state="done"] {
+  color: var(--healthy);
+}
+.loop-steps li[data-state="done"]::marker {
+  content: "✓  ";
+}
+.loop-steps li[data-state="active"] {
+  color: var(--text);
+}
+.loop-check input {
+  width: auto;
+  height: auto;
+  min-height: 0;
+  flex: none;
+  margin: 0;
+  accent-color: var(--text);
+}

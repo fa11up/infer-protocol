@@ -8,7 +8,7 @@
     "typecheck": "tsc --noEmit",
     "build": "npm run typecheck && vite build && node scripts/manifest.mjs",
     "check:export": "node scripts/manifest.mjs --check",
-    "test": "node --test tests/math.test.mjs tests/explain.test.mjs tests/names.test.mjs tests/priceUpdate.test.mjs tests/governance.test.mjs tests/swarm.test.mjs tests/theme.test.mjs tests/history.test.mjs tests/infer.test.mjs tests/swap.unit.test.mjs tests/swap.fork.test.mjs",
+    "test": "node --test tests/math.test.mjs tests/explain.test.mjs tests/names.test.mjs tests/priceUpdate.test.mjs tests/governance.test.mjs tests/swarm.test.mjs tests/theme.test.mjs tests/history.test.mjs tests/infer.test.mjs tests/swap.unit.test.mjs tests/swap.fork.test.mjs tests/leverage.unit.test.mjs tests/loop.fork.test.mjs",
     "test:browser": "node tests/browser.mjs",
     "test:soft": "node tests/soft.mjs",
     "test:disconnect": "node tests/disconnect-redraw.mjs",
@@ -22,7 +22,8 @@
     "deploy:launch": "npm run build:launch && npx -y wrangler@4 deploy",
     "build:infer": "npm run typecheck && vite build --mode infer && node scripts/infer-check.mjs",
     "deploy:infer": "npm run build:infer && npx -y wrangler@4 deploy -c wrangler.infer.jsonc",
-    "deploy:whitepaper": "node whitepaper/stage.mjs && npx -y wrangler@4 deploy -c wrangler.whitepaper.jsonc"
+    "deploy:whitepaper": "node whitepaper/stage.mjs && npx -y wrangler@4 deploy -c wrangler.whitepaper.jsonc",
+    "test:loop": "node tests/loop-e2e.mjs"
   },
   "dependencies": {
     "@walletconnect/universal-provider": "2.25.0",

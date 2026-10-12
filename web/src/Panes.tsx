@@ -51,6 +51,7 @@ import {
 import { useEns, ensName, displayName } from "./ens";
 import { PriceStatus } from "./PriceStatus";
 import { describePending, utc, countdown, CHANGE_KINDS } from "./governance";
+import { LoopWindow, loopAvailable } from "./Loop";
 const amt = (name: string) => ({ name, kind: "amount" as const });
 const addr = (name: string) => ({ name, kind: "address" as const });
 const num = (name: string) => ({ name, kind: "uint" as const });
@@ -163,6 +164,7 @@ export function Position({
 }) {
   const [input, setInput] = useState("");
   const [act, setAct] = useState("deposit");
+  const [looping, setLooping] = useState(false);
   const g = collateral();
   // With share collateral, a deposit can be IMD (the vault stakes it) or sIMD itself.
   const [token, setToken] = useState<"imd" | "gem">("imd");
@@ -281,6 +283,12 @@ export function Position({
             g.share ? ["unstake", "Unstake"] : ["faucet", "Test IMD"],
           ]}
         />
+        {loopAvailable(r, s) && (
+          <button type="button" className="loop-open" onClick={() => setLooping(true)}>
+            Leverage loop ↗
+          </button>
+        )}
+        {looping && <LoopWindow r={r} s={s} actions={actions} onClose={() => setLooping(false)} />}
         {act === "deposit" && (
           <>
             {g.share && (

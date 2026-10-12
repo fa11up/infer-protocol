@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { DisconnectBox } from "./disconnect";
 import {
+  encodeFunctionData,
   formatUnits,
   type Address,
   type Hash,
@@ -14,6 +15,7 @@ import {
   Select,
   type Actions,
   type Request,
+  type Call,
   AddressLink,
   ConnectWallet,
 } from "./actions";
@@ -317,6 +319,65 @@ function Terminal({ r }: { r: Runtime }) {
           status: "Simulation passed. Review the transaction before signing.",
         });
         setReview({ id, request, account: account! });
+      } finally {
+        locked.current = false;
+        setBusy("");
+      }
+    },
+    sequence: async (id, { calls, batch, onStep }) => {
+      if (locked.current) throw Error("Wait for the current action to finish.");
+      if (!calls.length) throw Error("Nothing to send.");
+      locked.current = true;
+      setBusy(id);
+      const simulate = (c: Call) =>
+        r.client
+          .simulateContract({ ...c.target, functionName: onChain(c.fn), args: onChainArgs(c.args), account })
+          .catch((e) => explained(e, { fn: c.fn, args: c.args, s, account }));
+      try {
+        const p = window.ethereum;
+        if (!p) throw Error("Connect a browser wallet.");
+        await guard(p);
+        const w = wallet(r, p);
+        if (batch) {
+          // Later calls depend on earlier ones (the swap spends what the borrow mints), so only the first can be
+          // simulated alone; the swap's minimum out and the wallet's own simulation of the batch cover the rest.
+          await simulate(calls[0]);
+          setTx({ status: `Confirm ${calls.length} steps in your wallet: one signature, all or nothing.` });
+          const { id: batchId } = await w.sendCalls({
+            account: account!,
+            chain: r.chain,
+            forceAtomic: true,
+            calls: calls.map((c) => ({
+              to: c.target.address,
+              data: encodeFunctionData({ abi: c.target.abi, functionName: onChain(c.fn), args: onChainArgs(c.args) }),
+            })),
+          });
+          setTx({ status: "Submitted. Waiting for on-chain confirmation…" });
+          const result = await w.waitForCallsStatus({ id: batchId, timeout: 180_000 });
+          const hash = result.receipts?.[result.receipts.length - 1]?.transactionHash;
+          if (result.status !== "success")
+            throw Error("The batch did not go through. It is all or nothing, so none of its steps were applied.");
+          onStep?.(calls.length);
+          setTx({ status: "Confirmed. Refreshing balances and state…", hash });
+        } else {
+          for (const [i, c] of calls.entries()) {
+            await guard(p);
+            const simulation = await simulate(c);
+            await guard(p);
+            setTx({ status: `Step ${i + 1} of ${calls.length}: ${c.label}. Confirm in your wallet.` });
+            const hash = await w.writeContract({ ...simulation.request, account: account!, chain: r.chain });
+            setTx({ status: `Step ${i + 1} of ${calls.length} submitted. Waiting for confirmation…`, hash });
+            const receipt = await r.client.waitForTransactionReceipt({ hash, confirmations: 1, timeout: 120000 });
+            if (receipt.status !== "success")
+              throw Error(`Step ${i + 1} (${c.label}) reverted on chain. The steps before it stand.`);
+            onStep?.(i + 1);
+          }
+        }
+        await refresh();
+        setTx((old) => ({ ...old, status: "Confirmed on chain." }));
+      } catch (e) {
+        setTx((old) => ({ ...old, status: "Action stopped.", error: message(e) }));
+        throw e;
       } finally {
         locked.current = false;
         setBusy("");

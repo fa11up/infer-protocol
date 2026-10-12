@@ -24,11 +24,28 @@ export type Request = {
   /** Figures only this call site knows, e.g. an inspected borrower's ratio. */
   explain?: (f: Failure) => string | undefined;
 };
+/** One call of a multi-step action (the leverage window's rounds). */
+export type Call = {
+  target: Target;
+  fn: string;
+  args: readonly unknown[];
+  /** What the step does, in the progress list and the status line. */
+  label: string;
+};
+export type Sequence = {
+  calls: Call[];
+  /** Send every call as one atomic EIP-5792 batch (one signature, all or nothing) instead of one by one. */
+  batch: boolean;
+  /** After each confirmed step (or the whole batch): how many are done. */
+  onStep?: (done: number) => void;
+};
 export type Actions = {
   ready: boolean;
   busy: string;
   reason: string;
   run: (id: string, request: Request) => Promise<void>;
+  /** Simulates and sends `calls` in order from the connected wallet, then refreshes. The caller shows the review. */
+  sequence?: (id: string, seq: Sequence) => Promise<void>;
   account?: Address;
 };
 /** How long an action's error stays before it slides away. */
