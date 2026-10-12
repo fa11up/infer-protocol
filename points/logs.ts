@@ -29,6 +29,28 @@ export function decodeLog(item: Item): PointEvent | null {
   return null;
 }
 
+/** keccak256("ModifyLiquidity(bytes32,address,int24,int24,int256,bytes32)") on the v4 PoolManager. */
+export const MODIFY_LIQUIDITY = "0xf208f4912782fd25c7f114ca3723a2d5dd6f3bcc3ac8db5af63baa85f711d5ec";
+
+/**
+ * The transactions among `txs` that added to or removed from `poolId`: each one's logs from Blockscout, looking
+ * for the PoolManager's ModifyLiquidity with that pool id. Only transactions that moved imdUSD to or from the
+ * PoolManager are asked about, so this is one request per swap or deposit, never a scan of the PoolManager.
+ */
+export async function liquidityTxs(host: string, txs: string[], poolId: string, apiKey = process.env.BLOCKSCOUT_API_KEY): Promise<Set<string>> {
+  const headers: Record<string, string> = { Accept: "application/json", "User-Agent": "infer-points/1.0" };
+  if (apiKey) headers["x-api-key"] = apiKey;
+  const out = new Set<string>();
+  for (const tx of txs) {
+    const res = await fetch(`https://${host}/api/v2/transactions/${tx}/logs`, { headers });
+    if (!res.ok) throw Error(`blockscout ${res.status} for the logs of ${tx}`);
+    const body = (await res.json()) as { items?: Item[] };
+    if (!Array.isArray(body.items)) throw Error("incomplete Blockscout response");
+    if (body.items.some((l) => l.topics?.[0] === MODIFY_LIQUIDITY && l.topics?.[1]?.toLowerCase() === poolId.toLowerCase())) out.add(tx.toLowerCase());
+  }
+  return out;
+}
+
 export async function fetchLogs(host: string, address: string, apiKey = process.env.BLOCKSCOUT_API_KEY): Promise<Item[]> {
   const headers: Record<string, string> = { Accept: "application/json", "User-Agent": "infer-points/1.0" };
   if (apiKey) headers["x-api-key"] = apiKey;

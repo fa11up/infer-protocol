@@ -45,20 +45,22 @@ export function usePegPrice(): number | undefined {
   return p?.v;
 }
 
-/** "imdUSD $1.0084" beside the network chips; in the danger ink once it is half a cent or more off its dollar. */
+/** "imdUSD $1.0084" beside the network chips: green within 0.25% of $1 (the band where swaps pay no surcharge),
+ * yellow out to 1%, red beyond 1%. */
 export function PegTicker() {
   const v = usePegPrice();
   if (v === undefined) return null;
-  const off = Math.abs(v - 1) >= 0.005;
+  const off = Math.abs(v - 1);
+  const level = off <= 0.0025 ? "peg-ok" : off <= 0.01 ? "peg-warn" : "peg-bad";
   return (
     <a
-      className="chip ticker"
+      className="chip peg-ticker"
       href="https://app.uniswap.org/explore/pools/ethereum/0x3cb8cc9c22f7da5c3169d4059131ddba9e61f68230977797c03a2f1214992035"
       target="_blank"
       rel="noreferrer"
       title="imdUSD's price in its imdUSD/USDC pool on Uniswap"
     >
-      imdUSD <b className={off ? "ticker-off" : undefined}>${v.toFixed(4)}</b>
+      imdUSD <b className={level}>${v.toFixed(4)}</b>
     </a>
   );
 }

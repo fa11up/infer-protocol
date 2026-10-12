@@ -8,11 +8,12 @@
 // live leaderboard. The vault and the chain's v4 PoolManager are always excluded; pass the Treasury
 // (and any other protocol contract that holds imdUSD) with --exclude.
 //
-// LP credit needs the imdUSD/USDC pool, which does not exist yet: until it does, liquidity earns
-// nothing here, and the LP reader is the next piece to build.
+// Liquidity: imdUSD deposited into the chain's peg pool less what was withdrawn (lp.ts), from the token's own
+// transfers to and from the PoolManager in transactions that carry the pool's ModifyLiquidity.
 import { writeFileSync } from "node:fs";
 import { computePoints, display, shareBps, DEFAULTS } from "./engine.ts";
-import { decodeLog, fetchLogs } from "./logs.ts";
+import { decodeLog, fetchLogs, liquidityTxs } from "./logs.ts";
+import { lpEvents } from "./lp.ts";
 import { CHAINS } from "./chains.ts";
 
 const args = process.argv.slice(2);
@@ -33,6 +34,15 @@ const excluded = [vault!, chain.poolManager, ...(opt("exclude", "")!.split(",").
 
 const [tokenLogs, vaultLogs] = await Promise.all([fetchLogs(chain.blockscout, stablecoin!), fetchLogs(chain.blockscout, vault!)]);
 const events = [...tokenLogs, ...vaultLogs].map(decodeLog).filter((e) => e !== null);
+if (chain.pegPool) {
+  const pm = chain.poolManager.toLowerCase();
+  const transfers = tokenLogs.flatMap((l) => {
+    const e = decodeLog(l);
+    return e?.kind === "transfer" && l.transaction_hash ? [{ from: e.from, to: e.to, value: e.value, block: e.block, logIndex: e.logIndex, tx: l.transaction_hash }] : [];
+  });
+  const candidates = [...new Set(transfers.filter((t) => t.from === pm || t.to === pm).map((t) => t.tx))];
+  events.push(...lpEvents(transfers, await liquidityTxs(chain.blockscout, candidates, chain.pegPool), pm));
+}
 const blocks = tokenLogs.map((l) => Number(l.block_number));
 const startBlock = Number(opt("start", String(Math.min(...blocks))));
 const endBlock = Number(opt("end", String(Math.max(...blocks, ...vaultLogs.map((l) => Number(l.block_number))))));

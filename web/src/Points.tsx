@@ -8,9 +8,10 @@ import {
   type PointEvent,
   type PointsResult,
 } from "../../points/engine.ts";
+import { lpEvents, type TxTransfer } from "../../points/lp.ts";
 import { history } from "./history";
 import { ours } from "./names";
-import { pointsConfig, type Runtime } from "./config";
+import { historyConfig, pointsConfig, type Runtime } from "./config";
 import type { Snapshot } from "./state";
 import { message } from "./math";
 import { Info, Row } from "./actions";
@@ -21,6 +22,30 @@ const TRANSFER =
   "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 const SECONDS_PER_BLOCK = 12;
 const topicAddress = (t: string) => getAddress(`0x${t.slice(-40)}`);
+/** keccak256("ModifyLiquidity(bytes32,address,int24,int24,int256,bytes32)"), the PoolManager's add/remove event. */
+const MODIFY_LIQUIDITY =
+  "0xf208f4912782fd25c7f114ca3723a2d5dd6f3bcc3ac8db5af63baa85f711d5ec";
+
+/** Transactions that added to or removed from the peg pool, read once and then only the new blocks. */
+const lpScans = new WeakMap<Runtime, { through: number; txs: Set<string> }>();
+async function pegLiquidityTxs(r: Runtime, head: number): Promise<Set<string> | undefined> {
+  const pool = pointsConfig.pegPools[r.config.chainId];
+  const pm = pointsConfig.poolManagers[r.config.chainId];
+  if (!pool || !pm) return undefined;
+  const old = lpScans.get(r);
+  const txs = new Set(old?.txs);
+  const step = Number(historyConfig.chunkSize);
+  for (let a = old ? old.through + 1 : pool.fromBlock; a <= head; a += step) {
+    const b = Math.min(head, a + step - 1);
+    const logs = (await r.client.request({
+      method: "eth_getLogs",
+      params: [{ address: pm as `0x${string}`, topics: [MODIFY_LIQUIDITY, pool.poolId], fromBlock: `0x${a.toString(16)}`, toBlock: `0x${b.toString(16)}` }],
+    })) as { transactionHash: string }[];
+    for (const l of logs) txs.add(l.transactionHash.toLowerCase());
+  }
+  lpScans.set(r, { through: head, txs });
+  return txs;
+}
 
 /** Reads imdUSD transfers and vault liquidations, then runs the shared engine at the snapshot block. */
 export async function loadPoints(
@@ -34,17 +59,25 @@ export async function loadPoints(
     history(r, vault, s.block),
   ]);
   const events: PointEvent[] = [];
+  const transfers: TxTransfer[] = [];
   for (const log of tokenHistory.logs) {
     if (log.topics[0] !== TRANSFER || log.topics.length !== 3) continue;
-    events.push({
-      kind: "transfer",
+    const t = {
       from: topicAddress(log.topics[1]!),
       to: topicAddress(log.topics[2]!),
       value: BigInt(log.data),
       block: Number(log.blockNumber),
       logIndex: log.logIndex,
-    });
+      tx: log.transactionHash,
+    };
+    transfers.push(t);
+    events.push({ kind: "transfer", from: t.from, to: t.to, value: t.value, block: t.block, logIndex: t.logIndex });
   }
+  // imdUSD provided to the peg pool earns the liquidity rate (points/lp.ts): the PoolManager is excluded, so a
+  // deposit leaves the wallet's holding and comes back here as liquidity.
+  const lpTxs = await pegLiquidityTxs(r, Number(s.block));
+  const pm = pointsConfig.poolManagers[r.config.chainId];
+  if (lpTxs && pm) events.push(...lpEvents(transfers, lpTxs, pm));
   for (const log of vaultHistory.logs) {
     let decoded;
     try {
@@ -73,7 +106,8 @@ export async function loadPoints(
       ? head
       : Math.min(pointsConfig.endBlock, head);
   return computePoints(events, {
-    startBlock: pointsConfig.startBlock ?? Number(tokenHistory.from),
+    // The first imdUSD transfer (the CLI's default too), not the history's read floor, which can sit earlier.
+    startBlock: pointsConfig.startBlock ?? (tokenHistory.logs.length ? Number(tokenHistory.logs[0]!.blockNumber) : Number(tokenHistory.from)),
     endBlock,
     blocksPerDay: pointsConfig.blocksPerDay,
     lpBps: pointsConfig.lpBps,
@@ -205,7 +239,7 @@ export function Points({
             {account ? "Your points" : "Season total"}
             <Info
               label="Points"
-              text="1 point = 1 imdUSD held for 1 day. Liquidity in the imdUSD/USDC pool earns more. The counter runs between blocks at your current holdings and settles each refresh."
+              text={`1 point = 1 imdUSD held for 1 day. imdUSD you provide to the imdUSD/USDC pool earns ${pointsConfig.lpBps / 10_000}×. The counter runs between blocks at your current holdings and settles each refresh.`}
             />
           </span>
           <strong aria-live="off">
@@ -217,7 +251,7 @@ export function Points({
             {account
               ? mine
                 ? `+${perDay(mine.ratePerBlock)}/day · ${(shareBps(mine.points, data!.total) / 100).toFixed(2)}% · #${rank} of ${data!.accounts.length}`
-                : "Hold imdUSD to start earning"
+                : "Hold imdUSD or provide it to the imdUSD/USDC pool to start earning"
               : data
                 ? `${data.accounts.length} earning · +${perDay(data.totalRatePerBlock)}/day`
                 : ""}
@@ -228,11 +262,11 @@ export function Points({
         </Row>
         <Row
           label="Liquidity"
-          info="imdUSD provided to the imdUSD/USDC pool. Boosted, because the launch needs liquidity."
+          info="imdUSD you deposit into the imdUSD/USDC pool on Uniswap, from the block you deposit it, less what you withdraw. Boosted, because the peg needs depth."
         >
-          {pointsConfig.lpLive
-            ? `${pointsConfig.lpBps / 10_000}× / day`
-            : `${pointsConfig.lpBps / 10_000}× once the pool is live`}
+          {pointsConfig.pegPools[r.config.chainId]
+            ? `${pointsConfig.lpBps / 10_000} points / day`
+            : "no pool on this network"}
         </Row>
         <Row
           label="Liquidations"
@@ -241,8 +275,8 @@ export function Points({
           {`${pointsConfig.liquidationCreditDays} days per imdUSD`}
         </Row>
         <Row
-          label="Season"
-          info="From the stablecoin's deployment to the swarm's mainnet launch and the token launch that follows."
+          label="Counting"
+          info="Points count from imdUSD's deployment and are still counting. INFER's seasons are opened on chain by governance, each with its own rules committed when it opens and published after it ends."
         >
           {data
             ? pointsConfig.endBlock === undefined
@@ -250,9 +284,20 @@ export function Points({
               : `Blocks ${data.startBlock.toLocaleString("en-US")} → ${pointsConfig.endBlock.toLocaleString("en-US")}`
             : "—"}
         </Row>
+        <Row
+          label="Not counted"
+          info="Contracts that hold imdUSD for the protocol or the pool: the vault, the Treasury, and Uniswap's PoolManager (its imdUSD is credited to the LPs who deposited it)."
+        >
+          Vault, Treasury, pool contract
+        </Row>
         {account && mine && (
           <Row label="You hold" info="Earning at the holding rate right now.">
             {`${display(mine.held * BigInt(pointsConfig.blocksPerDay), pointsConfig.blocksPerDay)} imdUSD`}
+          </Row>
+        )}
+        {account && mine && mine.lp > 0n && (
+          <Row label="You provide" info="imdUSD you deposited into the imdUSD/USDC pool, earning the liquidity rate.">
+            {`${display(mine.lp * BigInt(pointsConfig.blocksPerDay), pointsConfig.blocksPerDay)} imdUSD`}
           </Row>
         )}
       </div>

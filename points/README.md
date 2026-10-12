@@ -22,17 +22,21 @@ this and get the same numbers.
   nothing.
 - **Excluded:** the vault, the Treasury (stability fees are minted to it) and the Uniswap v4
   PoolManager, whose imdUSD belongs to the LPs and is credited to them at the liquidity rate.
-- **Season:** from the stablecoin's deployment until the swarm's mainnet launch and our token launch.
+- **Counting:** from the stablecoin's deployment, still counting (`endBlock` unset). INFER's seasons are
+  opened on chain by governance, each with its own rules committed when it opens.
 
 **Time is measured in blocks**: a day is 7,200 blocks at 12 seconds. Every holder sees the same block
 count, so each share is exact. Only the absolute figure moves with a missed slot. No timestamps are
 needed, so any RPC or explorer reproduces the same numbers.
 
-**Liquidity is not live yet.** The pool does not exist, so `lp` events have no reader: liquidity
-earns nothing until the pool's LP reader is built, and the terminal says so.
+**Liquidity** (`lp.ts`): imdUSD put into the peg pool less imdUSD taken out, per wallet, never below zero,
+read from the imdUSD transfers to and from the PoolManager inside transactions that emit the pool's
+`ModifyLiquidity` (pool `0x3cb8cc9c…2992035`, from block 26,167,383). The amount deposited, not the
+position's value at each block, so it needs only logs.
 
 ## Files
 
+- `lp.ts`: liquidity, as `lp` events for the engine.
 - `engine.ts`: the rule. Pure; the terminal imports it through Vite and the CLI runs it under Node's
   type stripping, so both always agree.
 - `logs.ts` + `chains.ts`: read logs from Blockscout, never a public RPC's `eth_getLogs`, which can
@@ -43,7 +47,7 @@ earns nothing until the pool's LP reader is built, and the terminal says so.
 
 ```bash
 node points/cli.ts --stablecoin 0x.. --vault 0x.. --chain ethereum --exclude <treasury> --out points.json
-node --test points/engine.test.ts
+node --test points/engine.test.ts points/lp.test.ts
 ```
 
 **Only mainnet counts.** Testnet balances cost nothing to fake.

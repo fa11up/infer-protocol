@@ -13,6 +13,8 @@
   --healthy: #2f5d50;
   /* A network that is live: brighter than --healthy, still 4.6:1 on --bg at the chip's 10px. */
   --live: #15803d;
+  /* The peg between its 0.25% band and 1% off: a dark yellow, 4.5:1 on --bg at the chip's 10px. */
+  --caution: #a16207;
   --danger: #8c2f2f;
   --clear: transparent;
 }
@@ -28,6 +30,7 @@
   --focus: #eeeeee;
   --healthy: #92b5a6;
   --live: #4ade80;
+  --caution: #facc15;
   --danger: #e19a9a;
   --clear: transparent;
 }
@@ -721,6 +724,7 @@ dialog [role="status"] {
     --control: ButtonText;
     --healthy: CanvasText;
     --live: CanvasText;
+    --caution: CanvasText;
     --danger: CanvasText;
   }
 }
@@ -3835,16 +3839,24 @@ html.app-terminal body:has(> .vibe-canvas:not([hidden])) :is(input, textarea) {
 }
 /* Market prices in the headers: imdUSD's peg on imdusd.com (a chip beside the network chips), INFER's price and
    market cap on infer.imdusd.com (beside the nav). Figures in the ink colour, labels muted. */
-.chip.ticker {
+.chip.peg-ticker {
   text-decoration: none;
 }
-.chip.ticker b,
+.chip.peg-ticker b,
 .infer-ticker b {
   color: var(--text);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
-.chip.ticker b.ticker-off {
+/* imdUSD against its dollar: green inside the 0.25% band where swaps pay no surcharge, yellow out to 1%,
+   red beyond 1% (user, 2026-10-12). */
+.chip.peg-ticker b.peg-ok {
+  color: var(--live);
+}
+.chip.peg-ticker b.peg-warn {
+  color: var(--caution);
+}
+.chip.peg-ticker b.peg-bad {
   color: var(--danger);
 }
 .infer-ticker {

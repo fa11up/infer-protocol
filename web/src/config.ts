@@ -215,10 +215,9 @@ declare global {
 /**
  * Genesis points (points/engine.ts). 1 point = 1 imdUSD held for 1 day (7,200 blocks); liquidity in the
  * imdUSD/USDC pool earns `lpBps`/10000 x; liquidators earn debt repaid x `liquidationCreditDays`.
- * `startBlock` / `endBlock` undefined = from the stablecoin's deployment / up to the latest block: the
- * season ends at the swarm's mainnet launch and our token launch, when `endBlock` is pinned here.
- * `lpLive` stays false until the pool exists and its LP reader is built: liquidity then earns nothing
- * here and the pane says so rather than showing a boost nobody can get.
+ * `startBlock` / `endBlock` undefined = from the stablecoin's deployment / up to the latest block (still counting
+ * after INFER's launch, user 2026-10-12); pin `endBlock` here to close it. Liquidity is read from the peg pool's
+ * ModifyLiquidity transactions (points/lp.ts) on chains listed in `pegPools`.
  */
 export const pointsConfig = {
   blocksPerDay: 7_200,
@@ -226,7 +225,16 @@ export const pointsConfig = {
   liquidationCreditDays: 3,
   startBlock: undefined as number | undefined,
   endBlock: undefined as number | undefined,
-  lpLive: false,
+  /**
+   * The imdUSD/USDC peg pool per chain: liquidity in it earns `lpBps` (points/lp.ts reads its ModifyLiquidity
+   * transactions from `fromBlock`, the block it was initialised in). A chain without one shows no LP rate.
+   */
+  pegPools: {
+    1: {
+      poolId: "0x3cb8cc9c22f7da5c3169d4059131ddba9e61f68230977797c03a2f1214992035",
+      fromBlock: 26_167_383,
+    },
+  } as Record<number, { poolId: `0x${string}`; fromBlock: number }>,
   /** Uniswap v4 PoolManager per chain: the pool's imdUSD is its LPs', never a holding of the manager. */
   poolManagers: {
     1: "0x000000000004444c5dc75cb358380d2e3de08a90",
