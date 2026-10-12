@@ -276,11 +276,18 @@ const planned = (plan, label) => Number(new RegExp(`${label}\\s+([0-9.]+)%`).exe
 // Every run starts from the fork as it was and leaves it that way: a round moves the peg pool.
 const snapshot = await rpc("evm_snapshot");
 try {
-  await freshFeeds();
-  // ---- One by one ------------------------------------------------------------------------------------------
+  // ---- Stale prices, as mainnet often is between purchases: the window says what to do instead of failing --
   const a = await borrower(100n * E18);
   const before = await position(a);
   const { page } = await open(a);
+  if (await read(FEEDS.PriceFeed, parseAbi(["function isStale() view returns (bool)"]), "isStale")) {
+    await page.getByRole("button", { name: "Leverage loop ↗" }).click();
+    const dialog = page.locator("dialog.loop-dialog[open]");
+    await until("the stale-price refusal", async () => /Update price/.test(await dialog.locator('[role="status"].action-note').innerText()));
+    passed("with stale prices the window points to Update price");
+  }
+  await freshFeeds();
+  // ---- One by one ------------------------------------------------------------------------------------------
   let plan = await round(page, "Leverage up", "1-up");
   let after = await position(a);
   assert.ok(after.debt > 0n && after.collateral > before.collateral, "round up borrowed and deposited");

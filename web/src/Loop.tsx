@@ -11,7 +11,7 @@
 //    the borrower go lower with a warning, never below minCR + BORROW_BUFFER.
 import { useEffect, useMemo, useRef, useState } from "react";
 import { wallet, type Runtime } from "./config";
-import type { Snapshot } from "./state";
+import { feedsReady, type Snapshot } from "./state";
 import { Choice, FadingError, Info, Row, type Actions, type Call } from "./actions";
 import { collateral, fmtGem, gemUnit, perImd, parseGem, vaultShareAbi } from "./collateral";
 import { amount, exact, fmt, liquidationPrice, message, BORROW_BUFFER } from "./math";
@@ -277,6 +277,9 @@ export function LoopWindow({
     if (!sized) return "Waiting for your position and fresh prices.";
     if (mode === "up" && held === 0n) return "Deposit collateral first: a round borrows against it.";
     if (mode === "down" && debt === 0n) return "No debt to unwind. Withdraw collateral from the Position pane.";
+    // Borrowing, and withdrawing with debt, need fresh agreeing prices: say so before anything is quoted.
+    if (!feedsReady(s))
+      return "The vault's prices are stale or disagree, so it refuses to borrow or withdraw against debt. Close this window and use Update price in the Position pane first.";
     if (parsed === undefined || parsed === 0n) return "";
     if (mode === "up" && ceiling?.reached) return "The borrowing cap is reached: no new debt until borrowers repay or governance raises it.";
     const q = mode === "up" ? upQuote : downQuote;

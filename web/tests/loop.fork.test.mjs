@@ -65,8 +65,8 @@ test("the peg pool key derives the live pool id", () => {
 
 test("one round up and one round down through the deployed vault", { skip: !forked && `no mainnet fork at ${RPC}` }, async () => {
   const account = privateKeyToAccount(generatePrivateKey());
-  const pub = createPublicClient({ chain: mainnet, transport: http(RPC) });
-  const wal = createWalletClient({ account, chain: mainnet, transport: http(RPC) });
+  const pub = createPublicClient({ chain: mainnet, transport: http(RPC, { timeout: 120_000 }) });
+  const wal = createWalletClient({ account, chain: mainnet, transport: http(RPC, { timeout: 120_000 }) });
   await pub.request({ method: "anvil_setBalance", params: [account.address, "0x" + parseEther("10").toString(16)] });
   const send = async (req) => {
     const hash = await wal.writeContract(req);
@@ -77,6 +77,18 @@ test("one round up and one round down through the deployed vault", { skip: !fork
     return receipt;
   };
   const block = async () => (await pub.getBlock()).timestamp;
+  // The live feeds go stale an hour after their last purchase; re-date them at their current values (slot 2 value,
+  // slot 3 hasValue << 64 | updatedAt) so the round tests the loop, not the time since the last update.
+  {
+    const now = await block();
+    const hex = (n) => "0x" + n.toString(16).padStart(64, "0");
+    for (const feed of ["0x070e0603737242B01aBC1D223f7C92D63E86EC97", "0x77E1684402869Bf2B7c70B8bf21E1C7Ca7104951", "0x014DabF6F940c9C383D9ef48636F70D842F65D7A"]) {
+      const [value] = await pub.readContract({ address: feed, abi: FEED, functionName: "latestValue" });
+      await pub.request({ method: "anvil_setStorageAt", params: [feed, "0x2", hex(value)] });
+      await pub.request({ method: "anvil_setStorageAt", params: [feed, "0x3", hex((1n << 64n) + now)] });
+    }
+    await pub.request({ method: "evm_mine", params: [] });
+  }
 
   // IMD to start with: 0.3 ETH of it from the ETH/IMD pool.
   const ethIn = parseEther("0.3");
