@@ -1267,7 +1267,8 @@ export function Governance({
     </>
   ) : (
     <>
-      <Row label="Pending change">{kind}</Row>
+      {/* Nothing pending: the contract's empty slot decodes as kind 0 ("Economics"), so name nothing. */}
+      <Row label="Pending change">—</Row>
       <Row label="Execution">
         {eta
           ? now >= eta
