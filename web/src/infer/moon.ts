@@ -12,7 +12,18 @@ const BLOCK_SECONDS = 12;
 export const MOON = parseAbi([
   "function moonConfig() view returns (uint256 start, uint256 end)",
   "function burn(uint256 value)",
+  "function transfer(address to, uint256 value) returns (bool)",
+  "function balanceOf(address) view returns (uint256)",
 ]);
+
+/** Wei of MXXN the "Add fuel" button sends the redeemer: each moon the clock falls behind costs one. */
+export const FUEL_GIFT = 100n;
+
+/** How the clock is moved: by the redeemer's own MXXN in one call (anyone may send it), or by burning 1 wei of the
+ * visitor's MXXN per moon. `steps` is what one redeemer call can do: the moons behind, capped by its fuel. */
+export function advanceWith(behind: bigint, fuel: bigint): { via: "redeemer"; steps: bigint } | { via: "wallet" } {
+  return fuel > 0n ? { via: "redeemer", steps: behind < fuel ? behind : fuel } : { via: "wallet" };
+}
 
 export type MoonState = {
   /** Cycles the stored window trails the chain: burns that would bring it to the current or next full moon. */

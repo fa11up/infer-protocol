@@ -42,3 +42,10 @@ test("countdowns read in days, hours or minutes", () => {
   assert.equal(blocksToTime(1n), "1 m");
   assert.equal(blocksToTime(0n), "0 m");
 });
+
+test("with fuel the redeemer moves the clock in one call, capped by its fuel; without, the visitor burns 1 wei", async () => {
+  const { advanceWith } = await import("../src/infer/moon.ts");
+  assert.deepEqual(advanceWith(15n, 100n), { via: "redeemer", steps: 15n });
+  assert.deepEqual(advanceWith(15n, 4n), { via: "redeemer", steps: 4n });
+  assert.deepEqual(advanceWith(15n, 0n), { via: "wallet" });
+});

@@ -3,7 +3,7 @@ import { useEffect, useState } from "react";
 import { everyVisible } from "./visible";
 import { formatUnits, parseUnits, type Address } from "viem";
 import { LAUNCH, LIVE, whole } from "./config";
-import { MOON, blocksToTime, moonState, type MoonState } from "./moon";
+import { FUEL_GIFT, MOON, advanceWith, blocksToTime, moonState, type MoonState } from "./moon";
 import {
   ERC20,
   LEGACY_REDEEMER,
@@ -147,19 +147,25 @@ export function Claim() {
 
   // Each redemption token's full-moon clock (MXXN's moonConfig), read for every visitor: a token without one reverts
   // and simply has no clock.
-  const [moons, setMoons] = useState<Record<string, MoonState>>({});
+  // `fuel`: the redeemer's own balance of the token, which its advanceClock burns 1 wei at a time.
+  const [moons, setMoons] = useState<Record<string, MoonState & { fuel: bigint }>>({});
   useEffect(() => {
     if (!LIVE) return;
     let stale = false;
     (async () => {
       const head = await client.getBlockNumber({ cacheTime: 0 });
-      const out: Record<string, MoonState> = {};
+      const out: Record<string, MoonState & { fuel: bigint }> = {};
       await Promise.all(
         LAUNCH.redemptions.map(async (r) => {
           if (!r.token) return;
           try {
-            const [start, end] = await client.readContract({ address: r.token, abi: MOON, functionName: "moonConfig" });
-            out[r.key] = moonState(start, end, head);
+            const [[start, end], fuel] = await Promise.all([
+              client.readContract({ address: r.token, abi: MOON, functionName: "moonConfig" }),
+              c.legacyRedeemer
+                ? client.readContract({ address: r.token, abi: MOON, functionName: "balanceOf", args: [c.legacyRedeemer] })
+                : 0n,
+            ]);
+            out[r.key] = { ...moonState(start, end, head), fuel };
           } catch {
             /* no moon clock on this token */
           }
@@ -170,7 +176,7 @@ export function Claim() {
     return () => {
       stale = true;
     };
-  }, [tick]);
+  }, [tick, c.legacyRedeemer]);
 
   useEffect(() => {
     if (!LIVE || !c.legacyRedeemer || !w.account) return;
@@ -254,20 +260,53 @@ export function Claim() {
     );
   }
 
-  /** Burn 1 wei of the connected wallet's own MXXN: moves the full-moon clock one cycle (burns always pass). */
+  /** Move the full-moon clock: with fuel in the redeemer, its advanceClock catches up as many moons as the fuel
+   * covers in one transaction (anyone); without, burn 1 wei of the connected wallet's own MXXN (one moon). */
   async function advanceClock(key: string) {
     const r = LAUNCH.redemptions.find((x) => x.key === key)!;
-    if (!w.account || !r.token) return;
+    const moon = moons[r.key];
+    if (!w.account || !r.token || !moon) return;
     const account = w.account,
       token = r.token,
       p = w.provider!;
+    const how = advanceWith(moon.behind, c.legacyRedeemer ? moon.fuel : 0n);
     await send(`Advance the ${r.symbol} clock`, async () => {
+      if (how.via === "redeemer") {
+        const { request } = await client.simulateContract({
+          account,
+          address: c.legacyRedeemer!,
+          abi: LEGACY_REDEEMER,
+          functionName: "advanceClock",
+          args: [token, how.steps],
+        });
+        return wallet(p).writeContract(request);
+      }
       const { request } = await client.simulateContract({
         account,
         address: token,
         abi: MOON,
         functionName: "burn",
         args: [1n],
+      });
+      return wallet(p).writeContract(request);
+    });
+  }
+
+  /** During a full moon, send the redeemer a little MXXN so anyone can move its clock later without holding any. */
+  async function addFuel(key: string) {
+    const r = LAUNCH.redemptions.find((x) => x.key === key)!;
+    if (!w.account || !r.token || !c.legacyRedeemer) return;
+    const account = w.account,
+      token = r.token,
+      redeemer = c.legacyRedeemer,
+      p = w.provider!;
+    await send(`Fuel the ${r.symbol} clock`, async () => {
+      const { request } = await client.simulateContract({
+        account,
+        address: token,
+        abi: MOON,
+        functionName: "transfer",
+        args: [redeemer, FUEL_GIFT],
       });
       return wallet(p).writeContract(request);
     });
@@ -422,15 +461,46 @@ export function Claim() {
                         : `The clock is ready. Redemptions open at the full moon, block ${moon.start.toString()}.`}
                     </p>
                   )}
-                  {moon.behind > 0n && !moon.redeemable && (
+                  <dl className="infer-lines">
+                    <Line
+                      k="Clock fuel"
+                      v={moon.fuel === 0n ? "none" : `${moon.fuel.toString()} wei ${r.symbol}`}
+                    />
+                  </dl>
+                  {(() => {
+                    if (moon.behind === 0n || moon.redeemable) return null;
+                    const how = advanceWith(moon.behind, moon.fuel);
+                    const needsOwn = how.via === "wallet";
+                    return (
+                      <button
+                        type="button"
+                        className="infer-small"
+                        disabled={!toAddress || (needsOwn && !legacyBalances[i]) || tx.status === "pending"}
+                        title={!toAddress ? "Connect a wallet" : needsOwn && !legacyBalances[i] ? `Needs any ${r.symbol} in your wallet` : undefined}
+                        onClick={() => advanceClock(r.key)}
+                      >
+                        {how.via === "redeemer"
+                          ? how.steps >= moon.behind
+                            ? "Catch the clock up · one transaction"
+                            : `Advance ${how.steps.toString()} moon${how.steps === 1n ? "" : "s"} · one transaction`
+                          : `Advance the clock · burn 1 wei ${r.symbol}`}
+                      </button>
+                    );
+                  })()}
+                  <p className="infer-fine">
+                    {moon.fuel > 0n
+                      ? `The redeemer burns its own ${r.symbol} to move the clock, so anyone can catch it up, holding ${r.symbol} or not. Each moon behind costs 1 wei.`
+                      : `Fuel lets anyone catch the clock up in one transaction without holding ${r.symbol}: during a full moon, send the redeemer a few wei of ${r.symbol}. Each moon behind costs 1 wei.`}
+                  </p>
+                  {moon.redeemable && (
                     <button
                       type="button"
                       className="infer-small"
-                      disabled={!toAddress || !legacyBalances[i] || tx.status === "pending"}
-                      title={!toAddress ? "Connect a wallet" : !legacyBalances[i] ? `Needs any ${r.symbol} in your wallet` : undefined}
-                      onClick={() => advanceClock(r.key)}
+                      disabled={!toAddress || !legacyBalances[i] || legacyBalances[i]! < FUEL_GIFT || tx.status === "pending"}
+                      title={!toAddress ? "Connect a wallet" : !legacyBalances[i] ? `Needs ${r.symbol} in your wallet` : undefined}
+                      onClick={() => addFuel(r.key)}
                     >
-                      Advance the clock · burn 1 wei {r.symbol}
+                      Add fuel · send {FUEL_GIFT.toString()} wei {r.symbol} to the redeemer
                     </button>
                   )}
                 </div>
