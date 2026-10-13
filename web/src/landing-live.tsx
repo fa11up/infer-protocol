@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { formatUnits } from "viem";
 import { loadConfig, type Runtime } from "./config";
-import { snapshot, feedsReady, type Snapshot } from "./state";
+import { snapshot, feedsReady, shownReserve, type Snapshot } from "./state";
 import { TERMINAL } from "./site";
 import { AddressLink } from "./actions";
 import { MarketCap, compact } from "./MarketCap";
@@ -66,7 +66,7 @@ function LivePanel({ s, error }: { s?: Snapshot; error: string }) {
             ? "not reported"
             : `$${fmt(v.backingPerUnit < WAD ? v.backingPerUnit : WAD)}`,
         ],
-        ["Reserves", usd(v.reserveValue)],
+        ["Reserves", usd(shownReserve(v).value)],
         [
           "IMD / USD",
           price

@@ -14,7 +14,7 @@ import { isAddress } from "viem";
 import { WorkChart, SupplyChart, Sparkline, type ChartData } from "./Charts";
 import { Ticker } from "./motion";
 import { type Runtime } from "./config";
-import { type Snapshot, type Question, read, feedsReady } from "./state";
+import { type Snapshot, type Question, read, feedsReady, shownReserve } from "./state";
 import {
   Action,
   ActionForm,
@@ -1098,9 +1098,10 @@ export function Backing({ r, s }: { r: Runtime; s?: Snapshot }) {
       <div className="desk-col">
         <Row
           label="Reserve value"
-          info="Treasury reserve assets valued in USD through their listed price feeds."
+          info="Treasury reserve assets valued in USD through their listed price feeds, after each listing's haircut. While a price is stale the contract counts that asset for nothing; this shows it at its last price instead."
         >
-          ${fmt(v.reserveValue)}
+          ${fmt(shownReserve(v).value)}
+          {shownReserve(v).last && <small> · last price</small>}
         </Row>
         <Row
           label="Collateral-backed debt"

@@ -7,7 +7,7 @@ import {
   type EIP1193Provider,
 } from "viem";
 import { loadConfig, switchChain, wallet, type Runtime } from "./config";
-import { snapshot, type Snapshot, feedsReady } from "./state";
+import { snapshot, type Snapshot, feedsReady, shownReserve } from "./state";
 import {
   Pane,
   Tabs,
@@ -598,9 +598,9 @@ function Terminal({ r }: { r: Runtime }) {
             <b>
               <Ticker
                 text={
-                  s?.v.reserveValue === undefined
+                  shownReserve(s?.v).value === undefined
                     ? "—"
-                    : `$${compact.format(Number(formatUnits(s.v.reserveValue, 18)))}`
+                    : `$${compact.format(Number(formatUnits(shownReserve(s?.v).value!, 18)))}`
                 }
               />
             </b>

@@ -4,6 +4,11 @@ import { setUnit } from "./unit";
 import { setCollateral, shareAbi, vaultShareAbi } from "./collateral";
 import { readAsker, type AskerState } from "./BuyUpdate";
 import type { Runtime, Target } from "./config";
+
+const lastValueAbi = parseAbi([
+  "function latestValue() view returns (uint256 value, uint64 updatedAt)",
+  "function balanceOf(address) view returns (uint256)",
+]);
 // Dynamic implementation-derived ABIs are loaded only after manifest verification.
 export const read = async (
   r: Runtime,
@@ -328,9 +333,30 @@ export async function snapshot(
         "pendingSet",
         "pending",
       ].map((fn) => safe(fn, () => read(r, targets.parameters, fn, [], bn))),
-      safe("reserveAssets", () =>
-        read(r, targets.treasury, "reserveAssets", [], bn),
-      ),
+      safe("reserveAssets", async () => {
+        const assets = (await read(r, targets.treasury, "reserveAssets", [], bn)) as Address[];
+        // The reserve at each asset's LAST price. The Treasury counts an asset whose feed is stale for nothing, so
+        // reserveValue reads $0 for as long as the price is stale; the page shows this figure instead then.
+        try {
+          let last = 0n;
+          for (const a of assets) {
+            const e = (await read(r, targets.treasury, "reserveAsset", [a], bn)) as {
+              priceFeed: Address;
+              haircutBps: number | bigint;
+              decimals: number | bigint;
+            };
+            const [[price], balance] = await Promise.all([
+              r.client.readContract({ address: e.priceFeed, abi: lastValueAbi, functionName: "latestValue", blockNumber: bn }),
+              r.client.readContract({ address: a, abi: lastValueAbi, functionName: "balanceOf", args: [targets.treasury.address], blockNumber: bn }),
+            ]);
+            last += (((balance as bigint) * (price as bigint)) / 10n ** BigInt(e.decimals)) * BigInt(e.haircutBps) / 10000n;
+          }
+          v.reserveValueLast = last;
+        } catch {
+          // Leaves the on-chain figure alone.
+        }
+        return assets;
+      }),
       safe("withdrawer", () => read(r, targets.treasury, "withdrawer", [], bn)),
       ...Object.entries({
         PriceFeed: "PriceFeed",
@@ -480,4 +506,12 @@ export function feedsReady(s: Snapshot | undefined) {
     b = s.feeds.SpotFeed.value;
   const d = a > b ? a - b : b - a;
   return s.v.skew !== undefined && d <= (a * s.v.skew) / 10000n;
+}
+
+/** The reserve to show: the on-chain value, or, while a stale price makes it read $0, the value at the last price. */
+export function shownReserve(v: Record<string, any> | undefined): { value: bigint | undefined; last: boolean } {
+  const onChain = v?.reserveValue as bigint | undefined;
+  const last = v?.reserveValueLast as bigint | undefined;
+  if (onChain === 0n && last !== undefined && last > 0n) return { value: last, last: true };
+  return { value: onChain, last: false };
 }
