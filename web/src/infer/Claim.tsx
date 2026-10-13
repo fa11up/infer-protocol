@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { everyVisible } from "./visible";
 import { formatUnits, parseUnits, type Address } from "viem";
 import { LAUNCH, LIVE, whole } from "./config";
+import { MOON, blocksToTime, moonState, type MoonState } from "./moon";
 import {
   ERC20,
   LEGACY_REDEEMER,
@@ -144,6 +145,33 @@ export function Claim() {
     };
   }, [w.account, tick, c.seasonVault]);
 
+  // Each redemption token's full-moon clock (MXXN's moonConfig), read for every visitor: a token without one reverts
+  // and simply has no clock.
+  const [moons, setMoons] = useState<Record<string, MoonState>>({});
+  useEffect(() => {
+    if (!LIVE) return;
+    let stale = false;
+    (async () => {
+      const head = await client.getBlockNumber({ cacheTime: 0 });
+      const out: Record<string, MoonState> = {};
+      await Promise.all(
+        LAUNCH.redemptions.map(async (r) => {
+          if (!r.token) return;
+          try {
+            const [start, end] = await client.readContract({ address: r.token, abi: MOON, functionName: "moonConfig" });
+            out[r.key] = moonState(start, end, head);
+          } catch {
+            /* no moon clock on this token */
+          }
+        }),
+      );
+      if (!stale) setMoons(out);
+    })().catch(() => undefined);
+    return () => {
+      stale = true;
+    };
+  }, [tick]);
+
   useEffect(() => {
     if (!LIVE || !c.legacyRedeemer || !w.account) return;
     const redeemer = c.legacyRedeemer,
@@ -224,6 +252,25 @@ export function Claim() {
         return wallet(p).writeContract(request);
       },
     );
+  }
+
+  /** Burn 1 wei of the connected wallet's own MXXN: moves the full-moon clock one cycle (burns always pass). */
+  async function advanceClock(key: string) {
+    const r = LAUNCH.redemptions.find((x) => x.key === key)!;
+    if (!w.account || !r.token) return;
+    const account = w.account,
+      token = r.token,
+      p = w.provider!;
+    await send(`Advance the ${r.symbol} clock`, async () => {
+      const { request } = await client.simulateContract({
+        account,
+        address: token,
+        abi: MOON,
+        functionName: "burn",
+        args: [1n],
+      });
+      return wallet(p).writeContract(request);
+    });
   }
 
   async function redeem(key: string) {
@@ -325,6 +372,9 @@ export function Claim() {
 
         {LAUNCH.redemptions.map((r, i) => {
           const st = legacy[r.key];
+          const moon = moons[r.key];
+          // A clocked token (MXXN) can only reach the redeemer inside its full moon.
+          const shut = moon !== undefined && !moon.redeemable;
           const amount = parseAmount(amounts[r.key] ?? "", r.decimals);
           const out = r.rate
             ? (amount * parseUnits(r.rate, 18)) / 10n ** 18n
@@ -342,6 +392,49 @@ export function Claim() {
                   : "Rate published at launch"}
                 , {r.window}.
               </p>
+              {moon && (
+                <div className="infer-moon" aria-live="polite">
+                  <dl className="infer-lines">
+                    <Line
+                      k="Full moon"
+                      v={
+                        moon.open
+                          ? `now · closes in ${blocksToTime(moon.end - moon.head)}`
+                          : `in ${blocksToTime(moon.start - moon.head)}`
+                      }
+                    />
+                    <Line
+                      k={`${r.symbol}'s clock`}
+                      v={moon.behind === 0n ? "on time" : `${moon.behind} moon${moon.behind === 1n ? "" : "s"} behind`}
+                    />
+                  </dl>
+                  {moon.needed > 0n ? (
+                    <p className="infer-fine">
+                      {r.symbol} keeps its own moon clock, and it only moves when {r.symbol} does. It needs{" "}
+                      {moon.needed.toString()} more one-wei burn{moon.needed === 1n ? "" : "s"} before redemptions can go
+                      through at {moon.open ? "this" : "the next"} full moon (each burn moves it one moon; the redemption
+                      itself moves the last). Anyone holding {r.symbol} can do it.
+                    </p>
+                  ) : (
+                    <p className="infer-fine">
+                      {moon.open
+                        ? `${r.symbol} can move now: redemptions go through until the full moon closes.`
+                        : `The clock is ready. Redemptions open at the full moon, block ${moon.start.toString()}.`}
+                    </p>
+                  )}
+                  {moon.behind > 0n && !moon.redeemable && (
+                    <button
+                      type="button"
+                      className="infer-small"
+                      disabled={!toAddress || !legacyBalances[i] || tx.status === "pending"}
+                      title={!toAddress ? "Connect a wallet" : !legacyBalances[i] ? `Needs any ${r.symbol} in your wallet` : undefined}
+                      onClick={() => advanceClock(r.key)}
+                    >
+                      Advance the clock · burn 1 wei {r.symbol}
+                    </button>
+                  )}
+                </div>
+              )}
               {!LIVE || !c.legacyRedeemer || !r.token ? (
                 <p className="infer-fine">Opens at launch.</p>
               ) : (
@@ -397,9 +490,11 @@ export function Claim() {
                   ) : (
                     <button
                       className="infer-go"
-                      disabled={amount === 0n || tx.status === "pending"}
+                      disabled={amount === 0n || shut || tx.status === "pending"}
                     >
-                      {amount === 0n
+                      {shut
+                        ? "Opens at the full moon"
+                        : amount === 0n
                         ? "Enter an amount"
                         : st && st.allowance < amount
                           ? `Approve ${r.symbol}`

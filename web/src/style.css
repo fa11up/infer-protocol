@@ -3305,6 +3305,15 @@ button.infer-go:not(:disabled):hover {
   font-size: 20px;
   margin: 0 0 4px;
 }
+/* MXXN's full-moon clock: the countdown, the clock's lag, and the button that burns 1 wei to move it. */
+.infer-moon {
+  display: grid;
+  gap: 8px;
+  margin: 4px 0 14px;
+}
+.infer-moon .infer-small {
+  justify-self: start;
+}
 .infer-redeem {
   display: flex;
   flex-direction: column;
