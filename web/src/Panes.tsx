@@ -1111,9 +1111,11 @@ export function Backing({ r, s }: { r: Runtime; s?: Snapshot }) {
         </Row>
         <Row
           label="Secured collateral"
-          info="Collateral that stood behind debt, counted up to that debt at minCR. Surplus and debt-free deposits are excluded."
+          info={`Collateral that stood behind debt, counted up to that debt at minCR, valued at the vault's collateral price. Surplus and debt-free deposits are excluded.${v.securedCollateral === undefined ? "" : ` Amount: ${fmtGem(v.securedCollateral)} ${gemUnit()}.`}`}
         >
-          {fmtGem(v.securedCollateral)} {gemUnit()}
+          {v.securedCollateral === undefined || !s?.feeds.Collateral?.value
+            ? "—"
+            : `$${fmt((v.securedCollateral * s.feeds.Collateral.value) / WAD)}`}
         </Row>
         <Row label="Total principal debt">
           {money(v.totalDebt)}
