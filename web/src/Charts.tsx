@@ -13,7 +13,7 @@ import {
   type Cadence,
   type Result,
 } from "./history";
-import { fmt, ratio, WAD, message, liquidationPrice, cushion } from "./math";
+import { fmt, money, ratio, WAD, message, liquidationPrice, cushion } from "./math";
 import { Ticker } from "./motion";
 import { Info, Select } from "./actions";
 import { useEns, ensName, displayName } from "./ens";
@@ -299,7 +299,7 @@ export function LoanBook({
                       {displayName(p.owner)}
                     </b>
                     <span>
-                      {p.cr === maxUint256 ? "No debt" : `${p.cr}%`} · {fmt(p.debt)} {unit()} ·{" "}
+                      {p.cr === maxUint256 ? "No debt" : `${p.cr}%`} · {money(p.debt)} ·{" "}
                       {stateOf(p.cr, min!, ceiling!)}
                     </span>
                     <span>{liquidation(p, s)}</span>
@@ -484,7 +484,7 @@ function LoanFeed({
                 >
                   {ratio(p.cr)}
                 </span>
-                <span>{fmt(p.debt, 18, 2)}</span>
+                <span>{money(p.debt)}</span>
                 <span>
                   {at ? `$${fmt(at, 18, 2)}` : "—"}
                   <small>{at ? cushion(s.feeds.USD?.value, at) : ""}</small>
@@ -639,8 +639,8 @@ export function WorkChart({ s }: { s?: Snapshot }) {
         <Ticker
           text={
             minted > ceiling
-              ? `${fmt(minted - ceiling)} ${unit()} over ceiling`
-              : `${fmt(ceiling - minted)} ${unit()} available`
+              ? `${money(minted - ceiling)} over ceiling`
+              : `${money(ceiling - minted)} available`
           }
         />
       </p>
@@ -694,7 +694,7 @@ export function SupplyChart({ s }: { s?: Snapshot }) {
   return (
     <figure className="mini-chart supply-chart">
       <figcaption className="figure-head">
-        Supply · <Ticker text={`${fmt(supply)} ${unit()}`} />
+        Supply · <Ticker text={`${money(supply)}`} />
         <Info
           label="Supply composition"
           text={`■ collateral-backed principal (capped at supply) and ▨ net work-issued ${unit()}. Solid marker = backing ratio, dashed = par.`}

@@ -16,6 +16,8 @@ sources:
 
 Each entry gives the plain meaning first, then the contract name where there is one.
 
+**Ɨ.** The sign for imdUSD amounts: Ɨ 100 is 100 imdUSD. It is the I of IMD struck through, as $ strikes an S (Unicode U+0197, Latin capital letter I with stroke). Dollar prices, such as IMD's price in USD, keep $.
+
 **attestation.** A signed answer from an IdentityMD agent panel. A price feed changes only when it receives a valid one. See [Relay oracle updates](../keepers/relay-oracle-updates.md).
 
 **backing per imdUSD.** The reserve plus the collateral standing behind debt, divided by imdUSD supply, never above $1. What a redemption is paid against is the lower of this figure and its paced copy, which falls at once but rises at most two points of par an hour, so capital brought in just before a redemption cannot lift it faster than that. Read with `backingPerUnit()`.
@@ -42,7 +44,7 @@ Each entry gives the plain meaning first, then the contract name where there is 
 
 **duty.** The yearly stability fee rate, set by governance: 4.44% at launch.
 
-**fee base.** The supply a redemption's fee increase is measured against: imdUSD supply as paced (following the real supply by at most 10% an hour), never less than 100,000 imdUSD. See [Monetary policy](../economics/monetary-policy.md).
+**fee base.** The supply a redemption's fee increase is measured against: imdUSD supply as paced (following the real supply by at most 10% an hour), never less than Ɨ 100,000. See [Monetary policy](../economics/monetary-policy.md).
 
 **grace (`lull`).** The wait between a mark and the first moment the position can be liquidated. Its length follows network health and is fixed when the mark is made.
 

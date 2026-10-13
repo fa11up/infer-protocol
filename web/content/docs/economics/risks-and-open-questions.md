@@ -59,7 +59,7 @@ The vault enforces its rules for collateral, prices and accounting. Those rules 
 
 ## Governance and the Treasury
 
-**Borrowing stops at the cap.** The vault lends at most 1,000,000 imdUSD in total (the debt ceiling). Once that much is borrowed, nobody can borrow more until borrowers repay or governance raises the cap, which takes a public proposal and a 48-hour waiting period. The site says so when it happens. Depositing, withdrawing spare collateral, repaying and redeeming keep working.
+**Borrowing stops at the cap.** The vault lends at most Ɨ 1,000,000 in total (the debt ceiling). Once that much is borrowed, nobody can borrow more until borrowers repay or governance raises the cap, which takes a public proposal and a 48-hour waiting period. The site says so when it happens. Depositing, withdrawing spare collateral, repaying and redeeming keep working.
 
 **One operator account governs**, a multisig wallet that needs two of its three signers. It proposes parameter changes, which wait out a fixed delay before anyone may apply them. There is no vote. A proposal never expires, so a matured proposal can be applied long after its date; watch pending proposals until they are applied or cancelled.
 

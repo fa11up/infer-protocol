@@ -17,6 +17,7 @@ import {
   message,
   ratio,
   WAD,
+  money,
 } from "./math";
 import { explained } from "./explain";
 import { onChain } from "./names";
@@ -409,7 +410,7 @@ export function Redemption({
             )}
             {q.debtCancelled > 0n && (
               <Row label="Debt cancelled">
-                {fmt(q.debtCancelled)} {unit()}
+                {money(q.debtCancelled)}
               </Row>
             )}
             <Row label="Minimum received">

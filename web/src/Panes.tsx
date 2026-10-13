@@ -47,6 +47,7 @@ import {
   ratioPercent,
   BORROW_BUFFER,
   BORROW_WARN,
+  money,
 } from "./math";
 import { useEns, ensName, displayName } from "./ens";
 import { PriceStatus } from "./PriceStatus";
@@ -60,7 +61,7 @@ const ceilingText = (v?: bigint) =>
     ? "—"
     : v >= 10n ** 36n
       ? "No ceiling"
-      : `${fmt(v)} ${unit()}`;
+      : `${money(v)}`;
 
 // The debt ceiling as a state the borrower can act on: reached, nearly reached (under 1% left), or open.
 // A ceiling set to the uint256 range is "none" and never reached.
@@ -79,14 +80,14 @@ export function CeilingNotice({ v }: { v: Record<string, any> }) {
   const wait = v.TIMELOCK !== undefined ? countdown(v.TIMELOCK as bigint) : "48h";
   return c.reached ? (
     <p className="notice notice-warn" role="status">
-      <strong>The borrowing cap is reached.</strong> {fmt(c.total)} of the {fmt(c.line)} {unit()} the vault may
+      <strong>The borrowing cap is reached.</strong> {fmt(c.total)} of the {money(c.line)} the vault may
       lend is already borrowed, so no new {unit()} can be borrowed until governance raises the cap. Raising it
       takes a public proposal and a {wait} waiting period before it applies. Everything else still works:
       depositing, withdrawing spare collateral, repaying and redeeming. Room opens again whenever borrowers repay.
     </p>
   ) : (
     <p className="notice" role="status">
-      <strong>The borrowing cap is nearly reached.</strong> {fmt(c.left)} {unit()} of the {fmt(c.line)} cap is
+      <strong>The borrowing cap is nearly reached.</strong> {money(c.left)} of the {fmt(c.line)} cap is
       left to borrow. Once it is gone, no new {unit()} can be borrowed until borrowers repay or governance raises
       the cap.
     </p>
@@ -217,10 +218,10 @@ export function Position({
           {worth !== undefined && ` ≈ ${fmt(worth)} ${g.underlyingSymbol}`}
         </Row>
         <Row label="Accrued debt">
-          {fmt(debt)} {unit()}
+          {money(debt)}
         </Row>
         <Row label="Unpaid stability fee">
-          {fmt(v.stabilityFeeOf)} {unit()}
+          {money(v.stabilityFeeOf)}
         </Row>
         <Row label="Liquidation price">
           {!sized
@@ -239,7 +240,7 @@ export function Position({
         <Row label="Can still borrow">
           {most === undefined || debt === undefined
             ? "—"
-            : `${fmt(most > debt ? most - debt : 0n)} ${unit()}`}
+            : `${money(most > debt ? most - debt : 0n)}`}
         </Row>
         <Row label="Can withdraw">
           {keep === undefined || held === undefined
@@ -254,7 +255,7 @@ export function Position({
         )}
         <Row label="Wallet">
           {g.share && `${fmt(v.underlyingBalance)} ${g.underlyingSymbol} / `}
-          {fmtGem(v.gemBalance)} {gemUnit()} / {fmt(v.compBalance)} {unit()}
+          {fmtGem(v.gemBalance)} {gemUnit()} / {money(v.compBalance)}
         </Row>
         <p className="micro">
           {unit()} debt is USD-denominated. {g.underlyingSymbol} / USD:{" "}
@@ -506,7 +507,7 @@ export function Work({
             <Ticker
               text={
                 swarm
-                  ? `${fmt(v.rights)} ${unit()}`
+                  ? `${money(v.rights)}`
                   : attested
                     ? w.attestedTasks.toLocaleString("en-US")
                     : "—"
@@ -541,10 +542,10 @@ export function Work({
         {swarm && (
           <>
             <Row label="Credited to this wallet">
-              {fmt(w.creditedRights)} {unit()}
+              {money(w.creditedRights)}
             </Row>
             <Row label="Already used">
-              {fmt(w.consumedRights)} {unit()}
+              {money(w.consumedRights)}
             </Row>
             <Row label="Tally freshness limit">{w.maxAge.toString()}s</Row>
             <p className="micro">
@@ -588,10 +589,10 @@ export function Work({
           {fmt(attested ? w.consumedRights : undefined)}
         </Row>
         <Row label="Rights remaining">
-          {fmt(remaining)} {unit()}
+          {money(remaining)}
         </Row>
         <Row label="This wallet can claim">
-          {fmt(v.rights)} {unit()}
+          {money(v.rights)}
         </Row>
         {faucet && (
           <Choice
@@ -839,7 +840,7 @@ export function Keeper({
     if (f.name === "MarkExpired")
       return `The mark's execution window closed at ${new Date(Number(graceEnds + (s.v.tail ?? 0n)) * 1000).toISOString()}. Mark the position again.`;
     if (f.name === "ExcessRepayment")
-      return `${position.owner} owes ${fmt(position.debt)} ${unit()} including fees; repay no more than that.`;
+      return `${position.owner} owes ${money(position.debt)} including fees; repay no more than that.`;
     return undefined;
   };
   const liq =
@@ -860,10 +861,10 @@ export function Keeper({
           {fmtGem(position.collateral)} {gemUnit()}
         </Row>
         <Row label="Accrued debt">
-          {fmt(position.debt)} {unit()}
+          {money(position.debt)}
         </Row>
         <Row label="Bad debt estimate">
-          {fmt(position.badDebt)} {unit()}
+          {money(position.badDebt)}
         </Row>
         <Row label="Liquidation price">
           {liq ? `$${fmt(liq)} / ${collateral().underlyingSymbol}` : "—"}
@@ -1106,7 +1107,7 @@ export function Backing({ r, s }: { r: Runtime; s?: Snapshot }) {
           label="Collateral-backed debt"
           info="Principal debt still standing behind collateral, net of recorded bad debt."
         >
-          {fmt(v.backedDebt)} {unit()}
+          {money(v.backedDebt)}
         </Row>
         <Row
           label="Secured collateral"
@@ -1115,29 +1116,29 @@ export function Backing({ r, s }: { r: Runtime; s?: Snapshot }) {
           {fmtGem(v.securedCollateral)} {gemUnit()}
         </Row>
         <Row label="Total principal debt">
-          {fmt(v.totalDebt)} {unit()}
+          {money(v.totalDebt)}
         </Row>
         <Row
           label="Recorded bad debt"
           info="Debt left after a liquidation exhausted a position's collateral."
         >
-          {fmt(v.totalBadDebt)} {unit()}
+          {money(v.totalBadDebt)}
         </Row>
         <Row label="Work minted">
-          {fmt(v.totalEarned)} {unit()}
+          {money(v.totalEarned)}
         </Row>
         <Row
           label="Non-principal burns"
           info={`Redemptions that retired ${unit()} without cancelling borrower principal.`}
         >
-          {fmt(v.totalNonPrincipalRedeemed)} {unit()}
+          {money(v.totalNonPrincipalRedeemed)}
         </Row>
         <Row label="Work ratio">{percent(v.earnMat)}</Row>
         <Row
           label="Work ceiling"
           info="Reserve value + backed debt × work ratio. A repayment or redemption can lower it and pause new work issuance."
         >
-          {fmt(shownEarnLine(v).value)} {unit()}
+          {money(shownEarnLine(v).value)}
         </Row>
         <Row label="Reserve assets">{v.reserveAssets?.length ?? "—"}</Row>
         {v.reserveAssets?.map((a: any) => (

@@ -46,7 +46,7 @@ Burns all of `amount`, pays from the Treasury's sIMD first and from the candidat
 
 ### `cover(address owner, uint256 amount)`
 
-Cancel a drained position's bad debt with the Treasury's imdUSD. Anyone may call it. Needs a positive `amount` no larger than the position's debt, a Treasury holding at least `amount` imdUSD, and a position with recorded bad debt. The position may hold no collateral; or dust (worth under about 1.2 imdUSD, or a millionth of a debt above a million), which is moved to the Treasury first; or collateral worth less than the position's recorded bad debt, which the Treasury takes at its value, so `amount` must then be at least that value. Anything but no collateral needs live prices unless the dust is below what a liquidation of one wei of debt would seize.
+Cancel a drained position's bad debt with the Treasury's imdUSD. Anyone may call it. Needs a positive `amount` no larger than the position's debt, a Treasury holding at least `amount` imdUSD, and a position with recorded bad debt. The position may hold no collateral; or dust (worth under about Ɨ 1.2, or a millionth of a debt above a million), which is moved to the Treasury first; or collateral worth less than the position's recorded bad debt, which the Treasury takes at its value, so `amount` must then be at least that value. Anything but no collateral needs live prices unless the dust is below what a liquidation of one wei of debt would seize.
 
 Burns `amount` of the Treasury's imdUSD and applies it like a repayment: fees first (reminted to the Treasury), then principal. `totalDebt`, the position's bad debt and `totalBadDebt` fall together, which raises backing for every holder. Emits `Cover`. Reverts with `NoRealizedBadDebt` if the position holds collateral worth at least its recorded bad debt, or has no recorded bad debt, and with `CoverBelowCollateralValue` if it takes collateral for less than its value.
 
@@ -120,7 +120,7 @@ Returns `uint256`. The liquidation bonus, as a percent of debt repaid: 20. Fixed
 
 ### `FOLLOW_BPS_PER_HOUR()`
 
-Returns `uint256`. How far the paced supply (the fee base) and the paced debt (what the work ceiling counts) may move toward the live figures per hour of elapsed time, in basis points of themselves or of the 100,000 imdUSD floor when larger: 1,000. The paced debt falls at once. Fixed.
+Returns `uint256`. How far the paced supply (the fee base) and the paced debt (what the work ceiling counts) may move toward the live figures per hour of elapsed time, in basis points of themselves or of the Ɨ 100,000 floor when larger: 1,000. The paced debt falls at once. Fixed.
 
 ### `PACE_INTERVAL()`
 
@@ -224,7 +224,7 @@ Returns `uint256`. When the last redemption happened; starts at deployment.
 
 ### `line()`
 
-Returns `uint256`. The ceiling on outstanding borrowed principal, in imdUSD raw units: 1,000,000 imdUSD at launch. Governed. Fees and work minting do not count against it.
+Returns `uint256`. The ceiling on outstanding borrowed principal, in imdUSD raw units: Ɨ 1,000,000 at launch. Governed. Fees and work minting do not count against it.
 
 ### `liquidationMarks(address account)`
 
@@ -276,7 +276,7 @@ Returns `uint256`. `mat() + gap()`, in whole percentage points. A candidate must
 
 ### `redemptionDivisor()`
 
-Returns `uint256`. How fast the redemption fee climbs: each redemption adds redeemed ÷ fee base ÷ this to the base rate, where the fee base is the paced supply (see [Monetary policy](../economics/monetary-policy.md)), never less than 100,000 imdUSD. Governed: 2 at launch.
+Returns `uint256`. How fast the redemption fee climbs: each redemption adds redeemed ÷ fee base ÷ this to the base rate, where the fee base is the paced supply (see [Monetary policy](../economics/monetary-policy.md)), never less than Ɨ 100,000. Governed: 2 at launch.
 
 ### `redemptionFeeBps(uint256 amount)`
 

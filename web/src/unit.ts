@@ -5,3 +5,6 @@ export const unit = () => symbol;
 export function setUnit(s: unknown) {
   if (typeof s === "string" && /^[A-Za-z0-9._-]{1,16}$/.test(s)) symbol = s;
 }
+
+/** imdUSD's sign: U+0197, Latin capital I with stroke (the I of IMD struck, as $ strikes S; the mark's own shape). */
+export const SIGN = "\u0197";
