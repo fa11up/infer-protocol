@@ -15,6 +15,7 @@ export const askerAbi = parseAbi([
   "function askPaid(address feed, bytes body, uint256 maxPrice) returns (bytes32)",
   "function askPaidMany(address[] feeds, bytes[] bodies, uint256 maxPriceEach) returns (bytes32[])",
 ]);
+const feedAbi = parseAbi(["function latestValue() view returns (uint256 value, uint64 updatedAt)"]);
 const erc20 = parseAbi([
   "function balanceOf(address) view returns (uint256)",
   "function allowance(address, address) view returns (uint256)",
@@ -28,6 +29,11 @@ export type AskerState = {
   ready: Record<string, boolean>;
   /** A request already on its way for this feed. */
   inFlight: Record<string, boolean>;
+  /** For a feed in flight: when it was ordered, when the asker takes the next order (ordered + ASK_TIMEOUT), and
+   * whether its answer has already reached the feed (the slot stays set when the Intake's callback does not clear it). */
+  orderedAt: Record<string, bigint>;
+  reopensAt: Record<string, bigint>;
+  answered: Record<string, boolean>;
   balance?: bigint;
   allowance?: bigint;
 };
@@ -47,6 +53,9 @@ export async function readAsker(
   ]);
   const ready: Record<string, boolean> = {};
   const inFlight: Record<string, boolean> = {};
+  const orderedAt: Record<string, bigint> = {};
+  const reopensAt: Record<string, bigint> = {};
+  const answered: Record<string, boolean> = {};
   // The asker treats a request as in flight only until ASK_TIMEOUT after it was sent (2 hours, a deploy-time
   // constant it does not expose): after that `askPaid`/`askPaidMany` buy again. A slot the Intake's callback never
   // cleared reads non-zero for ever, and taking it at face value refused every purchase ("An update is already on
@@ -66,9 +75,16 @@ export async function readAsker(
       ready[name] = f[0] === keccak256(body);
       // inFlight is the eighth member since treasuryPaid was added, inFlightAt the sixth.
       inFlight[name] = !/^0x0+$/.test(f[7]) && now < BigInt(f[5]) + ASK_TIMEOUT;
+      if (inFlight[name]) {
+        orderedAt[name] = BigInt(f[5]);
+        reopensAt[name] = BigInt(f[5]) + ASK_TIMEOUT;
+        // latestValue's updatedAt is the attestation's issue time, which is after the order for its own answer.
+        const [, updatedAt] = await r.client.readContract({ address: feed, abi: feedAbi, functionName: "latestValue", blockNumber });
+        answered[name] = BigInt(updatedAt) >= BigInt(f[5]);
+      }
     }),
   );
-  const state: AskerState = { price, payToken, ready, inFlight };
+  const state: AskerState = { price, payToken, ready, inFlight, orderedAt, reopensAt, answered };
   if (account)
     [state.balance, state.allowance] = await Promise.all([
       r.client.readContract({
@@ -148,6 +164,19 @@ export function BuyUpdate({
   const all = group ?? [feed];
   // A feed already on its way is skipped by the asker and not charged, so it is not paid for here either.
   const toBuy = all.filter((n) => !a.inFlight[n]);
+  // Say what is actually true of a feed in flight: answered already (the asker's slot outlives the answer when the
+  // Intake's callback does not clear it) or still coming, and when the asker takes the next order.
+  const hhmm = (t?: bigint) => (t === undefined ? "" : `${new Date(Number(t) * 1000).toISOString().slice(11, 16)} UTC`);
+  const names = (ns: string[]) => ns.map((n) => (n === "NhiFeed" ? "NHI" : n.replace(/Feed$/, "").toLowerCase())).join(" and ");
+  const latest = (ns: string[], m: Record<string, bigint>) => ns.map((n) => m[n]).reduce((x, y) => (y > x ? y : x), 0n);
+  const inFlightNote = (() => {
+    const done = all.filter((n) => a.inFlight[n] && a.answered[n]);
+    const coming = all.filter((n) => a.inFlight[n] && !a.answered[n]);
+    const reopen = hhmm(latest(all, a.reopensAt));
+    if (coming.length)
+      return `An update for ${names(coming)} was ordered at ${hhmm(latest(coming, a.orderedAt))} and is on its way. If it stalls, ordering reopens at ${reopen}.`;
+    return `${names(done)[0].toUpperCase() + names(done).slice(1)} ${done.length > 1 ? "were" : "was"} just updated (ordered at ${hhmm(latest(done, a.orderedAt))}). The oracle takes the next order for ${done.length > 1 ? "them" : "it"} after ${reopen}.`;
+  })();
   const total = a.price * BigInt(toBuy.length || 1);
   const short = a.allowance === undefined || a.allowance < total;
   const what = toBuy.length > 1 ? `${toBuy.length} updates` : "an update";
@@ -158,7 +187,7 @@ export function BuyUpdate({
     : all.some((n) => !a.ready[n])
       ? "The configured request does not match the question this feed pins. Nothing will be sent."
       : !toBuy.length
-        ? "An update is already on its way."
+        ? inFlightNote
         : a.price === 0n
           ? "The request contract is not selling updates right now."
           : a.balance !== undefined && a.balance < total
