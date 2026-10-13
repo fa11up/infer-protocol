@@ -48,14 +48,14 @@ The fee has a fixed floor and cap. Between them it is a base rate that rises wit
 
 ## Backing per imdUSD
 
-`backingPerUnit()` is the figure redemption pays against, capped at $1. It adds:
+`backingPerUnit()` is the figure redemption pays against, capped at $ 1. It adds:
 
 - the Treasury's sIMD at the vault's own price, plus other listed reserve assets at their discounted value; and
 - collateral that stands behind debt, counted position by position and never more than each position's debt requires. Surplus collateral and debt-free deposits count for nothing.
 
 It divides the total by imdUSD supply.
 
-**Backing rises slowly and falls at once.** Redemption pays against the lower of the live figure and a paced one. The paced figure follows a fall immediately, but rises by at most two points of par an hour (`BACKING_RISE_PER_HOUR`), however much capital arrives. So nobody can deposit and borrow just before a redemption to lift backing to $1, take the reserve at par and unwind afterwards; a real recovery reaches redeemers at the same two points an hour. The paced figure moves only when the vault is paced, which every call that moves capital does and anyone may do with `pace()`; elapsed time counts at most one hour (`PACE_INTERVAL`) between pacings, so a quiet day cannot bank a day's rise. The keeper paces hourly. A pacing while the prices are stale or disagree holds the figure where it was.
+**Backing rises slowly and falls at once.** Redemption pays against the lower of the live figure and a paced one. The paced figure follows a fall immediately, but rises by at most two points of par an hour (`BACKING_RISE_PER_HOUR`), however much capital arrives. So nobody can deposit and borrow just before a redemption to lift backing to $ 1, take the reserve at par and unwind afterwards; a real recovery reaches redeemers at the same two points an hour. The paced figure moves only when the vault is paced, which every call that moves capital does and anyone may do with `pace()`; elapsed time counts at most one hour (`PACE_INTERVAL`) between pacings, so a quiet day cannot bank a day's rise. The keeper paces hourly. A pacing while the prices are stale or disagree holds the figure where it was.
 
 **Each position's collateral counts at the price it was last touched at.** Anyone may re-price any position with `resecure(owner)`, and the keeper does after every price update, so no position's term stays at a stale price for long.
 
@@ -63,7 +63,7 @@ It divides the total by imdUSD supply.
 
 **The price a redemption is paid at is paced too.** A redeemer is paid IMD at the higher of the attested price and a paced payout price (`payoutPrice()`) that falls at most 1% an hour (`PAYOUT_PRICE_FALL_BPS_PER_HOUR`) and rises at once. A sudden fall of the attested price, real or a pool held down through the feed's window, therefore reaches payouts over most of a day (about 22 paced hours for a 20% fall) rather than in one step. After a real crash redeemers are paid at the higher figure until the paid price has followed it down.
 
-This is deliberately conservative, not the market value of everything in custody, and it can fall after a redemption that cancels a borrower's debt. Below $1, holders share the shortfall through a smaller payout; above it, the surplus stays with borrowers rather than paying redeemers a premium.
+This is deliberately conservative, not the market value of everything in custody, and it can fall after a redemption that cancels a borrower's debt. Below $ 1, holders share the shortfall through a smaller payout; above it, the surplus stays with borrowers rather than paying redeemers a premium.
 
 ## Revenue and what leaves the Treasury
 

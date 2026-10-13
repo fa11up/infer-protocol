@@ -21,23 +21,23 @@ export function MarketCap({ supply }: { supply?: bigint }) {
     <span
       className="market-cap"
       role="meter"
-      aria-label="imdUSD market cap toward the $1B goal"
+      aria-label="imdUSD market cap toward the $&nbsp;1B goal"
       aria-valuemin={0}
       aria-valuemax={GOAL}
       aria-valuenow={dollars ?? 0}
       aria-valuetext={
         dollars === undefined
           ? "Unavailable"
-          : `$${compact.format(dollars)} of $1B`
+          : `$\u00a0${compact.format(dollars)} of $\u00a01B`
       }
-      title="Market cap = supply × $1 par"
+      title="Market cap = supply × $&nbsp;1 par"
     >
       imdUSD{" "}
-      <b>{dollars === undefined ? "—" : `$${compact.format(dollars)}`}</b>{" "}
+      <b>{dollars === undefined ? "—" : `$\u00a0${compact.format(dollars)}`}</b>{" "}
       <span className="cap-bar" aria-hidden="true">
         {capBar(dollars ?? 0)}
       </span>{" "}
-      $1B goal
+      $&nbsp;1B goal
     </span>
   );
 }

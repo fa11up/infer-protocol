@@ -65,7 +65,7 @@ Each feed row expands to show its latest value, when it was updated, its maximum
 
 ### Backing
 
-- **Backing per imdUSD:** the figure redemption pays against, never above $1. "At par" means backing is at the cap; "Cap binds" means it is below $1 and redemptions pay less.
+- **Backing per imdUSD:** the figure redemption pays against, never above $ 1. "At par" means backing is at the cap; "Cap binds" means it is below $ 1 and redemptions pay less.
 - **Reserve value:** the Treasury's assets in dollars.
 - **Collateral-backed debt:** principal still standing behind collateral, net of bad debt.
 - **Secured collateral:** collateral counted as backing, bounded by each position's own debt. Surplus and debt-free deposits are excluded.
@@ -88,7 +88,7 @@ Right column, **Act**: choose Deposit (`lock`), Borrow (`draw`), Repay (`wipe`) 
 
 ### Redemption
 
-Left: **Current fee** (before your amount is added), **Floor / cap**, **Paid at** ($1, or the backing figure if lower), **Reserve on hand** (Treasury sIMD), **Eligibility ceiling**, and a table of the fee for 1%, 5% and 10% of supply.
+Left: **Current fee** (before your amount is added), **Floor / cap**, **Paid at** ($ 1, or the backing figure if lower), **Reserve on hand** (Treasury sIMD), **Eligibility ceiling**, and a table of the fee for 1%, 5% and 10% of supply.
 
 Right: enter an amount, a slippage tolerance in basis points and, if the reserve is short, a **Candidate position**. Press Quote redemption. The quote shows what you receive, your fee, whether it is served by the reserve, a position or both, the debt cancelled and your minimum. Any edit clears the quote. Then press Review redemption to run Redeem (`cash`).
 

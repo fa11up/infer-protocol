@@ -600,7 +600,7 @@ function Terminal({ r }: { r: Runtime }) {
                 text={
                   shownReserve(s?.v).value === undefined
                     ? "—"
-                    : `$${compact.format(Number(formatUnits(shownReserve(s?.v).value!, 18)))}`
+                    : `$\u00a0${compact.format(Number(formatUnits(shownReserve(s?.v).value!, 18)))}`
                 }
               />
             </b>

@@ -45,7 +45,7 @@ function useLive() {
 }
 
 const usd = (v?: bigint) =>
-  v === undefined ? "—" : `$${compact.format(Number(formatUnits(v, 18)))}`;
+  v === undefined ? "—" : `$\u00a0${compact.format(Number(formatUnits(v, 18)))}`;
 
 function LivePanel({ s, error }: { s?: Snapshot; error: string }) {
   const [now, setNow] = useState(BigInt(Math.floor(Date.now() / 1000)));
@@ -64,13 +64,13 @@ function LivePanel({ s, error }: { s?: Snapshot; error: string }) {
           "Backing per imdUSD",
           v.backingPerUnit === undefined
             ? "not reported"
-            : `$${fmt(v.backingPerUnit < WAD ? v.backingPerUnit : WAD)}`,
+            : `$\u00a0${fmt(v.backingPerUnit < WAD ? v.backingPerUnit : WAD)}`,
         ],
         ["Reserves", usd(shownReserve(v).value)],
         [
           "IMD / USD",
           price
-            ? `$${fmt(price.value, 18, 2)} · ${price.stale ? "stale" : age(price.updated, now)}`
+            ? `$\u00a0${fmt(price.value, 18, 2)} · ${price.stale ? "stale" : age(price.updated, now)}`
             : "—",
           price?.stale ? "danger" : undefined,
         ],

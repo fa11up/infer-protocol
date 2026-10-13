@@ -117,14 +117,14 @@ function MarkNotice({ s, actions, now }: { s?: Snapshot; actions: Actions; now: 
         At the price the oracle reports, your collateral is worth less than minCR {ratio(v.mat)} of your debt.
         Someone noticed and marked it, which starts a grace period. When the grace period ends, anyone can
         repay some or all of your debt and take your collateral in return: for every {unit()} they repay they take
-        $1.20 of collateral, valued at that same oracle price.
+        $&nbsp;1.20 of collateral, valued at that same oracle price.
       </p>
       <p>
         <strong>If the oracle price is lower than the real market price, you lose more.</strong> The oracle reads
         one IMD pool, and someone with enough money can push that pool down and try to hold it there, against
         traders who buy it cheap and sell on IMD's other markets. If the pool is
-        held 20% below the real price, each {unit()} repaid takes about $1.50 of your collateral at the real
-        price; held 36% down, about $1.88. The protocol cannot tell a held-down pool from a real fall.
+        held 20% below the real price, each {unit()} repaid takes about $&nbsp;1.50 of your collateral at the real
+        price; held 36% down, about $&nbsp;1.88. The protocol cannot tell a held-down pool from a real fall.
       </p>
       <p>
         <strong>To stop it:</strong> deposit collateral or repay debt until your ratio is back above{" "}
@@ -230,11 +230,11 @@ export function Position({
               ? "No debt"
               : liq === undefined
                 ? "—"
-                : `$${fmt(liq)} / ${g.underlyingSymbol}`}
+                : `$\u00a0${fmt(liq)} / ${g.underlyingSymbol}`}
         </Row>
         {liq !== undefined && (
           <p className="micro">
-            {g.underlyingSymbol} is ${fmt(imdUsd)} now, {cushion(imdUsd, liq)}.
+            {g.underlyingSymbol} is $&nbsp;{fmt(imdUsd)} now, {cushion(imdUsd, liq)}.
           </p>
         )}
         <Row label="Can still borrow">
@@ -260,7 +260,7 @@ export function Position({
         <p className="micro">
           {unit()} debt is USD-denominated. {g.underlyingSymbol} / USD:{" "}
           {s?.feeds.USD && !s.feeds.USD.stale
-            ? `$${fmt(s.feeds.USD.value)}`
+            ? `$\u00a0${fmt(s.feeds.USD.value)}`
             : "unavailable"}
           {g.share &&
             g.rate > 0n &&
@@ -867,7 +867,7 @@ export function Keeper({
           {money(position.badDebt)}
         </Row>
         <Row label="Liquidation price">
-          {liq ? `$${fmt(liq)} / ${collateral().underlyingSymbol}` : "—"}
+          {liq ? `$\u00a0${fmt(liq)} / ${collateral().underlyingSymbol}` : "—"}
         </Row>
         <Row label="Cushion">
           {liq ? cushion(s?.feeds.USD?.value, liq) : "—"}
@@ -1069,7 +1069,7 @@ export function Backing({ r, s }: { r: Runtime; s?: Snapshot }) {
             Backing per {unit()}
             <Info
               label={`Backing per ${unit()}`}
-              text={`Reserve plus secured collateral, over ${unit()} supply, never above $1. A redemption pays the lesser of $1 and this figure, less the fee.`}
+              text={`Reserve plus secured collateral, over ${unit()} supply, never above $\u00a01. A redemption pays the lesser of $\u00a01 and this figure, less the fee.`}
             />
           </span>
           <strong>
@@ -1077,7 +1077,7 @@ export function Backing({ r, s }: { r: Runtime; s?: Snapshot }) {
               text={
                 v.backingPerUnit === undefined
                   ? "Not reported"
-                  : `$${fmt(v.backingPerUnit)}`
+                  : `$\u00a0${fmt(v.backingPerUnit)}`
               }
             />
           </strong>
@@ -1101,7 +1101,7 @@ export function Backing({ r, s }: { r: Runtime; s?: Snapshot }) {
           label="Reserve value"
           info="Treasury reserve assets valued in USD through their listed price feeds, after each listing's haircut. While a price is stale the contract counts that asset for nothing; this shows it at its last price instead."
         >
-          ${fmt(shownReserve(v).value)}
+          $&nbsp;{fmt(shownReserve(v).value)}
         </Row>
         <Row
           label="Collateral-backed debt"
@@ -1115,7 +1115,7 @@ export function Backing({ r, s }: { r: Runtime; s?: Snapshot }) {
         >
           {v.securedCollateral === undefined || !s?.feeds.Collateral?.value
             ? "—"
-            : `$${fmt((v.securedCollateral * s.feeds.Collateral.value) / WAD)}`}
+            : `$\u00a0${fmt((v.securedCollateral * s.feeds.Collateral.value) / WAD)}`}
         </Row>
         <Row label="Total principal debt">
           {money(v.totalDebt)}

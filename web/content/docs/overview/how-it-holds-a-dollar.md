@@ -28,13 +28,13 @@ Debt grows with a yearly stability fee, `duty`. Fees build up on the position an
 
 ## Redemption puts a floor under the price
 
-Anyone can burn imdUSD and receive sIMD (`cash`). Each imdUSD pays $1 of sIMD, less a fee, or less than $1 if the system holds less than $1 of backing per imdUSD. Backing per imdUSD is the reserve plus the collateral standing behind debt, divided by imdUSD supply, and it never counts above $1, so a surplus is not paid out as a windfall. If backing falls short, every redeemer is paid a little less rather than redemption closing.
+Anyone can burn imdUSD and receive sIMD (`cash`). Each imdUSD pays $ 1 of sIMD, less a fee, or less than $ 1 if the system holds less than $ 1 of backing per imdUSD. Backing per imdUSD is the reserve plus the collateral standing behind debt, divided by imdUSD supply, and it never counts above $ 1, so a surplus is not paid out as a windfall. If backing falls short, every redeemer is paid a little less rather than redemption closing.
 
 Redemption is paid from the Treasury's sIMD first. If the Treasury is short, the rest comes from a borrower's position the redeemer names: that borrower's debt is cancelled and their collateral pays the redeemer. Only positions close to the minimum ratio can be named, so redemption lands on the thinnest positions first.
 
 What a redemption is paid against can rise by at most two points of par an hour, however much new collateral or debt arrives, and falls at once. This stops someone from adding capital, redeeming against it and pulling it straight back out. The full rules, fee and steps are in [Redeem](../guides/redeem.md).
 
-If imdUSD trades below the redemption price, buying it and redeeming earns a profit, which pushes the price back up. That is the floor. Nothing in the contracts pulls the price down from above $1; new borrowing may do so in practice, but that is not guaranteed.
+If imdUSD trades below the redemption price, buying it and redeeming earns a profit, which pushes the price back up. That is the floor. Nothing in the contracts pulls the price down from above $ 1; new borrowing may do so in practice, but that is not guaranteed.
 
 ## Liquidation removes positions that fall short
 
@@ -62,4 +62,4 @@ While the guard is tripped, borrowing, withdrawing while in debt, minting from w
 
 ## What can still go wrong
 
-An out-of-date or disagreeing price halts every action that needs one. A fast price fall can outrun liquidation and leave bad debt. Backing per imdUSD can sit below $1, and then redemption pays less than $1. See [Risks and open questions](../economics/risks-and-open-questions.md).
+An out-of-date or disagreeing price halts every action that needs one. A fast price fall can outrun liquidation and leave bad debt. Backing per imdUSD can sit below $ 1, and then redemption pays less than $ 1. See [Risks and open questions](../economics/risks-and-open-questions.md).

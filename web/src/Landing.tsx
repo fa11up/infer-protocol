@@ -158,7 +158,7 @@ export function Page({
             <article>
               <h3>Redeem</h3>
               <p>
-                Burn imdUSD for sIMD at the lesser of $1 and the backing behind
+                Burn imdUSD for sIMD at the lesser of $&nbsp;1 and the backing behind
                 each imdUSD, less a fee that grows with the size of the
                 redemption and stays in the protocol as backing.
               </p>

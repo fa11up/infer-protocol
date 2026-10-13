@@ -31,7 +31,7 @@ The bonus is divided three ways:
 | Protocol's share | `cut` | The Treasury (`feeRecipient()`) |
 | The rest | | The liquidator, along with the full value of the debt repaid |
 
-`chip` and `cut` are fractions of the bonus, in basis points, set by governance; both are 1,000 (10% of the bonus) at launch. So on $100 of debt repaid the bonus is $20: $2 to the marker, $2 to the Treasury, and a liquidator who did not mark keeps $16 on top of the $100. Together they cannot exceed the whole bonus: `Parameters` refuses such a proposal (`SharesExceedBonus`), and the vault refuses a liquidation with `InvalidBonusShares` if it ever happened.
+`chip` and `cut` are fractions of the bonus, in basis points, set by governance; both are 1,000 (10% of the bonus) at launch. So on $ 100 of debt repaid the bonus is $ 20: $ 2 to the marker, $ 2 to the Treasury, and a liquidator who did not mark keeps $ 16 on top of the $ 100. Together they cannot exceed the whole bonus: `Parameters` refuses such a proposal (`SharesExceedBonus`), and the vault refuses a liquidation with `InvalidBonusShares` if it ever happened.
 
 The split only divides a bonus that already exists. The borrower loses the same amount however it is split.
 

@@ -111,13 +111,13 @@ export function Redemption({
         </Row>
         <Row
           label={`Paid at, per ${unit()}`}
-          info={`A redemption pays the lesser of $1 and backing per ${unit()}, less the fee.`}
+          info={`A redemption pays the lesser of $\u00a01 and backing per ${unit()}, less the fee.`}
         >
           {v.backingPerUnit === undefined
             ? "Par (backing unavailable)"
             : v.backingPerUnit < WAD
-              ? `$${fmt(v.backingPerUnit)} · cap binds`
-              : "$1 · par"}
+              ? `$\u00a0${fmt(v.backingPerUnit)} · cap binds`
+              : "$\u00a01 · par"}
         </Row>
         <Row
           label="Reserve on hand"
@@ -389,7 +389,7 @@ export function Redemption({
             </Row>
             <Row label="Your fee">
               {percent(q.fee)} ·{" "}
-              {q.capped ? `$${fmt(q.paidAt)} (backing cap)` : "$1 (par)"}
+              {q.capped ? `$\u00a0${fmt(q.paidAt)} (backing cap)` : "$\u00a01 (par)"}
             </Row>
             <Row label="Served by">{q.source}</Row>
             {q.reserveOut > 0n && q.positionOut > 0n && (
@@ -424,7 +424,7 @@ export function Redemption({
                 target: s!.targets.ParameterizedVault,
                 fn: "cash",
                 args: [q.amount, q.minimum, q.candidate],
-                summary: `Burn ${exact(q.amount)} ${unit()}. Receive at least ${exactGem(q.minimum)} ${gemUnit()}; quoted ${exactGem(q.out)} ${gemUnit()} from ${q.source.toLowerCase()} at ${percent(q.fee)}${q.capped ? `, paid at $${fmt(q.paidAt)} per ${unit()} because backing is below par` : ""}. Candidate: ${q.candidate}. The fee is retained as backing.`,
+                summary: `Burn ${exact(q.amount)} ${unit()}. Receive at least ${exactGem(q.minimum)} ${gemUnit()}; quoted ${exactGem(q.out)} ${gemUnit()} from ${q.source.toLowerCase()} at ${percent(q.fee)}${q.capped ? `, paid at $\u00a0${fmt(q.paidAt)} per ${unit()} because backing is below par` : ""}. Candidate: ${q.candidate}. The fee is retained as backing.`,
               })}
             />
           </div>

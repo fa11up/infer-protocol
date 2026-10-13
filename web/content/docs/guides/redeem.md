@@ -18,15 +18,15 @@ Redeem (`cash`) burns imdUSD from your wallet and pays you sIMD, staked IMD. It 
 
 ## What you are paid
 
-For each imdUSD burned, the vault pays sIMD worth $1, or the backing per imdUSD if that is lower, less the fee:
+For each imdUSD burned, the vault pays sIMD worth $ 1, or the backing per imdUSD if that is lower, less the fee:
 
-> sIMD out = imdUSD burned × min($1, backing per imdUSD) × (1 − fee) ÷ payout price
+> sIMD out = imdUSD burned × min($ 1, backing per imdUSD) × (1 − fee) ÷ payout price
 
 The payout price is the higher of the attested sIMD price and a paced price that falls at most 1% an hour and rises at once (`payoutPrice()`). In normal markets the two are the same.
 
-- **Backing per imdUSD** is the reserve plus the collateral standing behind debt, divided by imdUSD supply, never above $1. Read it with `backingPerUnit()`; the terminal shows it.
+- **Backing per imdUSD** is the reserve plus the collateral standing behind debt, divided by imdUSD supply, never above $ 1. Read it with `backingPerUnit()`; the terminal shows it.
 - **The fee** has a floor and a cap. It rises with the share of the fee base your burn represents (imdUSD supply as it was paced, following the real supply by at most 10% an hour, never counted as less than 100,000) and falls back as time passes, halving every twelve hours. Quote it before you send with `redemptionFeeBps(amount)`.
-- If backing is below $1, you are paid less than $1 per imdUSD. Redemption stays open, but it still needs live prices (fresh, and the main and spot prices agreeing), a valid candidate when the reserve is short, and a payout above zero.
+- If backing is below $ 1, you are paid less than $ 1 per imdUSD. Redemption stays open, but it still needs live prices (fresh, and the main and spot prices agreeing), a valid candidate when the reserve is short, and a payout above zero.
 
 ### Backing and the payout price move slowly upward and fast downward
 

@@ -60,7 +60,7 @@ export function PegTicker() {
       rel="noreferrer"
       title="imdUSD's price in its imdUSD/USDC pool on Uniswap"
     >
-      imdUSD <b className={level}>${v.toFixed(4)}</b>
+      imdUSD <b className={level}>$&nbsp;{v.toFixed(4)}</b>
     </a>
   );
 }

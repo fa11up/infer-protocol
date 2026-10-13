@@ -87,7 +87,7 @@ const liquidation = (p: { collateral: bigint; debt: bigint }, s?: Snapshot) => {
   const at =
     s?.v.mat && perImd(liquidationPrice(p.collateral, p.debt, s.v.mat));
   return at
-    ? `liquidates at $${fmt(at, 18, 2)}, ${cushion(s!.feeds.USD?.value, at)}`
+    ? `liquidates at $\u00a0${fmt(at, 18, 2)}, ${cushion(s!.feeds.USD?.value, at)}`
     : "liquidation price unavailable";
 };
 const stateOf = (cr: bigint, min: bigint, ceiling: bigint) =>
@@ -486,7 +486,7 @@ function LoanFeed({
                 </span>
                 <span>{money(p.debt)}</span>
                 <span>
-                  {at ? `$${fmt(at, 18, 2)}` : "—"}
+                  {at ? `$\u00a0${fmt(at, 18, 2)}` : "—"}
                   <small>{at ? cushion(s.feeds.USD?.value, at) : ""}</small>
                 </span>
               </button>
