@@ -80,7 +80,7 @@ const normalized = (logs) =>
   }));
 const runtime = (client) => ({ config: { chainId: 11155111 }, client });
 
-test("historical ranges are contiguous, inclusive, end on multiples of 2,000 (so /rpc can cache them), the first at least a full chunk", async () => {
+test("historical ranges cover the range, end on multiples of 2,000 (so /rpc can cache them), and the first and last span a full chunk", async () => {
   const ranges = [];
   const r = runtime({
     getLogs: async (params) => {
@@ -94,7 +94,7 @@ test("historical ranges are contiguous, inclusive, end on multiples of 2,000 (so
     ranges.map((p) => [p.fromBlock, p.toBlock]),
     [
       [16n, 3999n],
-      [4000n, 5020n],
+      [3021n, 5020n],
     ],
   );
 });

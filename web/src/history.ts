@@ -189,6 +189,11 @@ export async function rangeLogs(
       windows.push([start, end < to ? end : to]);
       start = end + 1n;
     }
+    // The newest window is usually a sliver up to the head, often with no logs yet, which would fail as unverified
+    // and send the whole range to Blockscout: it reaches back a full chunk instead (never before `from`). It overlaps
+    // the window before it; history() drops the repeated logs.
+    const last = windows[windows.length - 1];
+    if (windows.length > 1 && last[1] - last[0] + 1n < size) last[0] = last[1] - size + 1n > from ? last[1] - size + 1n : from;
     const read = async ([start, end]: [bigint, bigint]) => {
       const batch = await r.client.getLogs({
         address: t.address,
@@ -212,7 +217,7 @@ export async function rangeLogs(
         }
       }),
     );
-    const logs = got.flat();
+    const logs = [...new Map(got.flat().map((l) => [key(l), l])).values()];
     if (!logs.length) throw Error("No verifiable logs");
     return { logs, source: "RPC" };
   } catch {
