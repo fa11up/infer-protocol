@@ -718,7 +718,7 @@ export function Oracle({
                   />
                   {feedNames[n][0]}
                 </span>
-                <b>{fmt(f[n]?.value, 18, 8)}</b>
+                <b>{fmt(f[n]?.value, 18, n === "USD" ? 2 : 8)}</b>
                 <span className="feed-caret" aria-hidden="true">
                   {expanded ? "−" : "+"}
                 </span>

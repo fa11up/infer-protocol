@@ -8,7 +8,7 @@ import {
 } from "viem";
 import { ours } from "./names.ts";
 export const WAD = 10n ** 18n;
-export const fmt = (v: bigint | undefined, d = 18, places = 4): string => {
+export const fmt = (v: bigint | undefined, d = 18, places = 2): string => {
   if (v === undefined) return "—";
   const [a, b = ""] = formatUnits(v, d).split(".");
   return (
