@@ -175,6 +175,8 @@ export function BuyUpdate({
     const reopen = hhmm(latest(all, a.reopensAt));
     if (coming.length)
       return `An update for ${names(coming)} was ordered at ${hhmm(latest(coming, a.orderedAt))} and is on its way. If it stalls, ordering reopens at ${reopen}.`;
+    // Nothing in flight (the usual case): this note is never shown, and done[0] would not exist.
+    if (!done.length) return "";
     return `${names(done)[0].toUpperCase() + names(done).slice(1)} ${done.length > 1 ? "were" : "was"} just updated (ordered at ${hhmm(latest(done, a.orderedAt))}). The oracle takes the next order for ${done.length > 1 ? "them" : "it"} after ${reopen}.`;
   })();
   const total = a.price * BigInt(toBuy.length || 1);
