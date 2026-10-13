@@ -1101,7 +1101,6 @@ export function Backing({ r, s }: { r: Runtime; s?: Snapshot }) {
           info="Treasury reserve assets valued in USD through their listed price feeds, after each listing's haircut. While a price is stale the contract counts that asset for nothing; this shows it at its last price instead."
         >
           ${fmt(shownReserve(v).value)}
-          {shownReserve(v).last && <small> · last price</small>}
         </Row>
         <Row
           label="Collateral-backed debt"
@@ -1139,7 +1138,6 @@ export function Backing({ r, s }: { r: Runtime; s?: Snapshot }) {
           info="Reserve value + backed debt × work ratio. A repayment or redemption can lower it and pause new work issuance."
         >
           {fmt(shownEarnLine(v).value)} {unit()}
-          {shownEarnLine(v).last && <small> · last price</small>}
         </Row>
         <Row label="Reserve assets">{v.reserveAssets?.length ?? "—"}</Row>
         {v.reserveAssets?.map((a: any) => (
