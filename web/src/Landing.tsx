@@ -210,8 +210,8 @@ export function Page({
           <a href={WHITEPAPER} target="_blank" rel="noreferrer">
             Whitepaper ↗
           </a>
-          <DexLink />
           <XLink />
+          <DexLink />
         </nav>
         <span>imdUSD · built on IdentityMD</span>
       </footer>

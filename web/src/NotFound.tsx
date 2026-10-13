@@ -28,8 +28,8 @@ export function NotFound() {
           <a href={WHITEPAPER} target="_blank" rel="noreferrer">
             Whitepaper ↗
           </a>
-          <DexLink />
           <XLink />
+          <DexLink />
         </nav>
         <span>imdUSD · built on IdentityMD</span>
       </footer>
