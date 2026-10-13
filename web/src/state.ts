@@ -515,3 +515,11 @@ export function shownReserve(v: Record<string, any> | undefined): { value: bigin
   if (onChain === 0n && last !== undefined && last > 0n) return { value: last, last: true };
   return { value: onChain, last: false };
 }
+
+/** The work ceiling to show: earnLine with the reserve term at its last price while a stale price zeroes it on chain. */
+export function shownEarnLine(v: Record<string, any> | undefined): { value: bigint | undefined; last: boolean } {
+  const line = v?.earnLine as bigint | undefined;
+  const r = shownReserve(v);
+  if (line === undefined || !r.last || r.value === undefined) return { value: line, last: false };
+  return { value: line - ((v?.reserveValue as bigint) ?? 0n) + r.value, last: true };
+}

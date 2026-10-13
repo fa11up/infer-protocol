@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { pack } from "./swarm";
 import { formatUnits, maxUint256 } from "viem";
 import type { Runtime } from "./config";
-import type { Snapshot } from "./state";
+import { shownEarnLine, type Snapshot } from "./state";
 import {
   loanBook,
   cadence,
@@ -615,7 +615,7 @@ export function Sparkline({
 
 export function WorkChart({ s }: { s?: Snapshot }) {
   const minted = s?.v.totalEarned as bigint | undefined,
-    ceiling = s?.v.earnLine as bigint | undefined;
+    ceiling = shownEarnLine(s?.v).value;
   if (minted === undefined || ceiling === undefined)
     return <Unavailable>Could not read work ceiling headroom.</Unavailable>;
   const max = minted > ceiling ? minted : ceiling;

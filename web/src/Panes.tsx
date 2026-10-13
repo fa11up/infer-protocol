@@ -14,7 +14,7 @@ import { isAddress } from "viem";
 import { WorkChart, SupplyChart, Sparkline, type ChartData } from "./Charts";
 import { Ticker } from "./motion";
 import { type Runtime } from "./config";
-import { type Snapshot, type Question, read, feedsReady, shownReserve } from "./state";
+import { type Snapshot, type Question, read, feedsReady, shownReserve, shownEarnLine } from "./state";
 import {
   Action,
   ActionForm,
@@ -1138,7 +1138,8 @@ export function Backing({ r, s }: { r: Runtime; s?: Snapshot }) {
           label="Work ceiling"
           info="Reserve value + backed debt × work ratio. A repayment or redemption can lower it and pause new work issuance."
         >
-          {fmt(v.earnLine)} {unit()}
+          {fmt(shownEarnLine(v).value)} {unit()}
+          {shownEarnLine(v).last && <small> · last price</small>}
         </Row>
         <Row label="Reserve assets">{v.reserveAssets?.length ?? "—"}</Row>
         {v.reserveAssets?.map((a: any) => (
