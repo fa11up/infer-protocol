@@ -25,6 +25,10 @@ export const TERMINAL =
 export const WHITEPAPER = "https://whitepaper.imdusd.com";
 export const INFER_SITE = "https://infer.imdusd.com";
 export const X_ACCOUNT = "https://x.com/imdusd";
+/** INFER's launch pool (INFER/IMD, Uniswap v4) on DexScreener. The pool, not the token: a stranger's
+ * INFER/USDC pool exists, and a token link lets DexScreener pick which pair to show. */
+export const INFER_DEXSCREENER =
+  "https://dexscreener.com/ethereum/0x1f03dd2c202cf17b58305b73ae2f8b3143e9c056ed9c9e8dbd4924b350431e95";
 
 /** The footer's link to imdUSD on X: the X mark, in the text colour, named for screen readers. */
 export function XLink() {
@@ -33,6 +37,15 @@ export function XLink() {
       <svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" focusable="false">
         <path fill="currentColor" d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
       </svg>
+    </a>
+  );
+}
+
+/** The footer's link to INFER's chart on DexScreener, sitting beside the X mark. */
+export function DexLink() {
+  return (
+    <a href={INFER_DEXSCREENER} target="_blank" rel="noreferrer" title="INFER on DexScreener">
+      DexScreener ↗
     </a>
   );
 }
