@@ -326,3 +326,46 @@ test("/rpc keeps final log windows for a month (never an empty one), and tries a
   resetBench();
   resetAllowlist();
 });
+
+test("/rpc shares the provider bench through the cache, and recent log ranges a provider serves do not clear its bench for old ones", async () => {
+  const { handleRpc, resetAllowlist, resetBench } = await import("../worker/rpc.js");
+  const OURS = "0x1111111111111111111111111111111111111111";
+  const HEAD = 0x18f8000;
+  const env = {
+    RPC_UPSTREAMS: "https://keyed.example/a, https://keyed.example/b",
+    ASSETS: { fetch: async () => new Response(JSON.stringify([OURS])) },
+  };
+  const store = new Map();
+  const cache = {
+    match: async (k) => store.get(k.url)?.clone(),
+    put: async (k, r) => void store.set(k.url, r),
+    delete: async (k) => store.delete(k.url),
+  };
+  let calls = [];
+  const fetchStub = async (url, init) => {
+    const body = JSON.parse(init.body);
+    calls.push({ url, method: body.method });
+    // Provider a is a non-archive node: it serves recent log ranges and refuses old ones.
+    if (url.endsWith("/a") && body.method === "eth_getLogs" && BigInt(body.params[0].fromBlock) + 100n < BigInt(HEAD))
+      return new Response("archive not available", { status: 403 });
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: body.method === "eth_blockNumber" ? `0x${HEAD.toString(16)}` : [{ blockNumber: body.params?.[0]?.fromBlock }] }));
+  };
+  const post = (filter) =>
+    handleRpc(new Request("https://imdusd.com/rpc", { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 3, method: "eth_getLogs", params: [filter] }) }), env, { fetch: fetchStub, cache }, { logs: true, pages: "the imdUSD terminal" });
+  const logsTo = () => calls.filter((c) => c.method === "eth_getLogs").map((c) => c.url);
+  const old = (from) => ({ address: OURS, fromBlock: `0x${from.toString(16)}`, toBlock: `0x${(from + 1999).toString(16)}` });
+  resetAllowlist();
+  resetBench();
+  await post(old(0x18f0000)); // a refuses: benched for old ranges, in memory and in the cache
+  // A recent range a does serve leaves that bench alone.
+  calls = [];
+  await post({ address: OURS, fromBlock: `0x${(HEAD - 20).toString(16)}`, toBlock: `0x${(HEAD - 1).toString(16)}` });
+  assert.deepEqual(logsTo(), ["https://keyed.example/a"]);
+  // A new isolate (memory cleared) reads the shared bench: the next old range goes to b first.
+  resetBench();
+  calls = [];
+  await post(old(0x18f2000));
+  assert.deepEqual(logsTo(), ["https://keyed.example/b"]);
+  resetBench();
+  resetAllowlist();
+});
