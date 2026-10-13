@@ -47,6 +47,12 @@ export async function readAsker(
   ]);
   const ready: Record<string, boolean> = {};
   const inFlight: Record<string, boolean> = {};
+  // The asker treats a request as in flight only until ASK_TIMEOUT after it was sent (2 hours, a deploy-time
+  // constant it does not expose): after that `askPaid`/`askPaidMany` buy again. A slot the Intake's callback never
+  // cleared reads non-zero for ever, and taking it at face value refused every purchase ("An update is already on
+  // its way", mainnet 2026-10-13, slots 4-6 hours old).
+  const ASK_TIMEOUT = 2n * 3600n;
+  const now = (await r.client.getBlock(blockNumber === undefined ? {} : { blockNumber })).timestamp;
   await Promise.all(
     Object.entries(feeds).map(async ([name, feed]) => {
       const body = cfg.requests?.[name];
@@ -58,7 +64,8 @@ export async function readAsker(
         blockNumber,
       });
       ready[name] = f[0] === keccak256(body);
-      inFlight[name] = !/^0x0+$/.test(f[7]); // inFlight is the eighth member since treasuryPaid was added
+      // inFlight is the eighth member since treasuryPaid was added, inFlightAt the sixth.
+      inFlight[name] = !/^0x0+$/.test(f[7]) && now < BigInt(f[5]) + ASK_TIMEOUT;
     }),
   );
   const state: AskerState = { price, payToken, ready, inFlight };
