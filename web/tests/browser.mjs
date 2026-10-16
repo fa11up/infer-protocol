@@ -739,6 +739,7 @@ try {
     const fit = await page
       .locator(selector)
       .evaluate((n) => ({ content: n.scrollHeight, box: n.clientHeight }));
+    if (fit.content > fit.box + 1) await page.screenshot({ path: `${evidence}/overflow-${what.replace(/\W+/g, "-")}.png` });
     assert.ok(
       fit.content <= fit.box + 1,
       `${what} overflows at 1280x720: ${fit.content} > ${fit.box}`,
@@ -1153,6 +1154,7 @@ try {
   // Preseason (pointsConfig.preseason): the Season 1 notice shows while points keep counting, rates included.
   await expectText(pointsPane, "Season 1 is yet to start");
   assert.match(await pointsPane.textContent(), /capped distribution/);
+  assert.match(await pointsPane.textContent(), /only while the price is \$0\.99–\$1\.01 \(future\s+points only; past points unchanged\)/);
   assert.match(await pointsPane.textContent(), /Preseason/);
   assert.match(await pointsPane.textContent(), /do not count/);
   const rows = await page.locator(".points-feed li").allTextContents();

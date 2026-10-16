@@ -4429,3 +4429,9 @@ button.lp-max:hover {
   grid-auto-flow: column;
   grid-auto-columns: 1fr;
 }
+/* The preseason banner on the Points pane: the same notice, set tighter so the pane still fits at 1280x720. */
+.notice.points-notice {
+  line-height: 1.45;
+  padding-block: 6px;
+  margin-block: 6px 8px;
+}

@@ -343,7 +343,8 @@ export function Points({
         {preseason && (
           <p className="notice notice-warn points-notice" role="note">
             <strong>Season 1 is yet to start.</strong> The points earned so far count towards your preseason total,
-            which will be a capped distribution.
+            which will be a capped distribution. LP positions now earn only while the price is $0.99–$1.01 (future
+            points only; past points unchanged).
           </p>
         )}
         <div className="hero-stat">
@@ -379,16 +380,13 @@ export function Points({
                 : ""}
           </small>
         </div>
-        <Row label="Holding" info="imdUSD in a wallet, per imdUSD per day.">
-          1 point / day
-        </Row>
         <Row
-          label="Liquidity"
-          info="imdUSD you deposit into the imdUSD/USDC pool on Uniswap, from the block you deposit it, less what you withdraw. Boosted, because the peg needs depth."
+          label="Rates"
+          info={`Holding: imdUSD in a wallet earns 1 point per imdUSD per day. Liquidity: an imdUSD/USDC pool position earns ${pointsConfig.lpBps / 10_000}x on its depth between $0.99 and $1.01, only while the pool price is in that band and inside the position's range (from block 26,206,625; before it, imdUSD deposited earned ${pointsConfig.lpBps / 10_000}x).`}
         >
           {pointsConfig.pegPools[r.config.chainId]
-            ? `${pointsConfig.lpBps / 10_000} points / day`
-            : "no pool on this network"}
+            ? `Hold 1 · LP ${pointsConfig.lpBps / 10_000} (at peg) / day`
+            : "Hold 1 / day · no pool on this network"}
         </Row>
         <Row
           label="Liquidations"
@@ -409,12 +407,6 @@ export function Points({
               ? `Block ${data.startBlock.toLocaleString("en-US")} → live`
               : `Blocks ${data.startBlock.toLocaleString("en-US")} → ${pointsConfig.endBlock.toLocaleString("en-US")}`
             : "—"}
-        </Row>
-        <Row
-          label="Not counted"
-          info="Contracts that hold imdUSD for the protocol or the pool: the vault, the Treasury, and Uniswap's PoolManager (its imdUSD is credited to the LPs who deposited it)."
-        >
-          Vault, Treasury, pool contract
         </Row>
         {account && mine && !closed && (
           <Row label="You hold" info="Earning at the holding rate right now.">
