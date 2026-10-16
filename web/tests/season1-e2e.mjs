@@ -339,9 +339,10 @@ try {
   assert.ok(Math.abs(got - expected) <= Math.max(0.6, expected * 0.03), `Season 1 points ${got}, expected about ${expected.toFixed(2)} (1,000 imdUSD x ${head - startBlock} blocks)`);
   const live = await pane(page).innerText();
   assert.match(live, /Your Season 1 points/);
-  assert.match(live, /Est\. INFER\s+≈ [\d,]+ INFER/);
+  // Pot amounts are private (user, 2026-10-16): no INFER estimate and no pot figure on the pane.
+  assert.doesNotMatch(live, /Est\. INFER|\d[\d,]* INFER\b/);
   if (SHOTS) await page.locator(".pane-points").screenshot({ path: `${SHOTS}/season1-live.png` });
-  passed(`after the start: Season 1 live, ${got} points for 1,000 imdUSD over ${head - startBlock} blocks (expected ${expected.toFixed(2)}), with an INFER estimate`);
+  passed(`after the start: Season 1 live, ${got} points for 1,000 imdUSD over ${head - startBlock} blocks (expected ${expected.toFixed(2)}), and no pot or INFER amount shown`);
 
   assert.deepEqual(errors, [], `page errors: ${errors.join("; ")}`);
   console.log(`\n${results.length} passed`);

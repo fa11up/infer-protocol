@@ -12,7 +12,7 @@ import { lpEvents, type TxTransfer } from "../../points/lp.ts";
 import { computePreseason } from "../../points/preseason.ts";
 import { poolEvents, nftOwnerEvents, isWalletCode, isSafeProxy, S1_TOPICS, type RawLog } from "../../points/pool.ts";
 import { computeSeason1, type S1Event } from "../../points/season1.ts";
-import { readSeason, firstBlockAtOrAfter, infer, type SeasonInfo } from "./season";
+import { readSeason, firstBlockAtOrAfter, type SeasonInfo } from "./season";
 import { history } from "./history";
 import { ours } from "./names";
 import { historyConfig, pointsConfig, type Runtime } from "./config";
@@ -131,11 +131,14 @@ async function pegPoolLogs(r: Runtime, head: number): Promise<{ pool: RawLog[]; 
  * not. Classified by code at the head, as the reference scorer does through the head mid-season; remembered for the
  * session (code rarely changes, and a wrong guess only moves this view, never the payout). */
 const walletCache = new WeakMap<Runtime, Map<string, boolean>>();
-async function contractsAmong(r: Runtime, addresses: Set<string>, head: bigint): Promise<string[]> {
+async function contractsAmong(r: Runtime, addresses: Set<string>, head: bigint, pinned = false): Promise<string[]> {
+  // At the head the answer is kept across refreshes (code rarely changes); at a pinned block it is keyed by that block,
+  // so a head answer never stands in for the end block's.
+  const key = (a: string) => (pinned ? `${head}:${a}` : a);
   let cache = walletCache.get(r);
   if (!cache) walletCache.set(r, (cache = new Map()));
   const out: string[] = [];
-  const todo = [...addresses].filter((a) => !cache!.has(a));
+  const todo = [...addresses].filter((a) => !cache!.has(key(a)));
   for (let i = 0; i < todo.length; i += 8)
     await Promise.all(
       todo.slice(i, i + 8).map(async (a) => {
@@ -145,10 +148,10 @@ async function contractsAmong(r: Runtime, addresses: Set<string>, head: bigint):
           const slot0 = await r.client.getStorageAt({ address: a as `0x${string}`, slot: "0x0", blockNumber: head });
           wallet = isSafeProxy(code, slot0 ?? "0x");
         }
-        cache!.set(a, wallet);
+        cache!.set(key(a), wallet);
       }),
     );
-  for (const a of addresses) if (cache.get(a) === false) out.push(a);
+  for (const a of addresses) if (cache.get(key(a)) === false) out.push(a);
   return out;
 }
 
@@ -262,7 +265,9 @@ export async function loadPoints(
     if (e.kind === "bite") candidates.add(e.liquidator.toLowerCase());
   }
   candidates.delete("0x0000000000000000000000000000000000000000");
-  const contracts = await contractsAmong(r, candidates, s.block);
+  // Once the season has ended, read as the rules and the scorer do: code at the end block, data through it.
+  const asOf = info.phase === "ended" ? s1End : head;
+  const contracts = await contractsAmong(r, candidates, BigInt(asOf), info.phase === "ended");
   const s1 = computeSeason1(s1Events, {
     startBlock,
     endBlock: s1End,
@@ -272,7 +277,7 @@ export async function loadPoints(
     token1Scale: pegPool.token1Scale ?? 10n ** 12n,
     lpBps: pointsConfig.lpBps,
     liquidationCreditDays: pointsConfig.liquidationCreditDays,
-    dataThroughBlock: head,
+    dataThroughBlock: asOf,
     excluded: [vault.address, pointsConfig.poolManagers[r.config.chainId] ?? "", ...contracts].filter(Boolean),
     closed: info.phase === "ended",
   });
@@ -348,8 +353,6 @@ const perDay = (perBlock: bigint) =>
     pointsConfig.blocksPerDay,
   );
 
-/** INFER wei as whole INFER, grouped. */
-const fmtInfer = (wei: bigint) => (wei / 10n ** 18n).toLocaleString("en-US");
 const utcDay = (t: number) =>
   new Date(t * 1000).toLocaleString("en-GB", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "UTC" }) + " UTC";
 const until = (t: number, now: number) => {
@@ -390,7 +393,6 @@ export function Points({
   const preseason = phase === "preseason" || phase === "scheduled";
   const counting = s1 ? phase === "live" : !preClosed;
   const now = Math.floor(Date.now() / 1000);
-  const pot = info?.pot;
   const preShare = pointsConfig.preseasonShareBps;
 
   if (points.error && !data)
@@ -406,12 +408,6 @@ export function Points({
       </div>
     );
 
-  const estimate = (pts: bigint | undefined, total: bigint | undefined, share: number) =>
-    pot !== undefined && pts !== undefined && total ? infer(pts, total, pot, share) : undefined;
-  const mineEst =
-    s1 && pot !== undefined
-      ? (estimate(mine?.points, s1.total, 10_000 - preShare) ?? 0n) + (estimate(minePre?.points, data?.total, preShare) ?? 0n)
-      : undefined;
 
   return (
     <>
@@ -498,14 +494,6 @@ export function Points({
             <Row label="Peg pool" info="Liquidity earns only while the pool price is between $0.99 and $1.01.">
               {s1.atPeg ? "At peg: liquidity earning" : "Off peg: liquidity not earning"}
             </Row>
-            {account && mineEst !== undefined && (
-              <Row
-                label="Est. INFER"
-                info={`If the season ended now: ${(10_000 - preShare) / 100}% of the ${pot !== undefined ? fmtInfer(pot) : ""} INFER pot by Season 1 points, plus ${preShare / 100}% by preseason points. It moves as everyone's points do.`}
-              >
-                {`≈ ${fmtInfer(mineEst)} INFER`}
-              </Row>
-            )}
             {account && mine?.lpPending && mine.lpPending > 0n ? (
               <Row label="Pending" info="Liquidity points vest one day after your last addition; removing liquidity before then forfeits them.">
                 {`${display(mine.lpPending, pointsConfig.blocksPerDay)} points`}
@@ -516,7 +504,7 @@ export function Points({
                 ? minePre
                   ? `${display(minePre.points, pointsConfig.blocksPerDay)} points`
                   : "none"
-                : `${pot !== undefined ? fmtInfer((pot * BigInt(preShare)) / 10_000n) : "—"} INFER to ${data?.accounts.length ?? 0} wallets`}
+                : `${data?.accounts.length ?? 0} wallets share ${preShare / 100}%`}
             </Row>
             <Row label="Season 1" info="91 days from the start set on chain; the rules were committed when it opened.">
               {`${utcDay(info!.start!)} → ${utcDay(info!.end!)}`}
