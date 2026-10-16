@@ -260,8 +260,11 @@ try {
   // A peg at $1, as the article describes the normal case: buyers restore it on the fork.
   for (let i = 0; i < 60; i++) {
     const [now] = await read("0x7fFE42C4a5DEeA5b0feC41C94C136Cf115597227", parseAbi(["function getSlot0(bytes32) view returns (uint160,int24,uint24,uint24)"]), "getSlot0", ["0x3cb8cc9c22f7da5c3169d4059131ddba9e61f68230977797c03a2f1214992035"]);
-    if ((Number(now) / 2 ** 96) ** 2 * 1e12 >= 0.999) break;
-    await arbitrage(1_000n * 10n ** 6n);
+    // Stop inside Season 1's band ($0.99-$1.01), buying in smaller steps close to it so it does not overshoot.
+    const usd = (Number(now) / 2 ** 96) ** 2 * 1e12;
+    console.log("peg", usd.toFixed(4));
+    if (usd >= 0.997) break;
+    await arbitrage((usd < 0.985 ? 1_000n : 150n) * 10n ** 6n);
   }
   await freshFeeds();
   const a = await borrower(100n * E18);
