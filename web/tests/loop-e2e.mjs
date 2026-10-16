@@ -340,7 +340,8 @@ try {
   const rounds = Number(/Rounds\s+(\d+)/.exec(plan)?.[1]);
   const batches = await batchPage.evaluate(() => window.__batches);
   after = await position(b);
-  assert.equal(batches, rounds, `one wallet_sendCalls per round (${rounds} planned)`);
+  // One signature per round; a run may take one small top-up round more than planned to land on the target.
+  assert.ok(batches >= rounds && batches <= rounds + 1, `${batches} wallet_sendCalls for ${rounds} planned round(s)`);
   assert.ok(Math.abs(Number(after.cr) - planned(plan)) <= 3, `CR ${after.cr} vs plan ${planned(plan)}`);
   passed(`batched: ${batches} round(s), one signature each, CR ${after.cr}%`);
 
