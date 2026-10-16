@@ -2833,6 +2833,11 @@ html.app-page body {
 .field {
   position: relative;
 }
+/* Inside the box: the global ring (3px outside) reached the balance link on the label line above and cut
+   through it (Pool liquidity, 2026-10-16). */
+.field input:focus-visible {
+  outline-offset: -2px;
+}
 .balance-hint {
   position: absolute;
   /* The label's own top margin, so the hint sits on the label's text line. */

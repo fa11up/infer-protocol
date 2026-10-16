@@ -28,6 +28,7 @@ import {
   planMax,
   saltOf,
   type AddPlan,
+  sharePct,
 } from "./lp";
 
 const POOL_TTL_MS = 15_000;
@@ -224,7 +225,8 @@ export function LpWindow({
           ? `Needs up to ${fmt(plan.usdcMax, 6, 2)} USDC; the wallet holds ${fmt(wallet.usdc, 6, 2)}.`
           : ""
       : "";
-  const share = plan && pool ? (plan.liquidity * 10_000n) / (pool.liquidity + plan.liquidity) : undefined;
+  // Share in millionths, so a small deposit is not floored to 0.00% (whole basis points did that for 100 imdUSD).
+  const share = plan && pool ? (plan.liquidity * 1_000_000n) / (pool.liquidity + plan.liquidity) : undefined;
   const max = pool && wallet ? planMax(pool.sqrtP, wallet.imdusd, wallet.usdc) : undefined;
 
   const run = async (calls: Call[]) => {
@@ -429,7 +431,7 @@ export function LpWindow({
                 {fmt(plan.imdusdMax, 18, 4)} {unit()} + {fmt(plan.usdcMax, 6, 4)} USDC
               </Row>
               <Row label="Share of the pool's active liquidity">
-                {share !== undefined ? `${(Number(share) / 100).toFixed(2)}%` : "—"}
+                {share !== undefined ? sharePct(share) : "—"}
               </Row>
             </div>
           )}

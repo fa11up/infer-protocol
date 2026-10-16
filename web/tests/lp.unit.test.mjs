@@ -102,3 +102,13 @@ test("fees owed wrap like the pool's unchecked growth counters", () => {
   // The counter wrapped past 2^256 since the last touch.
   assert.deepEqual(feesOwed(Q128, [1n, 0n], [U256 - 1n, 0n]), { imdusd: 2n, usdc: 0n });
 });
+
+test("share of the pool: a small deposit reads at least 0.01%, never 0.00%", async () => {
+  const { sharePct } = await import("../src/lp.ts");
+  assert.equal(sharePct(0n), "0.00%");
+  assert.equal(sharePct(1n), "0.01%"); // one millionth rounds up
+  assert.equal(sharePct(100n), "0.01%");
+  assert.equal(sharePct(101n), "0.02%");
+  assert.equal(sharePct(123_456n), "12.35%");
+  assert.equal(sharePct(1_000_000n), "100.00%");
+});

@@ -217,3 +217,10 @@ export function feesOwed(liquidity: bigint, inside: readonly [bigint, bigint], l
 }
 /** PositionManager stores each position under salt = bytes32(tokenId). */
 export const saltOf = (id: bigint): Hex => `0x${id.toString(16).padStart(64, "0")}`;
+
+/** A share in millionths as a percentage to 0.01%. Any non-zero share shows at least 0.01%, never 0.00%. */
+export function sharePct(millionths: bigint): string {
+  if (millionths <= 0n) return "0.00%";
+  const hundredths = (millionths + 99n) / 100n; // round up to the next 0.01%
+  return `${(Number(hundredths) / 100).toFixed(2)}%`;
+}
