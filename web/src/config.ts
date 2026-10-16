@@ -257,6 +257,11 @@ export const pointsConfig = {
    * above a pushed-down price). 26,206,625 is where the preseason was first frozen. Holding is unchanged.
    */
   lpSwitchBlock: 26_206_625 as number | undefined,
+  /** INFER's SeasonVault per chain: Season 1 (index 0) as opened there (src/season.ts). A chain without one shows
+   * the preseason only. */
+  seasonVaults: { 1: "0x08DC1b5789Aa4951daC6022f2141C646c7F6F9f4" } as Record<number, string>,
+  /** The preseason's share of the Season 1 pot (rules/season-1.md section 4); Season 1 points share the rest. */
+  preseasonShareBps: 500,
   /** Uniswap v4 PoolManager per chain: the pool's imdUSD is its LPs', never a holding of the manager. */
   poolManagers: {
     1: "0x000000000004444c5dc75cb358380d2e3de08a90",
