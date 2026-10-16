@@ -1150,6 +1150,10 @@ try {
   const pointsPane = page.locator(".pane-points");
   await page.locator(".points-feed li").first().waitFor();
   await expectText(pointsPane, "Preview on");
+  // Preseason is over (pointsConfig.endBlock): the notice shows, and no rate or per-day figure is offered.
+  await expectText(pointsPane, "Season 1 is yet to start");
+  assert.match(await pointsPane.textContent(), /capped distribution/);
+  assert.doesNotMatch(await pointsPane.textContent(), /\/day|Per day/);
   assert.match(await pointsPane.textContent(), /do not count/);
   const rows = await page.locator(".points-feed li").allTextContents();
   assert.equal(
