@@ -1493,6 +1493,7 @@ try {
       .waitFor();
     await tab(page, "position");
     await expectText(page.locator(".pane-position .price-hero"), "▲ 10%");
+    assert.equal(await page.locator(".pane-position .price-hero .healthy-text", { hasText: "▲ 10%" }).count(), 1, "a market above the primary reads green");
     passed(
       "The price panel shows the vault's price, its age, the live market and what an update does; buying waits for the Intake",
     );

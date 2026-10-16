@@ -93,7 +93,7 @@ export function PriceStatus({
     open ? (
       <span className="healthy-text">fresh{left !== undefined && left > 0n ? ` ${remaining(left)}` : ""}</span>
     ) : (
-      <span className="danger-text">out of date</span>
+      <span className="muted">out of date</span>
     )
   ) : null;
   const showButtons = (advice.buy.length > 0 || advice.health) && (!slim || !open);
@@ -135,15 +135,15 @@ export function PriceStatus({
           {!spot?.updated ? (
             "never updated"
           ) : spot.stale ? (
-            <span className="danger-text">Stale</span>
+            <span className="muted">Stale</span>
           ) : apart === undefined || skew === undefined ? (
-            age(spot.updated, now)
+            <span className="healthy-text">{age(spot.updated, now)}</span>
           ) : apart > skew ? (
             <span className="danger-text">
               Breached · {pct(apart)} / {pct(skew)}
             </span>
           ) : (
-            `${slim ? "" : `${age(spot.updated, now)} · `}${pct(apart)} off`
+            <span className="healthy-text">{`${slim ? "" : `${age(spot.updated, now)} · `}${pct(apart)} off`}</span>
           )}
         </small>
         <small className="price-hero-right">
@@ -151,7 +151,12 @@ export function PriceStatus({
             ? "pool unreadable"
             : advice.ratio === undefined || !diff
               ? "live"
-              : `${advice.ratio >= 10n ** 18n ? "▲" : "▼"} ${slim ? diff.replace(" vs primary", "") : diff}`}
+              : (
+                  // Market above the primary reads green, below it red.
+                  <span className={advice.ratio >= 10n ** 18n ? "healthy-text" : "danger-text"}>
+                    {`${advice.ratio >= 10n ** 18n ? "▲" : "▼"} ${slim ? diff.replace(" vs primary", "") : diff}`}
+                  </span>
+                )}
         </small>
       </div>
       {/* The button on the left, what it does for you beside it; with no button, the sentence alone. */}
