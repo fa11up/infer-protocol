@@ -2204,6 +2204,9 @@ html.app-page body {
 .site-footer nav {
   display: flex;
   gap: 18px;
+  /* Four links and the X mark are wider than a 320px phone: wrap rather than scroll the page sideways. */
+  flex-wrap: wrap;
+  row-gap: 0;
 }
 .site-footer a {
   /* Inline-block with vertical padding, so an 11px link is still a 24px-plus target. */
@@ -2354,7 +2357,9 @@ html.app-page body {
     color: var(--text);
   }
 }
-/* "live" is a bright green (--live), pulsing in strength rather than from muted to ink. */
+/* "live" is a bright green (--live), pulsing in strength rather than from muted to ink: from the green itself
+   to the green mixed toward the text colour, so it never drops below the green's own contrast (an opacity fade
+   to 0.8 read 3.3:1 on the light background, under the 4.5:1 a 10px word needs). */
 .chip-pulse.chip-live {
   color: var(--live);
   animation-name: chip-pulse-live;
@@ -2362,10 +2367,10 @@ html.app-page body {
 @keyframes chip-pulse-live {
   0%,
   100% {
-    opacity: 0.8;
+    color: var(--live);
   }
   50% {
-    opacity: 1;
+    color: color-mix(in srgb, var(--live) 65%, var(--text));
   }
 }
 @media (prefers-reduced-motion: reduce) {

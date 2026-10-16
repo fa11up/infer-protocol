@@ -14,6 +14,9 @@ const KEEP_MS = 120_000;
 
 /** USDC per imdUSD. currency0 is imdUSD (18 decimals), currency1 USDC (6): price = sqrtP² / 2^192 × 10^12. */
 export async function readPeg(): Promise<number> {
+  // Only imdusd.com's Workers serve /rpc (worker/index.js, worker/infer.js); elsewhere (staging, local dev, the test
+  // server) the request would only 404 into the console every poll, so it is not sent.
+  if (!/(^|\.)imdusd\.com$/.test(location.hostname)) throw Error("no /rpc on this host");
   const r = await fetch("/rpc", {
     method: "POST",
     headers: { "content-type": "application/json" },

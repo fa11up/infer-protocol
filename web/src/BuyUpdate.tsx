@@ -1,7 +1,7 @@
 import { keccak256, parseAbi, type Address } from "viem";
 import type { Runtime } from "./config";
 import type { Snapshot } from "./state";
-import { Action, Info, type Actions } from "./actions";
+import { Action, ActionForm, Info, type Actions } from "./actions";
 import { exact, fmt } from "./math";
 
 // Buying a price update through the protocol's OracleAsker. The asker pays IdentityMD's on-chain Intake and
@@ -23,6 +23,7 @@ const erc20 = parseAbi([
   "function balanceOf(address) view returns (uint256)",
   "function allowance(address, address) view returns (uint256)",
   "function approve(address, uint256) returns (bool)",
+  "function transfer(address, uint256) returns (bool)",
 ]);
 
 export type AskerState = {
@@ -41,6 +42,8 @@ export type AskerState = {
    * decides (keep-alive near stale, wide open, or an armed fall, within its interval and budget), so it is asked
    * rather than re-derived here; any revert (NotNeeded, NotArmed, TooSoon, an empty asker) reads as not free. */
   free: Record<string, boolean>;
+  /** IMD the asker itself holds: what it pays the Intake with for every Treasury-rule update (`ask`). */
+  held: bigint;
   balance?: bigint;
   allowance?: bigint;
 };
@@ -58,6 +61,13 @@ export async function readAsker(
     r.client.readContract({ ...at, functionName: "price", blockNumber }),
     r.client.readContract({ ...at, functionName: "payToken", blockNumber }),
   ]);
+  const held = await r.client.readContract({
+    address: payToken,
+    abi: erc20,
+    functionName: "balanceOf",
+    args: [cfg.address],
+    blockNumber,
+  });
   const ready: Record<string, boolean> = {};
   const inFlight: Record<string, boolean> = {};
   const orderedAt: Record<string, bigint> = {};
@@ -96,7 +106,7 @@ export async function readAsker(
           .then(() => true, () => false);
     }),
   );
-  const state: AskerState = { price, payToken, ready, inFlight, orderedAt, reopensAt, answered, free };
+  const state: AskerState = { price, payToken, ready, inFlight, orderedAt, reopensAt, answered, free, held };
   if (account)
     [state.balance, state.allowance] = await Promise.all([
       r.client.readContract({
@@ -264,5 +274,53 @@ export function BuyUpdate({
         text={infoText}
       />)}
     </div>
+  );
+}
+
+/** Below this the asker can pay for only a few more Treasury-rule updates (four at 0.5 IMD), so the Oracle pane lets
+ * anyone send it IMD. At or above it the control is not shown. */
+export const TOP_UP_BELOW = 2n * 10n ** 18n;
+
+/** Sending IMD to the asker, offered only while it holds under TOP_UP_BELOW. A plain ERC-20 transfer: the asker has
+ * no withdraw, so what it is sent is spent only on updates its rules allow (`ask`), never returned. */
+export function OracleTopUp({ r, s, actions }: { r: Runtime; s?: Snapshot; actions: Actions }) {
+  const cfg = r.config.oracleAsker;
+  const a = s?.asker === "unreadable" ? undefined : s?.asker;
+  if (!cfg || !a || a.held >= TOP_UP_BELOW) return null;
+  const left = a.price > 0n ? a.held / a.price : 0n;
+  return (
+    <section className="oracle-topup" aria-labelledby="oracle-topup-heading">
+      <div className="section-label" id="oracle-topup-heading">
+        Top up the oracle
+        <Info
+          label="Top up the oracle"
+          text={`The request contract (OracleAsker) pays for the updates the protocol's rules allow: a feed near expiry, a feed stale long enough, or a fall in IMD's price. It holds ${fmt(a.held)} IMD. While it holds under ${fmt(TOP_UP_BELOW)}, anyone can send it IMD. It has no withdraw: IMD sent here is spent only on those updates and is never returned.`}
+        />
+      </div>
+      <p className="micro danger-text">
+        The oracle holds {fmt(a.held)} IMD, enough for {left.toString()} more Treasury-paid{" "}
+        {left === 1n ? "update" : "updates"} at {fmt(a.price)} IMD each.
+      </p>
+      <ActionForm
+        id="oracle-topup"
+        label="Review top-up"
+        actions={actions}
+        target={{ address: a.payToken, abi: erc20 }}
+        fn="transfer"
+        fields={[
+          {
+            name: "IMD to send",
+            kind: "amount",
+            balance: { connected: !!actions.account, amount: a.balance, symbol: "IMD", decimals: 18 },
+            max:
+              a.balance !== undefined
+                ? { value: a.balance, message: `This wallet holds ${exact(a.balance)} IMD.` }
+                : undefined,
+          },
+        ]}
+        mapArgs={(v) => [cfg.address, v[0]]}
+        summary="Sends IMD from this wallet to the oracle's request contract. It pays only for updates the protocol's rules allow and cannot be withdrawn."
+      />
+    </section>
   );
 }

@@ -188,12 +188,19 @@ export function LoanBook({
           />
         </p>
         <span className="muted">
+          {/* The book's own block: after a failed refresh the last good book stays on screen, read at its block. */}
           {valid
-            ? `${positions.length} open · block ${s!.block}`
+            ? `${positions.length} open · block ${(book.snapshot ?? s!).block}`
             : "Coverage unverified"}
           {book.loading && " · Reading…"}
         </span>
       </div>
+      {valid && book.error && !book.loading && (
+        <p className="micro danger-text" role="status">
+          Could not refresh the loan book: {book.error} Showing the book as read at block{" "}
+          {(book.snapshot ?? s!).block}. Refresh state to try again.
+        </p>
+      )}
       <div className="book-legend">
         <span className="danger-text">Below minCR · liquidatable</span>
         <span>minCR → ceiling · redeemable</span>

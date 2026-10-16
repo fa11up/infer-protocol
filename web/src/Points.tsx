@@ -378,6 +378,14 @@ export function Points({
             ))}
           </ol>
         )}
+        {points.error && data && (
+          <p className="micro danger-text" role="status">
+            Could not refresh the points history: {points.error}. Showing the last board read.{" "}
+            <button type="button" onClick={points.retry}>
+              Retry
+            </button>
+          </p>
+        )}
       </div>
     </>
   );

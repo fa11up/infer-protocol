@@ -51,6 +51,7 @@ import {
 } from "./math";
 import { useEns, ensName, displayName } from "./ens";
 import { PriceStatus } from "./PriceStatus";
+import { OracleTopUp } from "./BuyUpdate";
 import { describePending, utc, countdown, CHANGE_KINDS } from "./governance";
 const amt = (name: string) => ({ name, kind: "amount" as const });
 const addr = (name: string) => ({ name, kind: "address" as const });
@@ -699,6 +700,7 @@ export function Oracle({
   return (
     <>
       <PriceStatus r={r} s={s} now={now} actions={actions} where="oracle" />
+      <OracleTopUp r={r} s={s} actions={actions} />
       <div className="section-label">Feeds</div>
       <ul className="feed-list">
         {["NhiFeed", "PriceFeed", "SpotFeed", "USD"].map((n) => {
