@@ -389,14 +389,16 @@ export function planToTarget(a: {
       const between = (v * 100n) / a.floorBetween;
       let x = between > d ? between - d : 0n;
       const num = 100n * v - t! * d;
-      const den = t! * 10_000n - 100n * keep;
+      // Never plan a gain on the way up: each round would compound it.
+      const den = t! * 10_000n - 100n * (keep > 10_000n ? 10_000n : keep);
       const after = num <= 0n ? 0n : den <= 0n ? x : (num * 10_000n) / den;
       if (after < x) x = after;
       if (x < DUST) break;
+      const arrives = (x * (keep > 10_000n ? 10_000n : keep)) / 10_000n;
       d += x;
-      v += (x * keep) / 10_000n;
+      v += arrives;
       stable += x;
-      moved += (x * keep) / 10_000n;
+      moved += arrives;
     } else {
       if (d < DUST) break;
       const free = v * 100n > a.floorBetween * d ? v - (a.floorBetween * d) / 100n : 0n;

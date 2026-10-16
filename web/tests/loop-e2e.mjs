@@ -305,8 +305,12 @@ try {
     assert.ok(await dialog.locator("button.primary").isEnabled());
     if (SHOTS) await page.screenshot({ path: `${SHOTS}/0-depeg.png` });
     passed(`with imdUSD at $${pegNow.toFixed(4)} the window shows the loss and waits for it to be accepted`);
-    // Buyers restore the peg (about 33k USDC today).
-    await arbitrage(34_000n * 10n ** 6n);
+    // Buyers restore the peg: 1,000 USDC at a time until imdUSD reaches $0.9975 (never far past it).
+    for (let i = 0; i < 60; i++) {
+      const [now] = await read("0x7fFE42C4a5DEeA5b0feC41C94C136Cf115597227", parseAbi(["function getSlot0(bytes32) view returns (uint160,int24,uint24,uint24)"]), "getSlot0", ["0x3cb8cc9c22f7da5c3169d4059131ddba9e61f68230977797c03a2f1214992035"]);
+      if ((Number(now) / 2 ** 96) ** 2 * 1e12 >= 0.9975) break;
+      await arbitrage(1_000n * 10n ** 6n);
+    }
     await freshFeeds();
     await dialog.getByRole("button", { name: "Close", exact: true }).click();
     await page.getByRole("button", { name: "Refresh state", exact: true }).click();

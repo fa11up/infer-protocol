@@ -78,4 +78,8 @@ test("planToTarget: up to a ratio in rounds the vault allows, down to a ratio or
   // A swap that gains (imdUSD under $1 on the way down) needs less collateral.
   const gain = planToTarget({ value: up.valueAfter, debt: up.debtAfter, floorBetween: 180n, costBps: -500n });
   assert.ok(gain.value < out.value);
+  // A swap that would gain on the way up is planned as free, never compounded.
+  const greedy = planToTarget({ value: 1000n * E, debt: 0n, target: 200n, floorBetween: 180n, costBps: -16_000n });
+  const free = planToTarget({ value: 1000n * E, debt: 0n, target: 200n, floorBetween: 180n, costBps: 0n });
+  assert.deepEqual([greedy.stable, greedy.rounds], [free.stable, free.rounds]);
 });

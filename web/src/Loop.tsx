@@ -47,6 +47,8 @@ const SLIPPAGE_BPS = 100n;
 /** A plan losing more than this to the swaps says so in red. */
 const COSTLY_BPS = 300n;
 const MAX_ROUNDS = 12;
+/** The cost rounds are planned at: the quoted cost (never a gain) plus the slippage minimum. */
+const planCost = (bps: bigint) => (bps > 0n ? bps : 0n) + SLIPPAGE_BPS;
 
 /** The loop exists only where its pools do: mainnet, sIMD collateral over IMD, the imdUSD the peg pool trades. */
 export function loopAvailable(r: Runtime, s?: Snapshot) {
@@ -171,8 +173,10 @@ export function LoopWindow({
         });
         costBps = ((first.value - out) * 10_000n) / first.value;
       }
-      // A round deposits (or repays with) the swap's guaranteed minimum, SLIPPAGE_BPS under its quote.
-      const planned = planToTarget({ ...base, costBps: costBps + SLIPPAGE_BPS });
+      // A round deposits (or repays with) the swap's guaranteed minimum, SLIPPAGE_BPS under its quote. A swap that
+      // gains (imdUSD above $1 on the way up, under it on the way down) is planned as free: rounds counted on a gain
+      // would compound it, and the gain is gone after the first round moves the pool.
+      const planned = planToTarget({ ...base, costBps: planCost(costBps) });
       let pegNow: bigint | undefined;
       let pegEnd: bigint | undefined;
       if (up) {
@@ -276,9 +280,9 @@ export function LoopWindow({
         // Reached, or a round landed past the target: never turn round and go the other way.
         const upNow = target.cr !== undefined && (p.debt === 0n || p.value * 100n > target.cr * p.debt);
         if (upNow !== plan.up) break;
-        const left = planToTarget({ value: p.value, debt: p.debt, target: target.cr, floorBetween: floor!, costBps: plan.costBps + SLIPPAGE_BPS });
+        const left = planToTarget({ value: p.value, debt: p.debt, target: target.cr, floorBetween: floor!, costBps: planCost(plan.costBps) });
         if (left.rounds === 0) break;
-        const next = planToTarget({ value: p.value, debt: p.debt, target: target.cr, floorBetween: floor!, costBps: plan.costBps + SLIPPAGE_BPS, limit: 1 });
+        const next = planToTarget({ value: p.value, debt: p.debt, target: target.cr, floorBetween: floor!, costBps: planCost(plan.costBps), limit: 1 });
         const of = `Round ${done + 1} of about ${done + left.rounds}`;
         if (plan.up) {
           const cap = ceilingState(snap.current?.v ?? {});
