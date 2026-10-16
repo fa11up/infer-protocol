@@ -42,7 +42,7 @@ The terminal's Points pane shows the live count.
 | Rule | What it means | Why |
 |---|---|---|
 | Holding, 1x | imdUSD in a wallet earns 1 point per imdUSD per day, for every block you hold it. | Holding imdUSD is using it. |
-| Wallets only | Only ordinary wallets (and EIP-7702 wallets) earn, for holding and for liquidity. Contracts, including pools, vaults and smart-contract wallets such as Safes, do not. imdUSD in any pool other than the peg pool earns nothing. | A contract's imdUSD usually belongs to someone else, or would be counted twice. |
+| Wallets only | Ordinary wallets, EIP-7702 wallets and Safe accounts earn, for holding and for liquidity. Other contracts (pools, vaults, hooks, other smart-contract wallets) do not. imdUSD in any pool other than the peg pool earns nothing. Wallets are classified at the season's end block. | A contract's imdUSD usually belongs to someone else, or would be counted twice. |
 | Liquidity at the peg, 3x | In the imdUSD/USDC peg pool, a position earns on the dollar value of its liquidity between $0.99 and $1.01. A range wider than that earns only for its slice inside the band. | Depth at $1 is what holds the peg. Liquidity far from $1 does not help it. |
 | Only while at peg | A position earns only in blocks where the pool price is between $0.99 and $1.01 and inside the position's own range. | If the peg is pushed away, nobody's liquidity earns, including the pusher's. Liquidity providers are paid for keeping the price at $1. |
 | One-day minimum hold | Liquidity points wait for one day (7,200 blocks) after you last added to a position. If you remove any liquidity inside that day, the waiting points are lost. | Adding liquidity just before a snapshot and removing it right after earns nothing. |
@@ -91,9 +91,9 @@ is rate-limited.
 
 ## Questions
 
-**I use a Safe or another smart-contract wallet.** Season 1 counts wallets only: imdUSD held in a Safe, and liquidity
-positions owned by one, earn nothing. Hold and provide from an ordinary (or EIP-7702) wallet to earn. (The preseason
-did count contract wallets' holdings.)
+**I use a Safe or another smart-contract wallet.** A Safe account earns like an ordinary wallet, for holding and for
+liquidity (a Safe proxy pointing at one of the official Safe singletons, versions 1.1.1 to 1.5.0). Other
+smart-contract wallets do not earn in Season 1: hold and provide from an ordinary, EIP-7702 or Safe wallet.
 
 **The pool is off peg. Does my liquidity earn?** No, not until the price is back between $0.99 and $1.01. Helping it
 back is what the rule pays for.
