@@ -458,6 +458,28 @@ export function Choice({
     </div>
   );
 }
+/**
+ * Props for a modal <dialog> that closes on a click outside its box (on the backdrop). Only a press that both starts
+ * and ends outside counts, so selecting text inside and releasing past the edge does not close it. `close` decides
+ * whether closing is allowed (a window mid-transaction stays open).
+ */
+export function useBackdropClose(close: () => void) {
+  const downOutside = useRef(false);
+  const outside = (e: { currentTarget: HTMLDialogElement; target: EventTarget; clientX: number; clientY: number }) => {
+    if (e.target !== e.currentTarget) return false;
+    const r = e.currentTarget.getBoundingClientRect();
+    return e.clientX < r.left || e.clientX > r.right || e.clientY < r.top || e.clientY > r.bottom;
+  };
+  return {
+    onPointerDown: (e: React.PointerEvent<HTMLDialogElement>) => {
+      downOutside.current = outside(e);
+    },
+    onClick: (e: React.MouseEvent<HTMLDialogElement>) => {
+      if (downOutside.current && outside(e)) close();
+      downOutside.current = false;
+    },
+  };
+}
 export function Col({
   label,
   children,

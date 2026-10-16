@@ -216,7 +216,7 @@ async function open(account, { batch = false } = {}) {
   await page.getByRole("tab", { name: "Position", exact: true }).click();
   await page.locator('button[aria-label="Disconnected: connect a wallet"]:visible').first().click();
   await page
-    .getByRole("button", { name: "Leverage loop ↗" })
+    .getByRole("button", { name: "Loop leverage ↗" })
     .waitFor()
     .catch(async (e) => {
       if (SHOTS) await page.screenshot({ path: `${SHOTS}/open-stuck.png` });
@@ -252,7 +252,7 @@ async function waitNote(page, dialog, pattern, shot) {
   });
 }
 async function addLiquidity(page, imdusd, shot) {
-  await page.getByRole("button", { name: "Peg pool liquidity ↗" }).click();
+  await page.getByRole("button", { name: "Pool liquidity ↗" }).click();
   const dialog = page.locator("dialog.loop-dialog[open]");
   await dialog.waitFor();
   await until("the pool read", async () => /\$[0-9]/.test(await dialog.locator(".loop-now").innerText()));

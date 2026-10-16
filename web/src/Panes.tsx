@@ -328,6 +328,16 @@ export function Position({
             `; 1 ${gemUnit()} = ${fmt(asImd(10n ** BigInt(g.decimals)))} ${g.underlyingSymbol}`}
           .
         </p>
+        {loopAvailable(r, s) && (
+          <div className="loop-opens">
+            <button type="button" className="loop-open" onClick={() => setLooping(true)}>
+              Loop leverage ↗
+            </button>
+            <button type="button" className="loop-open" onClick={() => setProviding(true)}>
+              Pool liquidity ↗
+            </button>
+          </div>
+        )}
       </Col>
       <Col label="Act">
         <PriceStatus r={r} s={s} now={s?.timestamp ?? 0n} actions={actions} where="position" slim />
@@ -343,16 +353,6 @@ export function Position({
             g.share ? ["unstake", "Unstake"] : ["faucet", "Test IMD"],
           ]}
         />
-        {loopAvailable(r, s) && (
-          <div className="loop-opens">
-            <button type="button" className="loop-open" onClick={() => setLooping(true)}>
-              Leverage loop ↗
-            </button>
-            <button type="button" className="loop-open" onClick={() => setProviding(true)}>
-              Peg pool liquidity ↗
-            </button>
-          </div>
-        )}
         {looping && <LoopWindow r={r} s={s} actions={actions} onClose={() => setLooping(false)} />}
         {providing && <LpWindow r={r} s={s} actions={actions} onClose={() => setProviding(false)} />}
         {act === "deposit" && (

@@ -235,14 +235,14 @@ async function open(account, { batch = false } = {}) {
   await page.getByRole("button", { name: "Refresh state", exact: true }).waitFor();
   await page.getByRole("tab", { name: "Position", exact: true }).click();
   await page.locator('button[aria-label="Disconnected: connect a wallet"]:visible').first().click();
-  await page.getByRole("button", { name: "Leverage loop ↗" }).waitFor();
+  await page.getByRole("button", { name: "Loop leverage ↗" }).waitFor();
   return { page, context };
 }
 
 /** Open the window in a direction, take the maximum, run one round, wait for "Round done". */
 async function round(page, direction, shot) {
   if (!(await page.locator("dialog.loop-dialog[open]").count()))
-    await page.getByRole("button", { name: "Leverage loop ↗" }).click();
+    await page.getByRole("button", { name: "Loop leverage ↗" }).click();
   const dialog = page.locator("dialog.loop-dialog[open]");
   await dialog.waitFor();
   await dialog.getByRole("button", { name: direction, exact: true }).click();
@@ -286,7 +286,7 @@ try {
   const before = await position(a);
   const { page } = await open(a);
   if (await read(FEEDS.PriceFeed, parseAbi(["function isStale() view returns (bool)"]), "isStale")) {
-    await page.getByRole("button", { name: "Leverage loop ↗" }).click();
+    await page.getByRole("button", { name: "Loop leverage ↗" }).click();
     const dialog = page.locator("dialog.loop-dialog[open]");
     await until("the stale-price refusal", async () => /Update price/.test(await dialog.locator('[role="status"].action-note').innerText()));
     passed("with stale prices the window points to Update price");
@@ -336,7 +336,7 @@ try {
   await freshFeeds();
   const b = await borrower(100n * E18);
   const { page: batchPage } = await open(b, { batch: true });
-  await batchPage.getByRole("button", { name: "Leverage loop ↗" }).click();
+  await batchPage.getByRole("button", { name: "Loop leverage ↗" }).click();
   await batchPage.locator("dialog.loop-dialog[open] .loop-check input").waitFor();
   plan = await round(batchPage, "Leverage up", "4-batch-up");
   const batches = await batchPage.evaluate(() => window.__batches);

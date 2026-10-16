@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Address } from "viem";
 import type { Runtime } from "./config";
 import type { Snapshot } from "./state";
-import { BalanceHint, Choice, FadingError, Info, Row, type Actions, type Call } from "./actions";
+import { BalanceHint, Choice, FadingError, Info, Row, type Actions, type Call, useBackdropClose } from "./actions";
 import { amount, exact, fmt, message } from "./math";
 import { unit } from "./unit";
 import { PERMIT2 } from "./infer/swap";
@@ -321,6 +321,7 @@ export function LpWindow({
   const close = () => {
     if (!busy) onClose();
   };
+  const backdrop = useBackdropClose(close);
   const ready = actions.ready && !busy;
 
   return (
@@ -328,13 +329,14 @@ export function LpWindow({
       ref={dialog}
       className="loop-dialog"
       aria-labelledby="lp-heading"
+      {...backdrop}
       onCancel={(e) => {
         e.preventDefault();
         close();
       }}
     >
       <h2 id="lp-heading">
-        Peg pool liquidity{" "}
+        Pool liquidity{" "}
         <Info
           label="About the peg pool"
           text={`imdUSD/USDC on Uniswap v4 with the PegFeeHook. A liquidity provider holds both tokens and trades between them as the price moves inside the band: under $1 the position holds more ${unit()}, over $1 more USDC. Every step is simulated before it is signed.`}

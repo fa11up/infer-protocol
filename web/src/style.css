@@ -4391,10 +4391,20 @@ dialog.loop-dialog {
   margin: 0;
   overflow-wrap: anywhere;
 }
-/* The Position pane's two window openers (leverage, peg pool liquidity), side by side. */
+/* The Position pane's two window openers (leverage, peg pool liquidity), side by side at the foot of the
+ * position column, away from the actions. */
 .loop-opens {
   display: flex;
   gap: 8px;
+  margin-top: auto;
+  padding-block: 10px 2px;
+  /* When the desk scrolls (a long notice in the Act column), they stay on the pane's bottom edge. */
+  position: sticky;
+  bottom: 0;
+  background: var(--surface);
+}
+.loop-opens .loop-open {
+  margin-block: 0;
 }
 /* The liquidity window's "Max both": a link-like line under the two amounts. */
 button.lp-max {

@@ -12,7 +12,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Runtime } from "./config";
 import { feedsReady, type Snapshot } from "./state";
-import { Choice, FadingError, Info, Row, type Actions, type Call } from "./actions";
+import { Choice, FadingError, Info, Row, type Actions, type Call, useBackdropClose } from "./actions";
 import { collateral, fmtGem, gemUnit, perImd, parseGem, vaultShareAbi } from "./collateral";
 import { amount, exact, fmt, liquidationPrice, message, BORROW_BUFFER } from "./math";
 import { unit } from "./unit";
@@ -437,6 +437,7 @@ export function LoopWindow({
   const close = () => {
     if (!busy) onClose();
   };
+  const backdrop = useBackdropClose(close);
   const heldAfter = mode === "up" ? (round as UpRound | undefined)?.sharesIn : undefined;
   const liqAfter =
     round && sized && mat !== undefined
@@ -451,6 +452,7 @@ export function LoopWindow({
       ref={dialog}
       className="loop-dialog"
       aria-labelledby="loop-heading"
+      {...backdrop}
       onCancel={(e) => {
         e.preventDefault();
         close();
