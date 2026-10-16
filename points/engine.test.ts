@@ -81,3 +81,18 @@ test("event order does not matter; chain order is restored", () => {
   const evs = [tx(ZERO, A, 100, 0), tx(A, B, 40, DAY)];
   assert.equal(computePoints(evs, season(2 * DAY)).total, computePoints([...evs].reverse(), season(2 * DAY)).total);
 });
+
+test("a closed season keeps every total as of its end and reports no rate", () => {
+  // A holds 100 through the season and keeps holding after it; B buys after the end; a liquidation after the end.
+  const evs: PointEvent[] = [
+    tx(ZERO, A, 100, 0),
+    tx(ZERO, B, 50, 2 * DAY),
+    { kind: "bite", liquidator: B, debtRepaid: 10n * WAD, block: 2 * DAY, logIndex: 1 },
+  ];
+  const open = computePoints(evs.slice(0, 1), season(DAY));
+  const closed = computePoints(evs, { ...season(DAY), closed: true });
+  assert.equal(pts(closed, A), pts(open, A));
+  assert.equal(closed.accounts.find((x) => x.owner === B), undefined, "nothing after the end counts");
+  assert.equal(closed.totalRatePerBlock, 0n);
+  assert.ok(closed.accounts.every((x) => x.ratePerBlock === 0n));
+});

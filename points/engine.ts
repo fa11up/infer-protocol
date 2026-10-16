@@ -38,6 +38,8 @@ export type Season = {
   liquidationCreditDays?: number;
   /** Contracts whose imdUSD is not anyone's holding: the vault, the Treasury, pool managers. */
   excluded?: string[];
+  /** The season is over (the chain is past endBlock): nothing accrues any more, so every rate reads zero. */
+  closed?: boolean;
 };
 
 export type AccountPoints = {
@@ -116,7 +118,7 @@ export function computePoints(events: PointEvent[], season: Season) {
   for (const [owner, s] of accounts) {
     settle(s, end);
     const points = s.holdPoints + s.lpPoints + s.liquidationPoints;
-    const ratePerBlock = (s.held * holdBps + s.lp * lpBps) / 10_000n;
+    const ratePerBlock = season.closed ? 0n : (s.held * holdBps + s.lp * lpBps) / 10_000n;
     if (points === 0n && ratePerBlock === 0n) continue;
     total += points;
     totalRatePerBlock += ratePerBlock;

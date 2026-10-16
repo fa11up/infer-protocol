@@ -134,6 +134,8 @@ export async function loadPoints(
       ? head
       : Math.min(pointsConfig.endBlock, head);
   return computePoints(events, {
+    // Past the end nothing accrues: totals stay as they were at endBlock and every rate reads zero.
+    closed: pointsConfig.endBlock !== undefined && head >= pointsConfig.endBlock,
     // The first imdUSD transfer (the CLI's default too), not the history's read floor, which can sit earlier.
     startBlock: pointsConfig.startBlock ?? (tokenHistory.logs.length ? Number(tokenHistory.logs[0]!.blockNumber) : Number(tokenHistory.from)),
     endBlock,
@@ -247,6 +249,7 @@ export function Points({
     "total",
   );
   const testnet = r.config.chainId !== 1;
+  const closed = pointsConfig.endBlock !== undefined;
 
   if (points.error && !data)
     return (
@@ -270,12 +273,22 @@ export function Points({
             fake, so these points do not count. The season runs on mainnet.
           </p>
         )}
+        {closed && (
+          <p className="notice notice-warn points-notice" role="note">
+            <strong>Season 1 is yet to start.</strong> The points earned so far count towards your preseason total,
+            which will be a capped distribution.
+          </p>
+        )}
         <div className="hero-stat">
           <span>
-            {account ? "Your points" : "Season total"}
+            {closed ? (account ? "Your preseason points" : "Preseason total") : account ? "Your points" : "Season total"}
             <Info
               label="Points"
-              text={`1 point = 1 imdUSD held for 1 day. imdUSD you provide to the imdUSD/USDC pool earns ${pointsConfig.lpBps / 10_000}×. The counter runs between blocks at your current holdings and settles each refresh.`}
+              text={
+                closed
+                  ? `Preseason points: 1 point for 1 imdUSD held for 1 day, ${pointsConfig.lpBps / 10_000}× for imdUSD provided to the imdUSD/USDC pool, counted until block ${pointsConfig.endBlock!.toLocaleString("en-US")}. Nothing accrues now; Season 1's rules are published when it opens.`
+                  : `1 point = 1 imdUSD held for 1 day. imdUSD you provide to the imdUSD/USDC pool earns ${pointsConfig.lpBps / 10_000}×. The counter runs between blocks at your current holdings and settles each refresh.`
+              }
             />
           </span>
           <strong aria-live="off">
@@ -286,10 +299,14 @@ export function Points({
           <small>
             {account
               ? mine
-                ? `+${perDay(mine.ratePerBlock)}/day · ${(shareBps(mine.points, data!.total) / 100).toFixed(2)}% · #${rank} of ${data!.accounts.length}`
-                : "Hold imdUSD or provide it to the imdUSD/USDC pool to start earning"
+                ? `${closed ? "" : `+${perDay(mine.ratePerBlock)}/day · `}${(shareBps(mine.points, data!.total) / 100).toFixed(2)}% · #${rank} of ${data!.accounts.length}`
+                : closed
+                  ? "No preseason points for this wallet"
+                  : "Hold imdUSD or provide it to the imdUSD/USDC pool to start earning"
               : data
-                ? `${data.accounts.length} earning · +${perDay(data.totalRatePerBlock)}/day`
+                ? closed
+                  ? `${data.accounts.length} wallets`
+                  : `${data.accounts.length} earning · +${perDay(data.totalRatePerBlock)}/day`
                 : ""}
           </small>
         </div>
@@ -311,13 +328,17 @@ export function Points({
           {`${pointsConfig.liquidationCreditDays} days per imdUSD`}
         </Row>
         <Row
-          label="Counting"
-          info="Points count from imdUSD's deployment and are still counting. INFER's seasons are opened on chain by governance, each with its own rules committed when it opens and published after it ends."
+          label={closed ? "Preseason" : "Counting"}
+          info={
+            closed
+              ? "Preseason points counted from imdUSD's deployment to the block shown and no longer change. INFER's seasons are opened on chain by governance, each with its own rules committed when it opens and published after it ends."
+              : "Points count from imdUSD's deployment and are still counting. INFER's seasons are opened on chain by governance, each with its own rules committed when it opens and published after it ends."
+          }
         >
           {data
             ? pointsConfig.endBlock === undefined
               ? `Block ${data.startBlock.toLocaleString("en-US")} → live`
-              : `Blocks ${data.startBlock.toLocaleString("en-US")} → ${pointsConfig.endBlock.toLocaleString("en-US")}`
+              : `Blocks ${data.startBlock.toLocaleString("en-US")} → ${pointsConfig.endBlock.toLocaleString("en-US")}${pointsConfig.endedAt ? ` · ended ${pointsConfig.endedAt}` : ""}`
             : "—"}
         </Row>
         <Row
@@ -326,12 +347,12 @@ export function Points({
         >
           Vault, Treasury, pool contract
         </Row>
-        {account && mine && (
+        {account && mine && !closed && (
           <Row label="You hold" info="Earning at the holding rate right now.">
             {`${display(mine.held * BigInt(pointsConfig.blocksPerDay), pointsConfig.blocksPerDay)} imdUSD`}
           </Row>
         )}
-        {account && mine && mine.lp > 0n && (
+        {account && mine && mine.lp > 0n && !closed && (
           <Row label="You provide" info="imdUSD you deposited into the imdUSD/USDC pool, earning the liquidity rate.">
             {`${display(mine.lp * BigInt(pointsConfig.blocksPerDay), pointsConfig.blocksPerDay)} imdUSD`}
           </Row>
@@ -342,7 +363,7 @@ export function Points({
           <span>Top 10 holders</span>
           <span>Points</span>
           <span>Share</span>
-          <span>Per day</span>
+          <span>{closed ? "" : "Per day"}</span>
         </div>
         {data && !top.length ? (
           <p className="muted">
@@ -373,7 +394,7 @@ export function Points({
                 <span>
                   {(shareBps(a.points, data!.total) / 100).toFixed(2)}%
                 </span>
-                <span>+{perDay(a.ratePerBlock)}</span>
+                <span>{closed ? "" : `+${perDay(a.ratePerBlock)}`}</span>
               </li>
             ))}
           </ol>

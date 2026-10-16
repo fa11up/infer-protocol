@@ -225,7 +225,10 @@ export const pointsConfig = {
   lpBps: 30_000,
   liquidationCreditDays: 3,
   startBlock: undefined as number | undefined,
-  endBlock: undefined as number | undefined,
+  /** Preseason ended here (set 2026-10-16): every total is frozen at this block until Season 1 opens. */
+  endBlock: 26206625 as number | undefined,
+  /** When endBlock was mined, for the notice. */
+  endedAt: "16 Oct 2026 17:34 UTC" as string | undefined,
   /**
    * The imdUSD/USDC peg pool per chain: liquidity in it earns `lpBps` (points/lp.ts reads its ModifyLiquidity
    * transactions from `fromBlock`, the block it was initialised in). A chain without one shows no LP rate.
