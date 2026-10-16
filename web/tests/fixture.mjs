@@ -60,11 +60,12 @@ abi.ParameterizedVault = [
     "function lockIMD(uint256 assets)",
   ]),
 ];
-// The protocol's OracleAsker (asker mode): price, pay token, pinned request hashes, askPaid.
+// The protocol's OracleAsker (asker mode): price, pay token, pinned request hashes, ask (Treasury-paid), askPaid.
 abi.asker = parseAbi([
   "function price() view returns (uint256)",
   "function payToken() view returns (address)",
   "function feeds(address) view returns (bytes32 bodyHash, bool tracksPool, bool keepAlive, uint64 lastAsk, uint64 armedAt, uint64 inFlightAt, bool treasuryPaid, bytes32 inFlight)",
+  "function ask(address feed, bytes body) returns (bytes32)",
   "function askPaid(address feed, bytes body, uint256 maxPrice) returns (bytes32)",
   "function askPaidMany(address[] feeds, bytes[] bodies, uint256 maxPriceEach) returns (bytes32[])",
 ]);
@@ -132,6 +133,8 @@ export const fixture = () => ({
   share: false,
   underlyingAllowance: 0n,
   askerAllowance: 0n,
+  /** Whether the asker's `ask` (Treasury-paid) passes for every feed; by default it reverts NotNeeded. */
+  askerFree: false,
 });
 export const block = (s) => ({
   number: "0x100",
@@ -232,6 +235,7 @@ function call(s, params) {
     return encodeFunctionResult({ abi: a, functionName: f, result: value });
   }
   if (name === "asker") {
+    if (f === "ask" && !s.askerFree) throw Error("execution reverted");
     value =
       f === "price"
         ? askerPrice
@@ -750,10 +754,14 @@ export function ensRpc(body) {
         [1n, 2000n * 10n ** 8n, 0n, 0n, 1n],
       ),
     );
-  const { args } = decodeFunctionData({
-    abi: reverseAbi,
-    data,
-  });
+  // Anything else this mock does not model (e.g. a vault read such as gem() routed to the mainnet client)
+  // reverts, as an unknown call to a real node would, instead of throwing out of the route handler.
+  let args;
+  try {
+    ({ args } = decodeFunctionData({ abi: reverseAbi, data }));
+  } catch {
+    return { jsonrpc: "2.0", id: body.id, error: { code: 3, message: "execution reverted", data: "0x" } };
+  }
   const name = ensNames[String(args[0]).toLowerCase()];
   if (!name)
     return {

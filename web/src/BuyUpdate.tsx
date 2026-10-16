@@ -4,14 +4,17 @@ import type { Snapshot } from "./state";
 import { Action, Info, type Actions } from "./actions";
 import { exact, fmt } from "./math";
 
-// Buying a price update with the viewer's own IMD, through the protocol's OracleAsker. The asker pays
-// IdentityMD's on-chain Intake and delivers the answer through SwarmRelay; the feed checks it like any
-// other attestation. Nothing here spends protocol money. Until the Intake is live on mainnet the
-// deployment names no asker, and the control explains that instead.
+// Buying a price update through the protocol's OracleAsker. The asker pays IdentityMD's on-chain Intake and
+// delivers the answer through SwarmRelay; the feed checks it like any other attestation. When the asker's own
+// rules say the Treasury pays for a feed right now (`ask`: a kept-alive feed near stale, a feed stale long enough
+// to be wide open, or an armed fall), the button sends that and the viewer pays only gas; otherwise it buys with
+// the viewer's own IMD (`askPaid`). Until the Intake is live on mainnet the deployment names no asker, and the
+// control explains that instead.
 export const askerAbi = parseAbi([
   "function price() view returns (uint256)",
   "function payToken() view returns (address)",
   "function feeds(address) view returns (bytes32 bodyHash, bool tracksPool, bool keepAlive, uint64 lastAsk, uint64 armedAt, uint64 inFlightAt, bool treasuryPaid, bytes32 inFlight)",
+  "function ask(address feed, bytes body) returns (bytes32)",
   "function askPaid(address feed, bytes body, uint256 maxPrice) returns (bytes32)",
   "function askPaidMany(address[] feeds, bytes[] bodies, uint256 maxPriceEach) returns (bytes32[])",
 ]);
@@ -34,6 +37,10 @@ export type AskerState = {
   orderedAt: Record<string, bigint>;
   reopensAt: Record<string, bigint>;
   answered: Record<string, boolean>;
+  /** The Treasury pays for this feed's update right now: `ask` simulates cleanly at this block. The contract alone
+   * decides (keep-alive near stale, wide open, or an armed fall, within its interval and budget), so it is asked
+   * rather than re-derived here; any revert (NotNeeded, NotArmed, TooSoon, an empty asker) reads as not free. */
+  free: Record<string, boolean>;
   balance?: bigint;
   allowance?: bigint;
 };
@@ -56,6 +63,7 @@ export async function readAsker(
   const orderedAt: Record<string, bigint> = {};
   const reopensAt: Record<string, bigint> = {};
   const answered: Record<string, boolean> = {};
+  const free: Record<string, boolean> = {};
   // The asker treats a request as in flight only until ASK_TIMEOUT after it was sent (2 hours, a deploy-time
   // constant it does not expose): after that `askPaid`/`askPaidMany` buy again. A slot the Intake's callback never
   // cleared reads non-zero for ever, and taking it at face value refused every purchase ("An update is already on
@@ -82,9 +90,13 @@ export async function readAsker(
         const [, updatedAt] = await r.client.readContract({ address: feed, abi: feedAbi, functionName: "latestValue", blockNumber });
         answered[name] = BigInt(updatedAt) >= BigInt(f[5]);
       }
+      if (ready[name] && !inFlight[name])
+        free[name] = await r.client
+          .simulateContract({ ...at, functionName: "ask", args: [feed, body], blockNumber })
+          .then(() => true, () => false);
     }),
   );
-  const state: AskerState = { price, payToken, ready, inFlight, orderedAt, reopensAt, answered };
+  const state: AskerState = { price, payToken, ready, inFlight, orderedAt, reopensAt, answered, free };
   if (account)
     [state.balance, state.allowance] = await Promise.all([
       r.client.readContract({
@@ -179,9 +191,13 @@ export function BuyUpdate({
     if (!done.length) return "";
     return `${names(done)[0].toUpperCase() + names(done).slice(1)} ${done.length > 1 ? "were" : "was"} just updated (ordered at ${hhmm(latest(done, a.orderedAt))}). The oracle takes the next order for ${done.length > 1 ? "them" : "it"} after ${reopen}.`;
   })();
-  const total = a.price * BigInt(toBuy.length || 1);
+  // Feeds the Treasury pays for right now go first, one `ask` per click (the asker has no batch form of it); the
+  // rest are bought from this wallet as before, on the next click once the free one is in flight.
+  const free = toBuy.filter((n) => a.free?.[n]);
+  const paid = toBuy.filter((n) => !a.free?.[n]);
+  const total = a.price * BigInt(paid.length || 1);
   const short = a.allowance === undefined || a.allowance < total;
-  const what = toBuy.length > 1 ? `${toBuy.length} updates` : "an update";
+  const what = paid.length > 1 ? `${paid.length} updates` : "an update";
   const blocked = hold
     ? hold
     : all.some((n) => !cfg.requests?.[n])
@@ -190,21 +206,37 @@ export function BuyUpdate({
       ? "The configured request does not match the question this feed pins. Nothing will be sent."
       : !toBuy.length
         ? inFlightNote
-        : a.price === 0n
-          ? "The request contract is not selling updates right now."
-          : a.balance !== undefined && a.balance < total
-            ? `This costs ${fmt(total)} IMD; this wallet holds ${fmt(a.balance)}.`
-            : "";
+        : free.length
+          ? ""
+          : a.price === 0n
+            ? "The request contract is not selling updates right now."
+            : a.balance !== undefined && a.balance < total
+              ? `This costs ${fmt(total)} IMD; this wallet holds ${fmt(a.balance)}.`
+              : "";
+  const approve = short && !blocked && !free.length;
+  const rest = paid.length ? ` Then this button buys ${names(paid)} from your wallet (${fmt(total)} IMD).` : "";
+  const infoText = hold
+    ? hold
+    : free.length
+      ? `The Treasury pays for the ${names(free.slice(0, 1))} update now (the protocol's rules allow it: a stale feed or a fall in IMD's price). You pay only gas.${rest}`
+      : `Pays ${fmt(total)} IMD from your wallet${paid.length > 1 ? `, in one transaction, for ${paid.length} answers` : " for a fresh answer"} from swarm panels, usually within minutes. No protocol funds are spent.`;
   return (
     <div className="buy-update">
       <Action
         id={id}
-        label={short && !blocked ? `Approve ${fmt(total)} IMD · ${label}` : label}
+        label={approve ? `Approve ${fmt(total)} IMD · ${label}` : label}
         actions={actions}
         disabled={!!blocked}
         reason={hold ? (holdNote ?? "") : blocked}
         request={() => {
           if (blocked) throw Error(blocked);
+          if (free.length)
+            return {
+              target: { address: cfg.address, abi: askerAbi },
+              fn: "ask",
+              args: [s!.targets[free[0]].address, cfg.requests[free[0]]],
+              summary: `The Treasury pays for a fresh ${free[0]} answer under the protocol's rules; this wallet pays only gas. It arrives once a swarm panel answers, usually within minutes.`,
+            };
           if (short)
             return {
               target: { address: a.payToken, abi: erc20 },
@@ -212,24 +244,24 @@ export function BuyUpdate({
               args: [cfg.address, total],
               summary: `Approve exactly ${exact(total)} IMD for ${what}. The purchase is a separate transaction.`,
             };
-          if (toBuy.length === 1)
+          if (paid.length === 1)
             return {
               target: { address: cfg.address, abi: askerAbi },
               fn: "askPaid",
-              args: [s!.targets[toBuy[0]].address, cfg.requests[toBuy[0]], a.price],
-              summary: `Pay ${exact(a.price)} IMD from this wallet for a fresh ${toBuy[0]} answer. It arrives once a swarm panel answers, usually within minutes.`,
+              args: [s!.targets[paid[0]].address, cfg.requests[paid[0]], a.price],
+              summary: `Pay ${exact(a.price)} IMD from this wallet for a fresh ${paid[0]} answer. It arrives once a swarm panel answers, usually within minutes.`,
             };
           return {
             target: { address: cfg.address, abi: askerAbi },
             fn: "askPaidMany",
-            args: [toBuy.map((n) => s!.targets[n].address), toBuy.map((n) => cfg.requests[n]), a.price],
-            summary: `Pay ${exact(total)} IMD from this wallet, in one transaction, for fresh ${toBuy.join(" and ")} answers. Each arrives once its swarm panel answers, usually within minutes of each other.`,
+            args: [paid.map((n) => s!.targets[n].address), paid.map((n) => cfg.requests[n]), a.price],
+            summary: `Pay ${exact(total)} IMD from this wallet, in one transaction, for fresh ${paid.join(" and ")} answers. Each arrives once its swarm panel answers, usually within minutes of each other.`,
           };
         }}
       />
       {info && (<Info
         label={label}
-        text={hold ? hold : `Pays ${fmt(total)} IMD from your wallet${toBuy.length > 1 ? `, in one transaction, for ${toBuy.length} answers` : " for a fresh answer"} from swarm panels, usually within minutes. No protocol funds are spent.`}
+        text={infoText}
       />)}
     </div>
   );

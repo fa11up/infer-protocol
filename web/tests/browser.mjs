@@ -1578,6 +1578,35 @@ try {
     );
   }
   {
+    // When the asker's own rules let the Treasury pay (ask simulates cleanly), the button sends ask for the primary:
+    // no approval, no IMD from the wallet, the pinned body.
+    const { page, s } = await setup({
+      state: { askerFree: true },
+      deployment: (d) => ({
+        ...d,
+        oracleAsker: {
+          address: "0x0000000000000000000000000000000000000019",
+          requests: { PriceFeed: askerBody, NhiFeed: askerBody, SpotFeed: askerBody },
+        },
+      }),
+    });
+    await connect(page);
+    await tab(page, "oracle");
+    const panel = page.locator(".pane-oracle .price-status");
+    assert.equal(await panel.getByRole("button", { name: /^Approve/ }).count(), 0, "nothing to approve");
+    await panel.getByRole("button", { name: "About Update price" }).first().hover();
+    await expectText(page.locator("body"), "The Treasury pays for the price update now");
+    await panel.getByRole("button", { name: "Update price", exact: true }).click();
+    await page.locator("dialog[open]").waitFor();
+    await page.locator("dialog").getByRole("button", { name: "Confirm in wallet" }).click();
+    await expectText(page.locator("footer"), "Confirmed on chain.");
+    assert.equal(s.sent.at(-1).name, "asker");
+    assert.equal(s.sent.at(-1).functionName, "ask");
+    assert.deepEqual(s.sent.at(-1).args[1], askerBody);
+    assert.ok(!s.sent.some((t) => t.name === "payToken"), "no IMD approval was sent");
+    passed("Update price sends the Treasury-paid ask, with no approval, when the asker's rules allow it");
+  }
+  {
     // sIMD is priced from IMD: with the vault's collateral feed unreadable, the terminal derives the same
     // figure from IMD / USD and the exchange rate, so the position still reads the same.
     const { page } = await setup({
