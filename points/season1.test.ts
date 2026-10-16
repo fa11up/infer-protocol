@@ -42,14 +42,19 @@ test("rule 1: a wallet earns 1x for holding; a contract earns nothing", () => {
   assert.equal(row(r, C), undefined);
 });
 
-test("rule 5: holding counts net of the wallet's own vault debt", () => {
-  const r = computeSeason1([tx(ZERO, A, 100, 0), debt(A, 60, 0), tx(ZERO, B, 100, 0), debt(B, 150, 0)], season(DAY));
+test("rule 5 is off by default: a borrower earns on what it holds", () => {
+  const r = computeSeason1([tx(ZERO, A, 100, 0), debt(A, 60, 0)], season(DAY));
+  assert.equal(pts(r, A), "100.00");
+});
+
+test("rule 5 (netDebt): holding counts net of the wallet's own vault debt", () => {
+  const r = computeSeason1([tx(ZERO, A, 100, 0), debt(A, 60, 0), tx(ZERO, B, 100, 0), debt(B, 150, 0)], season(DAY, { netDebt: true }));
   assert.equal(pts(r, A), "40.00");
   assert.equal(pts(r, B), "0.00");
 });
 
-test("rule 5: repaying debt restores the holding from that block", () => {
-  const r = computeSeason1([tx(ZERO, A, 100, 0), debt(A, 100, 0), debt(A, 0, DAY)], season(2 * DAY));
+test("rule 5 (netDebt): repaying debt restores the holding from that block", () => {
+  const r = computeSeason1([tx(ZERO, A, 100, 0), debt(A, 100, 0), debt(A, 0, DAY)], season(2 * DAY, { netDebt: true }));
   assert.equal(pts(r, A), "100.00");
 });
 
@@ -95,8 +100,12 @@ test("the 2026-10-16 pattern: push the peg to $0.899, park borrowed imdUSD in $0
     owner("ab", A, 300),
   ];
   const r = computeSeason1(evs, season(5 * DAY, { excluded: [C] }));
-  assert.equal(r.total, 0n);
   assert.equal(r.atPeg, false);
+  // The parked liquidity earns nothing. With rule 5 off, the 3,529 borrowed imdUSD left in the wallet earns 1x as
+  // a holding, as any borrower's would; with rule 5 on, nothing at all.
+  assert.equal(row(r, A)!.lpPoints, 0n);
+  assert.equal(row(r, A)!.holdPoints, 52_000n * WAD * 100n + 3_529n * WAD * BigInt(5 * DAY - 300));
+  assert.equal(computeSeason1(evs, season(5 * DAY, { excluded: [C], netDebt: true })).total, 0n);
 });
 
 test("...and if the peg is restored, that position earns only on its slice of the band", () => {

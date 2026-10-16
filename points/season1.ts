@@ -17,8 +17,9 @@
 // 4. MINIMUM HOLD: liquidity points accrue as PENDING for `vestBlocks` (one day) after a position's last addition.
 //    Removing any of it inside that window forfeits everything pending; after it, pending vests. Pending that
 //    cannot vest yet (the window runs past the data) is reported but not counted.
-// 5. NET OF DEBT: a wallet's holding counts as max(0, imdUSD held - its own vault principal outstanding). Minting
-//    imdUSD and sitting on it earns nothing; minting it and providing depth at the peg (rule 2) does.
+// 5. NET OF DEBT (OFF; user, 2026-10-16: "reward our earliest supporters, not rug them"). With `netDebt` a wallet's
+//    holding would count as max(0, imdUSD held - its own vault principal). Kept as an option, off by default: the
+//    liquidity rules (2-4) are what stop the 2026-10-16 pattern, and borrowers who hold what they mint keep earning.
 //
 // Liquidators keep the flat credit (debt repaid x 3 days), as in the preseason.
 
@@ -50,6 +51,8 @@ export type S1Season = {
   lpBps?: number;
   liquidationCreditDays?: number;
   vestBlocks?: number;
+  /** Rule 5, off by default: count holdings net of the wallet's own vault principal. */
+  netDebt?: boolean;
   /** The last block the events cover (accrual stops there; vesting needs to see a day past an addition). Defaults to endBlock. */
   dataThroughBlock?: number;
   /** Addresses that earn nothing: the vault, Treasury, PoolManager, and every non-wallet contract. */
@@ -106,7 +109,7 @@ export function computeSeason1(events: S1Event[], season: S1Season) {
     if (!w) wallets.set(k, (w = { held: 0n, debt: 0n, since: start, holdPoints: 0n, lpPoints: 0n, liquidationPoints: 0n }));
     return w;
   };
-  const netHeld = (w: Wallet) => (w.held > w.debt ? w.held - w.debt : 0n);
+  const netHeld = (w: Wallet) => (!season.netDebt ? w.held : w.held > w.debt ? w.held - w.debt : 0n);
   const settleWallet = (w: Wallet, block: number) => {
     w.holdPoints += (netHeld(w) * BigInt(clamp(block) - clamp(w.since)) * holdBps) / 10_000n;
     w.since = block;

@@ -47,7 +47,7 @@ have earned ~77% of all points while weakening the peg):
 | 2 | **Liquidity earns only in our hook pool, on its depth at the peg**: the USDC value of the position's liquidity inside $0.99-$1.01, `L x (sqrt(min(upper, $1.01)) - sqrt(max(lower, $0.99)))`, 3x. A wide range earns only for its slice; a range outside the band earns nothing |
 | 3 | **Active and at peg only**: a position earns only while the pool price is inside the band AND inside its own range. When the peg is pushed away, nobody's liquidity earns |
 | 4 | **One-day minimum hold**: liquidity points stay pending for 7,200 blocks after a position's last addition; removing any liquidity inside that window forfeits what is pending |
-| 5 | **Holding is net of your own vault debt**: max(0, imdUSD held - principal you owe). Minting and sitting on it earns nothing; minting it and providing depth at the peg does |
+| 5 | *(off, user 2026-10-16: reward early supporters)* Holding net of your own vault debt. Available as `--net-debt` |
 | - | Liquidators: debt repaid x 3 days, as before |
 
 ```bash
@@ -55,9 +55,8 @@ node points/season1-cli.ts --stablecoin 0x.. --vault 0x.. --start <block> [--end
 node --test points/season1.test.ts
 ```
 
-Known limit: rule 5 nets debt per wallet, so a borrower who sends minted imdUSD to a second wallet still earns
-there. The cost is the same as buying imdUSD (collateral at 170%+ and the rate), so it is not free, but it is
-not prevented.
+With rule 5 off, a borrower who mints and holds earns 1x for the cost of collateral (170%+) and its rate. The
+liquidity rules are what stop the 2026-10-16 pattern: borrowed imdUSD parked off-peg in the pool earns nothing.
 
 ## Files
 

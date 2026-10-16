@@ -151,6 +151,7 @@ const season = {
   token1Scale: peg.token1Scale,
   lpBps: Math.round(Number(opt("lp-x", "3")) * 10_000),
   dataThroughBlock: through,
+  netDebt: args.includes("--net-debt"),
   excluded: [vault!, chain.poolManager, ...contracts],
 };
 const r = computeSeason1(events, season);
