@@ -223,7 +223,6 @@ export function BuyUpdate({
             : a.balance !== undefined && a.balance < total
               ? `This costs ${fmt(total)} IMD; this wallet holds ${fmt(a.balance)}.`
               : "";
-  const approve = short && !blocked && !free.length;
   const rest = paid.length ? ` Then this button buys ${names(paid)} from your wallet (${fmt(total)} IMD).` : "";
   const infoText = hold
     ? hold
@@ -234,7 +233,7 @@ export function BuyUpdate({
     <div className="buy-update">
       <Action
         id={id}
-        label={approve ? `Approve ${fmt(total)} IMD · ${label}` : label}
+        label={label}
         actions={actions}
         disabled={!!blocked}
         reason={hold ? (holdNote ?? "") : blocked}
@@ -247,21 +246,29 @@ export function BuyUpdate({
               args: [s!.targets[free[0]].address, cfg.requests[free[0]]],
               summary: `The Treasury pays for a fresh ${free[0]} answer under the protocol's rules; this wallet pays only gas. It arrives once a swarm panel answers, usually within minutes.`,
             };
-          if (short)
-            return {
-              target: { address: a.payToken, abi: erc20 },
-              fn: "approve",
-              args: [cfg.address, total],
-              summary: `Approve exactly ${exact(total)} IMD for ${what}. The purchase is a separate transaction.`,
-            };
+          // Exactly the price, sent with the purchase: one signature when the wallet batches.
+          const before = short
+            ? [
+                {
+                  target: { address: a.payToken, abi: erc20 },
+                  fn: "approve",
+                  args: [cfg.address, total],
+                  label: `Approve exactly ${exact(total)} IMD for ${what}`,
+                },
+              ]
+            : undefined;
           if (paid.length === 1)
             return {
+              before,
+              label: `Buy a fresh ${paid[0]} answer`,
               target: { address: cfg.address, abi: askerAbi },
               fn: "askPaid",
               args: [s!.targets[paid[0]].address, cfg.requests[paid[0]], a.price],
               summary: `Pay ${exact(a.price)} IMD from this wallet for a fresh ${paid[0]} answer. It arrives once a swarm panel answers, usually within minutes.`,
             };
           return {
+            before,
+            label: `Buy fresh ${paid.join(" and ")} answers`,
             target: { address: cfg.address, abi: askerAbi },
             fn: "askPaidMany",
             args: [paid.map((n) => s!.targets[n].address), paid.map((n) => cfg.requests[n]), a.price],

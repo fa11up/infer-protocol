@@ -570,10 +570,10 @@ export function sent(s, tx) {
 }
 export async function installWallet(
   page,
-  { chain = "0x1", reject = false } = {},
+  { chain = "0x1", reject = false, atomic = false } = {},
 ) {
   await page.addInitScript(
-    ({ account, chain, reject }) => {
+    ({ account, chain, reject, atomic }) => {
       const listeners = {};
       window.__wallet = {
         chain,
@@ -615,11 +615,38 @@ export async function installWallet(
             if (w.reject) throw { code: 4001, message: "User rejected" };
             return window.__sendFixture(params[0]);
           }
+          // An EIP-5792 wallet when `atomic`: a batch runs its calls in order through the same fixture.
+          if (atomic && method === "wallet_getCapabilities")
+            return { [w.chain]: { atomic: { status: "supported" } } };
+          if (atomic && method === "wallet_sendCalls") {
+            if (w.reject) throw { code: 4001, message: "User rejected" };
+            const hashes = [];
+            for (const c of params[0].calls) hashes.push(await window.__sendFixture({ from: params[0].from, to: c.to, data: c.data }));
+            w.batches = [...(w.batches ?? []), params[0].calls.length];
+            w.lastBatch = hashes;
+            return { id: "0x" + "ba".repeat(32) };
+          }
+          if (atomic && method === "wallet_getCallsStatus")
+            return {
+              version: "2.0.0",
+              id: params[0],
+              chainId: w.chain,
+              atomic: true,
+              status: 200,
+              receipts: w.lastBatch.map((h) => ({
+                transactionHash: h,
+                blockHash: "0x" + "11".repeat(32),
+                blockNumber: "0x1",
+                gasUsed: "0x1",
+                logs: [],
+                status: "0x1",
+              })),
+            };
           throw Error("Unmocked wallet " + method);
         },
       };
     },
-    { account, chain, reject },
+    { account, chain, reject, atomic },
   );
 }
 

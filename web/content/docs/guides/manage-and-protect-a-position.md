@@ -32,7 +32,7 @@ Keep a cushion that covers a price fall and a health fall together, and check **
 
 ## Add collateral: Deposit (`lock`)
 
-1. Choose Deposit, pick IMD or sIMD, enter the amount, approve if asked, then confirm.
+1. Choose Deposit, pick IMD or sIMD, enter the amount and check **After this** under the button: your ratio and liquidation price once it lands. Review and confirm; a first deposit approves in the same confirmation (one signature if your wallet batches, two prompts if not).
 2. Your ratio rises and your liquidation price falls.
 
 Deposit works even when prices are out of date. It fails only with `ZeroAmount`, a token balance or allowance error, or `UnexpectedCollateralReceived`.

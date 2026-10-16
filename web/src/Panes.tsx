@@ -27,6 +27,7 @@ import {
   BalanceHint,
   FadingError,
   type Actions,
+  type Request,
 } from "./actions";
 import type { Failure } from "./explain";
 import {
@@ -54,6 +55,7 @@ import { PriceStatus } from "./PriceStatus";
 import { OracleTopUp } from "./BuyUpdate";
 import { describePending, utc, countdown, CHANGE_KINDS } from "./governance";
 import { LoopWindow, loopAvailable } from "./Loop";
+import { LpWindow } from "./Liquidity";
 const amt = (name: string) => ({ name, kind: "amount" as const });
 const addr = (name: string) => ({ name, kind: "address" as const });
 const num = (name: string) => ({ name, kind: "uint" as const });
@@ -155,6 +157,61 @@ function MarkNotice({ s, actions, now }: { s?: Snapshot; actions: Actions; now: 
   );
 }
 
+/**
+ * The position as it would stand after an action, below the action's button and before anything is sent: what
+ * it holds and owes, its ratio and liquidation price at the vault's current prices, and what it could still borrow.
+ * Deltas are raw collateral units and imdUSD; a deposit in IMD is converted at the staking vault's rate (≈).
+ */
+export function PositionAfter({
+  s,
+  dHeld = 0n,
+  dDebt = 0n,
+  approx = false,
+}: {
+  s?: Snapshot;
+  dHeld?: bigint;
+  dDebt?: bigint;
+  approx?: boolean;
+}) {
+  const v = s?.v || {};
+  const g = collateral();
+  const held = v.positions?.[0] as bigint | undefined;
+  const debt = v.debtOf as bigint | undefined;
+  const price = s?.feeds.Collateral?.value;
+  const imdUsd = s?.feeds.USD?.value;
+  const mat = v.mat as bigint | undefined;
+  if (held === undefined || debt === undefined || !price || !mat || (dHeld === 0n && dDebt === 0n)) return null;
+  const heldAfter = held + dHeld > 0n ? held + dHeld : 0n;
+  const debtAfter = debt + dDebt > 0n ? debt + dDebt : 0n;
+  const crBefore = ratioPercent(held, debt, price);
+  const crAfter = ratioPercent(heldAfter, debtAfter, price);
+  const liq = perImd(liquidationPrice(heldAfter, debtAfter, mat));
+  const most = maxDebt(heldAfter, mat + BORROW_BUFFER, price);
+  const pct = (x: bigint | undefined) => (x === undefined ? "no debt" : `${x}%`);
+  const tight = crAfter !== undefined && crAfter < mat + BORROW_WARN;
+  const worth = g.share ? asImd(heldAfter) : undefined;
+  const cells: [string, ReactNode][] = [
+    ["Ratio", <span className={tight ? "danger-text" : undefined}>{pct(crBefore)} → {pct(crAfter)}</span>],
+    [
+      "Liquidation price",
+      liq === undefined ? "No debt" : `$${fmt(liq)}${imdUsd !== undefined ? ` · ${cushion(imdUsd, liq).replace(" it", " now")}` : ""}`,
+    ],
+    dHeld !== 0n
+      ? ["Collateral", `${approx ? "≈ " : ""}${fmtGem(heldAfter)} ${gemUnit()}${worth !== undefined ? ` ≈ ${fmt(worth)} ${g.underlyingSymbol}` : ""}`]
+      : ["Debt", `${fmt(debtAfter)} ${unit()}`],
+    ["Can still borrow", `${fmt(most > debtAfter ? most - debtAfter : 0n)} ${unit()}`],
+  ];
+  return (
+    <dl className="position-after" aria-label="Your position after this">
+      {cells.map(([k, v]) => (
+        <div key={k}>
+          <dt>{k}</dt>
+          <dd>{v}</dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
 export function Position({
   r,
   s,
@@ -167,6 +224,7 @@ export function Position({
   const [input, setInput] = useState("");
   const [act, setAct] = useState("deposit");
   const [looping, setLooping] = useState(false);
+  const [providing, setProviding] = useState(false);
   const g = collateral();
   // With share collateral, a deposit can be IMD (the vault stakes it) or sIMD itself.
   const [token, setToken] = useState<"imd" | "gem">("imd");
@@ -286,11 +344,17 @@ export function Position({
           ]}
         />
         {loopAvailable(r, s) && (
-          <button type="button" className="loop-open" onClick={() => setLooping(true)}>
-            Leverage loop ↗
-          </button>
+          <div className="loop-opens">
+            <button type="button" className="loop-open" onClick={() => setLooping(true)}>
+              Leverage loop ↗
+            </button>
+            <button type="button" className="loop-open" onClick={() => setProviding(true)}>
+              Peg pool liquidity ↗
+            </button>
+          </div>
         )}
         {looping && <LoopWindow r={r} s={s} actions={actions} onClose={() => setLooping(false)} />}
+        {providing && <LpWindow r={r} s={s} actions={actions} onClose={() => setProviding(false)} />}
         {act === "deposit" && (
           <>
             {g.share && (
@@ -320,24 +384,27 @@ export function Position({
               />
             </div>
             <Action
-              id={needsApproval ? "approve" : "deposit"}
-              label={
-                needsApproval ? `Approve ${depositUnit}` : "Review deposit"
-              }
+              id="deposit"
+              label="Review deposit"
               actions={actions}
               request={() => {
                 const n = amount(input, depositDecimals);
                 if (balance !== undefined && n > balance)
                   throw Error(`Deposit exceeds the ${depositUnit} balance.`);
                 if (!t) throw Error("Wait for contract verification.");
-                if (needsApproval)
-                  return {
-                    target: viaImd ? t.underlying : t.gem,
-                    fn: "approve",
-                    args: [t.ParameterizedVault.address, n],
-                    summary: `Approve exactly ${exact(n, depositDecimals)} ${depositUnit} for the vault. Deposit is a separate transaction.`,
-                  };
-                return viaImd
+                // Exactly this amount, sent with the deposit: one signature when the wallet batches.
+                const before = needsApproval
+                  ? [
+                      {
+                        target: viaImd ? t.underlying : t.gem,
+                        fn: "approve",
+                        args: [t.ParameterizedVault.address, n],
+                        label: `Approve exactly ${exact(n, depositDecimals)} ${depositUnit} for the vault`,
+                      },
+                    ]
+                  : undefined;
+                const label = `Deposit ${exact(n, depositDecimals)} ${depositUnit}`;
+                const main: Request = viaImd
                   ? {
                       target: {
                         address: t.ParameterizedVault.address,
@@ -353,11 +420,20 @@ export function Position({
                       args: [n],
                       summary: `Deposit ${exact(n, depositDecimals)} ${depositUnit} as collateral.`,
                     };
+                return { ...main, before, label };
               }}
             />
+            <PositionAfter
+              s={s}
+              dHeld={viaImd ? (g.rate > 0n ? (n * WAD) / g.rate : 0n) : n}
+              approx={viaImd}
+            />
             <p className="micro">
-              Approval and deposit are two transactions. The approval is for
-              exactly this amount.
+              {needsApproval
+                ? actions.atomic
+                  ? "The approval, for exactly this amount, goes with the deposit: one signature."
+                  : "Your wallet asks twice: the approval, for exactly this amount, then the deposit."
+                : ""}
               {viaImd &&
                 ` Your collateral is held as ${gemUnit()}; withdrawals pay ${gemUnit()}.`}
             </p>
@@ -382,6 +458,7 @@ export function Position({
                     `a liquidation pays the liquidator a bonus out of your collateral. Borrow less or deposit more to stay above ${String(v.mat + BORROW_BUFFER)}%.`
                 : undefined;
             }}
+            after={([a]) => <PositionAfter s={s} dDebt={a as bigint} />}
             disabled={!fresh || !!cap?.reached}
             reason={
               cap?.reached
@@ -399,6 +476,7 @@ export function Position({
             fn="wipe"
             fields={[{ ...amt(`Repay ${unit()}`), balance: { ...stable, amount: v.compBalance } }]}
             summary={`Burn ${unit()} to repay fees first, then principal. No approval required.`}
+            after={([a]) => <PositionAfter s={s} dDebt={-(a as bigint)} />}
           />
         )}
         {act === "withdraw" && (
@@ -425,6 +503,7 @@ export function Position({
                     `a liquidation pays the liquidator a bonus out of your collateral. Withdraw less or repay first to stay above ${String(v.mat + BORROW_BUFFER)}%.`
                 : undefined;
             }}
+            after={([a]) => <PositionAfter s={s} dHeld={-(a as bigint)} />}
             disabled={!fresh && v.debtOf !== 0n}
             reason="An indebted position needs fresh feeds to withdraw."
           />

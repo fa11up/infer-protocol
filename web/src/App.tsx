@@ -96,6 +96,8 @@ function Terminal({ r }: { r: Runtime }) {
     request: Request;
     account: Address;
   }>();
+  // Steps confirmed of a review that sends prerequisites first.
+  const [stepsDone, setStepsDone] = useState(0);
   const [tx, setTx] = useState<{ status: string; hash?: Hash; error?: string }>(
     { status: "No transaction submitted." },
   );
@@ -121,6 +123,21 @@ function Terminal({ r }: { r: Runtime }) {
   const serial = useRef(0);
   const accountRef = useRef(account);
   accountRef.current = account;
+  // Whether the wallet can send an atomic batch (EIP-5792): asked once per account and chain.
+  const [atomic, setAtomic] = useState<boolean>();
+  useEffect(() => {
+    setAtomic(undefined);
+    const p = window.ethereum;
+    if (!p || !account || chainId !== r.config.chainId) return;
+    let live = true;
+    wallet(r, p)
+      .getCapabilities({ account, chainId: r.config.chainId })
+      .then((c: any) => live && setAtomic(c?.atomic?.status === "supported" || c?.atomic?.status === "ready"))
+      .catch(() => live && setAtomic(false));
+    return () => {
+      live = false;
+    };
+  }, [r, account, chainId]);
   const refresh = useCallback(async () => {
     const id = ++serial.current;
     setRefreshing(true);
@@ -310,23 +327,28 @@ function Terminal({ r }: { r: Runtime }) {
         const p = window.ethereum;
         if (!p) throw Error("Connect a browser wallet.");
         await guard(p);
-        await r.client
-          .simulateContract({
-            ...request.target,
-            functionName: onChain(request.fn),
-            args: onChainArgs(request.args),
-            account,
-          })
-          .catch((e) =>
-            explained(
-              e,
-              { fn: request.fn, args: request.args, s, account },
-              request.explain,
-            ),
-          );
+        // With prerequisites (approvals) the main call cannot be simulated until they land: the first step is
+        // simulated now, and each later one before it is signed (or the wallet simulates the whole batch).
+        if (request.before?.length) await simulateCall(request.before[0]);
+        else
+          await r.client
+            .simulateContract({
+              ...request.target,
+              functionName: onChain(request.fn),
+              args: onChainArgs(request.args),
+              account,
+            })
+            .catch((e) =>
+              explained(
+                e,
+                { fn: request.fn, args: request.args, s, account },
+                request.explain,
+              ),
+            );
         setTx({
           status: "Simulation passed. Review the transaction before signing.",
         });
+        setStepsDone(0);
         setReview({ id, request, account: account! });
       } finally {
         locked.current = false;
@@ -338,52 +360,8 @@ function Terminal({ r }: { r: Runtime }) {
       if (!calls.length) throw Error("Nothing to send.");
       locked.current = true;
       setBusy(id);
-      const simulate = (c: Call) =>
-        r.client
-          .simulateContract({ ...c.target, functionName: onChain(c.fn), args: onChainArgs(c.args), account })
-          .catch((e) => explained(e, { fn: c.fn, args: c.args, s, account }));
       try {
-        const p = window.ethereum;
-        if (!p) throw Error("Connect a browser wallet.");
-        await guard(p);
-        const w = wallet(r, p);
-        if (batch) {
-          // Later calls depend on earlier ones (the swap spends what the borrow mints), so only the first can be
-          // simulated alone; the swap's minimum out and the wallet's own simulation of the batch cover the rest.
-          await simulate(calls[0]);
-          setTx({ status: `Confirm ${calls.length} steps in your wallet: one signature, all or nothing.` });
-          const { id: batchId } = await w.sendCalls({
-            account: account!,
-            chain: r.chain,
-            forceAtomic: true,
-            calls: calls.map((c) => ({
-              to: c.target.address,
-              data: encodeFunctionData({ abi: c.target.abi, functionName: onChain(c.fn), args: onChainArgs(c.args) }),
-            })),
-          });
-          setTx({ status: "Submitted. Waiting for on-chain confirmation…" });
-          const result = await w.waitForCallsStatus({ id: batchId, timeout: 180_000 });
-          const hash = result.receipts?.[result.receipts.length - 1]?.transactionHash;
-          if (result.status !== "success")
-            throw Error("The batch did not go through. It is all or nothing, so none of its steps were applied.");
-          onStep?.(calls.length);
-          setTx({ status: "Confirmed. Refreshing balances and state…", hash });
-        } else {
-          for (const [i, c] of calls.entries()) {
-            await guard(p);
-            const simulation = await simulate(c);
-            await guard(p);
-            setTx({ status: `Step ${i + 1} of ${calls.length}: ${c.label}. Confirm in your wallet.` });
-            const hash = await w.writeContract({ ...simulation.request, account: account!, chain: r.chain });
-            setTx({ status: `Step ${i + 1} of ${calls.length} submitted. Waiting for confirmation…`, hash });
-            const receipt = await r.client.waitForTransactionReceipt({ hash, confirmations: 1, timeout: 120000 });
-            if (receipt.status !== "success")
-              throw Error(`Step ${i + 1} (${c.label}) reverted on chain. The steps before it stand.`);
-            onStep?.(i + 1);
-          }
-        }
-        await refresh();
-        setTx((old) => ({ ...old, status: "Confirmed on chain." }));
+        await sendCalls(calls, batch, onStep);
       } catch (e) {
         setTx((old) => ({ ...old, status: "Action stopped.", error: message(e) }));
         throw e;
@@ -392,7 +370,64 @@ function Terminal({ r }: { r: Runtime }) {
         setBusy("");
       }
     },
+    atomic,
   };
+  function simulateCall(c: Call) {
+    return r.client
+      .simulateContract({ ...c.target, functionName: onChain(c.fn), args: onChainArgs(c.args), account })
+      .catch((e) => explained(e, { fn: c.fn, args: c.args, s, account }));
+  }
+  /** Sends `calls` from the connected wallet, as one atomic batch or one by one, then refreshes. The caller holds
+   * the lock. A wallet that refuses wallet_sendCalls is remembered as unable to batch. */
+  async function sendCalls(calls: Call[], batch: boolean, onStep?: (done: number) => void) {
+    const p = window.ethereum;
+    if (!p) throw Error("Connect a browser wallet.");
+    await guard(p);
+    const w = wallet(r, p);
+    if (batch) {
+      // Later calls depend on earlier ones (the swap spends what the borrow mints, the deposit what the approval
+      // allows), so only the first can be simulated alone; the wallet's own simulation of the batch covers the rest.
+      await simulateCall(calls[0]);
+      setTx({ status: `Confirm ${calls.length} steps in your wallet: one signature, all or nothing.` });
+      let batchId: string;
+      try {
+        ({ id: batchId } = await w.sendCalls({
+          account: account!,
+          chain: r.chain,
+          forceAtomic: true,
+          calls: calls.map((c) => ({
+            to: c.target.address,
+            data: encodeFunctionData({ abi: c.target.abi, functionName: onChain(c.fn), args: onChainArgs(c.args) }),
+          })),
+        }));
+      } catch (e) {
+        if (/wallet_sendCalls|does not support|not supported|method not found|4200/i.test(message(e))) setAtomic(false);
+        throw e;
+      }
+      setTx({ status: "Submitted. Waiting for on-chain confirmation…" });
+      const result = await w.waitForCallsStatus({ id: batchId, timeout: 180_000 });
+      const hash = result.receipts?.[result.receipts.length - 1]?.transactionHash;
+      if (result.status !== "success")
+        throw Error("The batch did not go through. It is all or nothing, so none of its steps were applied.");
+      onStep?.(calls.length);
+      setTx({ status: "Confirmed. Refreshing balances and state…", hash });
+    } else {
+      for (const [i, c] of calls.entries()) {
+        await guard(p);
+        const simulation = await simulateCall(c);
+        await guard(p);
+        setTx({ status: `Step ${i + 1} of ${calls.length}: ${c.label}. Confirm in your wallet.` });
+        const hash = await w.writeContract({ ...simulation.request, account: account!, chain: r.chain });
+        setTx({ status: `Step ${i + 1} of ${calls.length} submitted. Waiting for confirmation…`, hash });
+        const receipt = await r.client.waitForTransactionReceipt({ hash, confirmations: 1, timeout: 120000 });
+        if (receipt.status !== "success")
+          throw Error(`Step ${i + 1} (${c.label}) reverted on chain. The steps before it stand.`);
+        onStep?.(i + 1);
+      }
+    }
+    await refresh();
+    setTx((old) => ({ ...old, status: "Confirmed on chain." }));
+  }
   function cancelReview() {
     setReview(undefined);
     setTx({ status: "Review cancelled. Nothing was sent." });
@@ -408,6 +443,16 @@ function Terminal({ r }: { r: Runtime }) {
       if (!p) throw Error("Wallet disconnected.");
       if (review.account !== account)
         throw Error("Account changed. Cancel and review again.");
+      if (request.before?.length) {
+        const calls: Call[] = [
+          ...request.before,
+          { target: request.target, fn: request.fn, args: request.args, label: request.label ?? request.fn },
+        ];
+        setStepsDone(0);
+        await sendCalls(calls, !!atomic, setStepsDone);
+        setReview(undefined);
+        return;
+      }
       await guard(p);
       const simulation = await r.client
         .simulateContract({
@@ -749,6 +794,22 @@ function Terminal({ r }: { r: Runtime }) {
             <p className="micro">
               {review.request.fn} · {r.config.network.name} · wallet {account}
             </p>
+            {review.request.before?.length ? (
+              <>
+                <ol className="loop-steps" aria-label="Steps">
+                  {[...review.request.before.map((c) => c.label), review.request.label ?? review.request.fn].map((l, i) => (
+                    <li key={i} data-state={i < stepsDone ? "done" : busy && i === stepsDone ? "active" : "waiting"}>
+                      {l}
+                    </li>
+                  ))}
+                </ol>
+                <p className="micro">
+                  {atomic
+                    ? "Your wallet signs these as one all-or-nothing batch: one signature."
+                    : `Your wallet asks ${review.request.before.length + 1} times, one step after another. If one stops, the steps before it stand.`}
+                </p>
+              </>
+            ) : null}
             <p className="micro">
               The transaction is simulated again before signing. Network gas is
               paid in ETH. Simulation cannot guarantee execution in a later

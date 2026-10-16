@@ -23,6 +23,11 @@ export type Request = {
   warning?: string;
   /** Figures only this call site knows, e.g. an inspected borrower's ratio. */
   explain?: (f: Failure) => string | undefined;
+  /** Calls that must land first, usually approvals. With them the review lists every step, and confirming sends
+   * them and this call as one batch when the wallet can (one signature), or one after another when it cannot. */
+  before?: Call[];
+  /** This call's line in the step list when `before` is set. */
+  label?: string;
 };
 /** One call of a multi-step action (the leverage window's rounds). */
 export type Call = {
@@ -47,6 +52,8 @@ export type Actions = {
   /** Simulates and sends `calls` in order from the connected wallet, then refreshes. The caller shows the review. */
   sequence?: (id: string, seq: Sequence) => Promise<void>;
   account?: Address;
+  /** The wallet can send an atomic EIP-5792 batch (one signature, all or nothing). Undefined while unknown. */
+  atomic?: boolean;
 };
 /** How long an action's error stays before it slides away. */
 export const ERROR_LIFETIME_MS = 10_000;
@@ -207,6 +214,7 @@ export function ActionForm({
   mapArgs,
   explain,
   warn,
+  after,
 }: {
   id: string;
   label: string;
@@ -221,10 +229,14 @@ export function ActionForm({
   explain?: Request["explain"];
   /** From the parsed inputs: a warning for the review, or undefined. */
   warn?: (args: unknown[]) => string | undefined;
+  /** From the inputs as typed (once they parse): shown below the button, before anything is sent. */
+  after?: (args: unknown[]) => ReactNode;
 }) {
   const [values, setValues] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
   const [invalidField, setInvalidField] = useState("");
+  // The after-action preview replaces the one-line summary while it shows: the review repeats the summary.
+  const preview = after ? afterFor(fields, values, after) : null;
   return (
     <form
       className="action-form"
@@ -297,6 +309,7 @@ export function ActionForm({
       >
         {actions.busy === id ? "Processing…" : label}
       </button>
+      {preview}
       <p id={`${id}-feedback`} className="action-note">
         {error ? (
           <FadingError text={error} onDone={() => setError("")} />
@@ -304,12 +317,36 @@ export function ActionForm({
           reason
         ) : !actions.ready ? (
           actions.reason
+        ) : preview ? (
+          ""
         ) : (
           summary
         )}
       </p>
     </form>
   );
+}
+/** `after` for the fields as typed, or nothing while any of them does not parse. */
+function afterFor(fields: Field[], values: Record<string, string>, after: (args: unknown[]) => ReactNode): ReactNode {
+  const args: unknown[] = [];
+  for (const f of fields) {
+    const t = values[f.name] ?? f.default ?? "";
+    if (!t.trim()) return null;
+    try {
+      args.push(
+        f.kind === "address"
+          ? address(t)
+          : f.kind === "amount"
+            ? amount(t, f.decimals ?? 18)
+            : f.kind === "amount0"
+              ? amount(t, 18, true)
+              : uint(t),
+      );
+    } catch {
+      return null;
+    }
+  }
+  return after(args);
 }
 export function Pane({
   id,

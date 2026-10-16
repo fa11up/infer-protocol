@@ -90,6 +90,7 @@ function passed(name, detail) {
 }
 async function setup({
   wallet = true,
+  atomic = false,
   chain = "0x1",
   state = {},
   deployment,
@@ -147,7 +148,7 @@ async function setup({
     });
   if (wallet) {
     await page.exposeFunction("__sendFixture", (tx) => sent(s, tx));
-    await installWallet(page, { chain });
+    await installWallet(page, { chain, atomic });
   }
   await page.goto(`${url}terminal/`);
   await page
@@ -524,11 +525,15 @@ try {
   passed(
     "Attested oracle task tally, age, per-task rate, earned/consumed/remaining rights",
   );
-  // Approval remains a separate transaction, and allowance is refetched after confirmation.
+  // A wallet that cannot batch: one confirm sends the exact approval, then the deposit, one prompt each, and the
+  // allowance is refetched after confirmation.
   const pos = page.locator(".pane-position");
   await tab(page, "position");
   await pos.getByLabel("Deposit IMD", { exact: true }).fill("5");
-  await review(page, "Approve IMD");
+  await expectText(pos.locator(".position-after"), "Liquidation price");
+  await review(page, "Review deposit");
+  await expectText(page.locator("dialog"), "Approve exactly 5 IMD for the vault");
+  await expectText(page.locator("dialog"), "Your wallet asks 2 times");
   await page.evaluate(() => (window.__wallet.reject = true));
   await page
     .locator("dialog")
@@ -542,14 +547,18 @@ try {
     .getByRole("button", { name: "Confirm in wallet" })
     .click();
   await expectText(page.locator("footer"), "Confirmed on chain.");
+  assert.equal(s.sent.length, 2);
   assert.equal(s.sent[0].functionName, "approve");
+  assert.equal(s.sent[0].args[1], 5n * 10n ** 18n);
+  assert.equal(s.sent[1].functionName, "depositCollateral");
   await pos
     .getByRole("button", { name: "Review deposit", exact: true })
     .waitFor();
   await review(page, "Review deposit");
+  assert.equal(await page.locator("dialog .loop-steps").count(), 0, "allowance covers it now: no approval step");
   await cancel(page);
   passed(
-    "Exact approval, rejected signing retry, receipt wait and refreshed allowance",
+    "Exact approval sent with the deposit from one confirm, rejected signing retry, receipt waits and refreshed allowance",
   );
   // Walk all prior panes and prepare primary transactions with mock simulation.
   for (const [choice, label, input, value] of [
@@ -1388,26 +1397,17 @@ try {
     passed(
       "sIMD collateral reads in its own 24 decimals, with its IMD value and a per-IMD liquidation price",
     );
-    // Default deposit token is IMD: approve IMD, then lockIMD stakes it.
+    // Default deposit token is IMD: approve IMD, then lockIMD stakes it, from one confirm.
     await pos.getByLabel("Deposit IMD", { exact: true }).fill("5");
-    await review(page, "Approve IMD");
-    await page
-      .locator("dialog")
-      .getByRole("button", { name: "Confirm in wallet" })
-      .click();
-    await expectText(page.locator("footer"), "Confirmed on chain.");
-    assert.equal(s.sent.at(-1).name, "underlying");
-    assert.equal(s.sent.at(-1).functionName, "approve");
-    assert.equal(s.sent.at(-1).args[1], 5n * 10n ** 18n);
-    await pos
-      .getByRole("button", { name: "Review deposit", exact: true })
-      .waitFor();
     await review(page, "Review deposit");
     await page
       .locator("dialog")
       .getByRole("button", { name: "Confirm in wallet" })
       .click();
     await expectText(page.locator("footer"), "Confirmed on chain.");
+    assert.equal(s.sent.at(-2).name, "underlying");
+    assert.equal(s.sent.at(-2).functionName, "approve");
+    assert.equal(s.sent.at(-2).args[1], 5n * 10n ** 18n);
     assert.equal(s.sent.at(-1).functionName, "lockIMD");
     assert.deepEqual(s.sent.at(-1).args, [5n * 10n ** 18n]);
     passed(
@@ -1416,23 +1416,14 @@ try {
     // sIMD deposits go straight to lock, parsed at 24 decimals.
     await pos.getByRole("button", { name: "sIMD", exact: true }).click();
     await pos.getByLabel("Deposit sIMD", { exact: true }).fill("2");
-    await review(page, "Approve sIMD");
-    await page
-      .locator("dialog")
-      .getByRole("button", { name: "Confirm in wallet" })
-      .click();
-    await expectText(page.locator("footer"), "Confirmed on chain.");
-    assert.equal(s.sent.at(-1).name, "imdToken");
-    assert.equal(s.sent.at(-1).args[1], 2n * 10n ** 24n);
-    await pos
-      .getByRole("button", { name: "Review deposit", exact: true })
-      .waitFor();
     await review(page, "Review deposit");
     await page
       .locator("dialog")
       .getByRole("button", { name: "Confirm in wallet" })
       .click();
     await expectText(page.locator("footer"), "Confirmed on chain.");
+    assert.equal(s.sent.at(-2).name, "imdToken");
+    assert.equal(s.sent.at(-2).args[1], 2n * 10n ** 24n);
     assert.equal(s.sent.at(-1).functionName, "depositCollateral");
     assert.deepEqual(s.sent.at(-1).args, [2n * 10n ** 24n]);
     passed("Depositing sIMD approves sIMD and locks it, at 24 decimals");
@@ -1567,11 +1558,12 @@ try {
     passed("Repaying a borrower is capped at their debt: the hint offers it and more is refused before sending; the error swipes away after 10 s");
   }
   {
-    // Once configured: approve IMD for exactly the two answers, then buy the primary and the spot together in
-    // one transaction (askPaidMany) with the pinned bodies. The spot is added only when it would disagree with the
-    // new primary (priceUpdate), so it sits 15% under the primary here: inside skew now, well off the market the
-    // new primary will reflect (10% above the primary).
+    // Once configured: approve IMD for exactly the two answers and buy the primary and the spot together
+    // (askPaidMany) with the pinned bodies, as ONE wallet batch (an EIP-5792 wallet here). The spot is added only
+    // when it would disagree with the new primary (priceUpdate), so it sits 15% under the primary here: inside skew
+    // now, well off the market the new primary will reflect (10% above the primary).
     const { page, s } = await setup({
+      atomic: true,
       state: { spotMultiplier: 0.85 },
       deployment: (d) => ({
         ...d,
@@ -1589,33 +1581,27 @@ try {
     await tab(page, "oracle");
     const panel = page.locator(".pane-oracle .price-status");
     assert.equal(await panel.getByRole("button", { name: /Update spot check/ }).count(), 0, "one button, not two");
-    await panel.getByRole("button", { name: "Approve 1 IMD · Update price", exact: true }).click();
+    await panel.getByRole("button", { name: "Update price", exact: true }).click();
     await page.locator("dialog[open]").waitFor();
+    await expectText(page.locator("dialog"), "one all-or-nothing batch: one signature");
     await page
       .locator("dialog")
       .getByRole("button", { name: "Confirm in wallet" })
       .click();
     await expectText(page.locator("footer"), "Confirmed on chain.");
-    assert.equal(s.sent.at(-1).name, "payToken");
-    assert.deepEqual(s.sent.at(-1).args, [
+    assert.deepEqual(await page.evaluate(() => window.__wallet.batches), [2], "one batch of two calls");
+    assert.equal(s.sent.at(-2).name, "payToken");
+    assert.deepEqual(s.sent.at(-2).args, [
       "0x0000000000000000000000000000000000000019",
       2n * askerPrice,
     ]);
-    await panel.getByRole("button", { name: "Update price", exact: true }).waitFor();
-    await panel.getByRole("button", { name: "Update price", exact: true }).click();
-    await page.locator("dialog[open]").waitFor();
-    await page
-      .locator("dialog")
-      .getByRole("button", { name: "Confirm in wallet" })
-      .click();
-    await expectText(page.locator("footer"), "Confirmed on chain.");
     assert.equal(s.sent.at(-1).name, "asker");
     assert.equal(s.sent.at(-1).functionName, "askPaidMany");
     assert.equal(s.sent.at(-1).args[0].length, 2, "the primary and the spot");
     assert.deepEqual(s.sent.at(-1).args[1], [askerBody, askerBody]);
     assert.equal(s.sent.at(-1).args[2], askerPrice);
     passed(
-      "Update price approves exactly two answers, then buys the primary and the spot in one transaction with the pinned requests",
+      "Update price approves exactly two answers and buys the primary and the spot in one wallet batch with the pinned requests",
     );
   }
   {

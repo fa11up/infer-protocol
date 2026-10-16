@@ -10,7 +10,7 @@
 //  * the window recommends stopping at 220% (minCR + gap: below it the position can be redeemed against) and lets
 //    the borrower go lower with a warning, never below minCR + BORROW_BUFFER.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { wallet, type Runtime } from "./config";
+import type { Runtime } from "./config";
 import { feedsReady, type Snapshot } from "./state";
 import { Choice, FadingError, Info, Row, type Actions, type Call } from "./actions";
 import { collateral, fmtGem, gemUnit, perImd, parseGem, vaultShareAbi } from "./collateral";
@@ -94,7 +94,7 @@ export function LoopWindow({
   const [stop, setStop] = useState(String(RECOMMENDED_CR));
   const [input, setInput] = useState("");
   const [typed, setTyped] = useState("");
-  const [atomic, setAtomic] = useState<boolean>();
+  const atomic = actions.atomic;
   const [batch, setBatch] = useState(true);
   const [pegCap, setPegCap] = useState<{ cap: bigint; at: number; usd: bigint }>();
   const [pegError, setPegError] = useState("");
@@ -122,20 +122,6 @@ export function LoopWindow({
   const crNow = sized ? (debt! > 0n ? (held! * price!) / (debt! * 10n ** 16n) : undefined) : undefined;
   const busy = !!actions.busy;
   const working = actions.busy === "loop";
-
-  // Whether the wallet can send an atomic batch (EIP-5792): asked once per account.
-  useEffect(() => {
-    const p = window.ethereum;
-    if (!p || !actions.account) return;
-    let live = true;
-    wallet(r, p)
-      .getCapabilities({ account: actions.account, chainId: r.config.chainId })
-      .then((c: any) => live && setAtomic(c?.atomic?.status === "supported" || c?.atomic?.status === "ready"))
-      .catch(() => live && setAtomic(false));
-    return () => {
-      live = false;
-    };
-  }, [r, actions.account]);
 
   // The peg pool: its price now and how much imdUSD one round may sell into it. A dozen quotes, so it runs on its
   // own clock (at most every PEG_CAP_TTL_MS) and is not restarted by every 15-second refresh of the snapshot.
@@ -443,10 +429,8 @@ export function LoopWindow({
       // The round moved the peg pool: measure it again before the next one.
       setPegCap(undefined);
     } catch (e) {
-      const text = message(e);
-      // A wallet without EIP-5792 refuses the batch: fall back to one transaction per step.
-      if (/wallet_sendCalls|does not support|not supported|method not found|4200/i.test(text)) setAtomic(false);
-      setError(text);
+      // A wallet that refuses the batch is remembered by the terminal; the next round goes one step at a time.
+      setError(message(e));
     }
   }
 
