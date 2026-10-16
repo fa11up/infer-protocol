@@ -199,7 +199,7 @@ export function LoopWindow({
     : held === 0n
       ? "Deposit collateral first: leverage borrows against it."
       : !fresh
-        ? "The vault's prices are out of date, so it will not lend or release collateral. Update the price above, then pick a target."
+        ? "The vault's prices are out of date or disagree (its primary and spot IMD prices more than its skew apart), so it will not lend or release collateral. Update the price above, then pick a target."
         : "";
 
   async function go() {

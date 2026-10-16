@@ -92,8 +92,11 @@ async function borrower(imd) {
 async function freshFeeds() {
   const block = await chain.getBlock();
   const hex = (n) => "0x" + n.toString(16).padStart(64, "0");
+  // The spot is set to the primary's value: the vault lends only while the two agree within its skew.
+  const [primary] = await read(FEEDS.PriceFeed, feedAbi, "latestValue");
   for (const feed of Object.values(FEEDS)) {
-    const [value] = await read(feed, feedAbi, "latestValue");
+    const [own] = await read(feed, feedAbi, "latestValue");
+    const value = feed === FEEDS.SpotFeed ? primary : own;
     await rpc("anvil_setStorageAt", [feed, "0x2", hex(value)]);
     await rpc("anvil_setStorageAt", [feed, "0x3", hex((1n << 64n) + block.timestamp)]);
   }
