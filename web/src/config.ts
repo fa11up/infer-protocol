@@ -225,10 +225,13 @@ export const pointsConfig = {
   lpBps: 30_000,
   liquidationCreditDays: 3,
   startBlock: undefined as number | undefined,
-  /** Preseason ended here (set 2026-10-16): every total is frozen at this block until Season 1 opens. */
-  endBlock: 26206625 as number | undefined,
-  /** When endBlock was mined, for the notice. */
-  endedAt: "16 Oct 2026 17:34 UTC" as string | undefined,
+  /** Points stop accruing at this block (none while preseason runs; set when Season 1 opens). A freeze at
+   * 26206625 (16 Oct 2026 17:34 UTC) was lifted the same day: preseason resumed with no gap. */
+  endBlock: undefined as number | undefined,
+  /** When endBlock was mined, for the pane. */
+  endedAt: undefined as string | undefined,
+  /** Season 1 has not opened: the pane says points so far count towards a capped preseason distribution. */
+  preseason: true,
   /**
    * The imdUSD/USDC peg pool per chain: liquidity in it earns `lpBps` (points/lp.ts reads its ModifyLiquidity
    * transactions from `fromBlock`, the block it was initialised in). A chain without one shows no LP rate.

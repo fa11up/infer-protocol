@@ -250,6 +250,8 @@ export function Points({
   );
   const testnet = r.config.chainId !== 1;
   const closed = pointsConfig.endBlock !== undefined;
+  // Preseason: Season 1 has not opened. Points may still be counting (closed is false) or frozen.
+  const preseason = pointsConfig.preseason || closed;
 
   if (points.error && !data)
     return (
@@ -273,7 +275,7 @@ export function Points({
             fake, so these points do not count. The season runs on mainnet.
           </p>
         )}
-        {closed && (
+        {preseason && (
           <p className="notice notice-warn points-notice" role="note">
             <strong>Season 1 is yet to start.</strong> The points earned so far count towards your preseason total,
             which will be a capped distribution.
@@ -281,13 +283,15 @@ export function Points({
         )}
         <div className="hero-stat">
           <span>
-            {closed ? (account ? "Your preseason points" : "Preseason total") : account ? "Your points" : "Season total"}
+            {preseason ? (account ? "Your preseason points" : "Preseason total") : account ? "Your points" : "Season total"}
             <Info
               label="Points"
               text={
                 closed
                   ? `Preseason points: 1 point for 1 imdUSD held for 1 day, ${pointsConfig.lpBps / 10_000}× for imdUSD provided to the imdUSD/USDC pool, counted until block ${pointsConfig.endBlock!.toLocaleString("en-US")}. Nothing accrues now; Season 1's rules are published when it opens.`
-                  : `1 point = 1 imdUSD held for 1 day. imdUSD you provide to the imdUSD/USDC pool earns ${pointsConfig.lpBps / 10_000}×. The counter runs between blocks at your current holdings and settles each refresh.`
+                  : preseason
+                    ? `Preseason points: 1 point for 1 imdUSD held for 1 day; imdUSD you provide to the imdUSD/USDC pool earns ${pointsConfig.lpBps / 10_000}×. They count towards a capped preseason distribution. The counter runs between blocks at your current holdings and settles each refresh.`
+                    : `1 point = 1 imdUSD held for 1 day. imdUSD you provide to the imdUSD/USDC pool earns ${pointsConfig.lpBps / 10_000}×. The counter runs between blocks at your current holdings and settles each refresh.`
               }
             />
           </span>
@@ -328,7 +332,7 @@ export function Points({
           {`${pointsConfig.liquidationCreditDays} days per imdUSD`}
         </Row>
         <Row
-          label={closed ? "Preseason" : "Counting"}
+          label={preseason ? "Preseason" : "Counting"}
           info={
             closed
               ? `Preseason points counted from imdUSD's deployment to the block shown${pointsConfig.endedAt ? ` (${pointsConfig.endedAt})` : ""} and no longer change. INFER's seasons are opened on chain by governance, each with its own rules committed when it opens and published after it ends.`
