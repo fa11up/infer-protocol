@@ -55,3 +55,27 @@ test("the peg cap stops where the last imdUSD sells under the floor", async () =
   assert.ok(cap > 240n * E18 && cap <= 252n * E18, `${cap}`);
   assert.equal(await pegSellCap(async (x) => (x * 9900n) / 10_000n / 10n ** 12n), 0n);
 });
+
+test("planToTarget: up to a ratio in rounds the vault allows, down to a ratio or to no debt", async () => {
+  const { planToTarget, crForLeverage } = await import("../src/leverage.ts");
+  const E = 10n ** 18n;
+  assert.equal(crForLeverage(2n * E), 200n);
+  assert.equal(crForLeverage((15n * E) / 10n), 300n);
+  assert.equal(crForLeverage(E), undefined);
+  // $1,000 of collateral, no debt, to 200% with a 2% swap cost; floor 180%.
+  const up = planToTarget({ value: 1000n * E, debt: 0n, target: 200n, floorBetween: 180n, costBps: 200n });
+  assert.ok(up.rounds >= 2, `rounds ${up.rounds}`);
+  assert.ok(up.crAfter >= 199n && up.crAfter <= 201n, `cr ${up.crAfter}`);
+  assert.equal(up.debtAfter, up.stable);
+  // Every round respects the floor between halves: the first can borrow at most value/1.8.
+  const one = planToTarget({ value: 1000n * E, debt: 0n, target: 100n * 10n, floorBetween: 180n, costBps: 0n });
+  assert.ok(one.stable <= (1000n * E * 100n) / 180n + E);
+  // Back down from there to 300%, then to no debt.
+  const down = planToTarget({ value: up.valueAfter, debt: up.debtAfter, target: 300n, floorBetween: 180n, costBps: 200n });
+  assert.ok(down.crAfter >= 298n && down.crAfter <= 302n, `cr ${down.crAfter}`);
+  const out = planToTarget({ value: up.valueAfter, debt: up.debtAfter, floorBetween: 180n, costBps: 200n });
+  assert.ok(out.debtAfter < E, `left ${out.debtAfter}`);
+  // A swap that gains (imdUSD under $1 on the way down) needs less collateral.
+  const gain = planToTarget({ value: up.valueAfter, debt: up.debtAfter, floorBetween: 180n, costBps: -500n });
+  assert.ok(gain.value < out.value);
+});

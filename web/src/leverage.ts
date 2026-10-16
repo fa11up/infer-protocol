@@ -344,3 +344,78 @@ export function maxDown(a: { held: bigint; debt: bigint; price: bigint; floorBet
   const need = (a.debt * WAD * 10_000n * 102n) / (a.price * (10_000n - a.costBps) * 100n);
   return byRatio < need ? byRatio : need;
 }
+
+// ---- Planning to a target ---------------------------------------------------------------------------------
+/** A target ratio (whole percent) for a leverage multiple (1e18-scaled): cr = 100·L / (L − 1). Undefined at 1× (no debt). */
+export const crForLeverage = (l: bigint) => (l > WAD ? (100n * l + (l - WAD) - 1n) / (l - WAD) : undefined);
+export type TargetPlan = {
+  /** Rounds it takes, each limited by the ratio the vault checks between its two halves. */
+  rounds: number;
+  /** imdUSD borrowed (up) or repaid (down) over all rounds. */
+  stable: bigint;
+  /** Collateral value moved, USD 1e18: deposited (up) or withdrawn (down). */
+  value: bigint;
+  /** Position value and debt (USD 1e18) once done. */
+  valueAfter: bigint;
+  debtAfter: bigint;
+  crAfter?: bigint;
+};
+const MAX_ROUNDS = 12;
+const DUST = 10n ** 18n;
+/**
+ * Rounds from a position (collateral `value` and `debt`, USD 1e18) to `target` percent, each swap losing `costBps`
+ * (negative: gaining). Up borrows; down withdraws and repays, to no debt when `target` is undefined. Every round keeps
+ * the ratio between its halves at or over `floorBetween`, as the vault requires.
+ */
+export function planToTarget(a: {
+  value: bigint;
+  debt: bigint;
+  target?: bigint;
+  floorBetween: bigint;
+  costBps: bigint;
+  /** Plan at most this many rounds (1: the next round only). */
+  limit?: number;
+}): TargetPlan {
+  let v = a.value;
+  let d = a.debt;
+  let stable = 0n;
+  let moved = 0n;
+  let rounds = 0;
+  const keep = 10_000n - a.costBps; // bps of what is swapped that arrives
+  const t = a.target;
+  const up = t !== undefined && (d === 0n || v * 100n > t * d);
+  for (; rounds < (a.limit ?? MAX_ROUNDS); rounds++) {
+    if (up) {
+      const between = (v * 100n) / a.floorBetween;
+      let x = between > d ? between - d : 0n;
+      const num = 100n * v - t! * d;
+      const den = t! * 10_000n - 100n * keep;
+      const after = num <= 0n ? 0n : den <= 0n ? x : (num * 10_000n) / den;
+      if (after < x) x = after;
+      if (x < DUST) break;
+      d += x;
+      v += (x * keep) / 10_000n;
+      stable += x;
+      moved += (x * keep) / 10_000n;
+    } else {
+      if (d < DUST) break;
+      const free = v * 100n > a.floorBetween * d ? v - (a.floorBetween * d) / 100n : 0n;
+      // To no debt: enough to clear it with 2% to spare. To a ratio t: (v − w)/(d − w·k) = t/100.
+      let w = (d * 10_000n * 102n) / (keep * 100n);
+      if (t !== undefined) {
+        const den = t * keep - 1_000_000n; // t·k − 100·1e4
+        if (den > 0n && t * d > 100n * v) w = ((t * d - 100n * v) * 10_000n) / den;
+        else if (t * d <= 100n * v) w = 0n;
+      }
+      if (w > free) w = free;
+      if (w < DUST / 100n) break;
+      const r0 = (w * keep) / 10_000n;
+      const r = r0 < d ? r0 : d;
+      v -= w;
+      d -= r;
+      stable += r;
+      moved += w;
+    }
+  }
+  return { rounds, stable, value: moved, valueAfter: v, debtAfter: d, crAfter: d > 0n ? (v * 100n) / d : undefined };
+}

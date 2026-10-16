@@ -1,7 +1,8 @@
-// The Leverage window against the LIVE deployment on a local mainnet fork: a browser whose wallet really signs
-// (an impersonated fresh account, every call forwarded to the fork) opens the window, takes the suggested
-// maximum, runs two rounds up and one round down, and the chain is read after each. Then the same window with a
-// wallet that answers EIP-5792 (wallet_getCapabilities / wallet_sendCalls) runs a round as one batch.
+// The Loop leverage window against the LIVE deployment on a local mainnet fork, from a browser whose wallet really
+// signs (an impersonated fresh account, every call forwarded to the fork): with imdUSD under $0.9975 the window
+// demands the loss be accepted; with the peg restored it takes a position to 2× in rounds from one button and the
+// vault's ratio is checked against the plan; then it unwinds to no debt; then the same with a wallet that answers
+// EIP-5792, one batch per round.
 //
 //   anvil --fork-url <mainnet rpc> --port 8549
 //   node scripts/mainnet-deployment.mjs --record <release>/deploy/mainnet/out/deployment.json --commit b2c7afe --rpc http://127.0.0.1:8549
@@ -235,115 +236,106 @@ async function open(account, { batch = false } = {}) {
   await page.getByRole("button", { name: "Refresh state", exact: true }).waitFor();
   await page.getByRole("tab", { name: "Position", exact: true }).click();
   await page.locator('button[aria-label="Disconnected: connect a wallet"]:visible').first().click();
-  await page.getByRole("button", { name: "Loop leverage ↗" }).waitFor();
+  await page.getByRole("button", { name: "Loop leverage ↗" }).waitFor({ timeout: 90_000 });
   return { page, context };
 }
 
-/** Open the window in a direction, take the maximum, run one round, wait for "Round done". */
-async function round(page, direction, shot) {
-  if (!(await page.locator("dialog.loop-dialog[open]").count()))
-    await page.getByRole("button", { name: "Loop leverage ↗" }).click();
+
+/** Pick a target, accept a depeg if asked, press the one button, wait for "Done". Returns the plan's text. */
+async function target(page, label, shot) {
+  if (!(await page.locator("dialog.loop-dialog[open]").count())) await page.getByRole("button", { name: "Loop leverage ↗" }).click();
   const dialog = page.locator("dialog.loop-dialog[open]");
   await dialog.waitFor();
-  await dialog.getByRole("button", { name: direction, exact: true }).click();
-  const max = dialog.locator("button.balance-use");
-  await until("a maximum", async () => (await max.isEnabled()) && /Max [1-9]|Max 0\.[0-9]*[1-9]/.test(await max.textContent()), 240_000).catch(
-    async (e) => {
-      if (SHOTS) await page.screenshot({ path: `${SHOTS}/${shot}-no-max.png` });
-      throw Error(`${e.message}\nwindow: ${await dialog.innerText().catch(() => "")}`);
-    },
-  );
-  await max.click();
-  const start = dialog.getByRole("button", { name: /Start round|Start deleverage|Confirm round in wallet/ });
-  await until("the round quoted", () => start.isEnabled());
-  if (SHOTS) await page.screenshot({ path: `${SHOTS}/${shot}.png` });
+  await dialog.getByRole("button", { name: label, exact: true }).click();
+  const go = dialog.locator("button.primary");
+  await until("a plan", async () => {
+    const note = await dialog.locator('[role="status"].action-note').innerText();
+    if (note && !/Planning|State is outdated|Waiting for verified/.test(note)) throw fatal(note);
+    return (await dialog.locator(".loop-plan").count()) > 0;
+  }, 120_000);
   const plan = await dialog.locator(".loop-plan").innerText();
-  await start.click();
+  const accept = dialog.locator(".loop-check input");
+  if (await accept.count()) await accept.check();
+  if (SHOTS) await page.screenshot({ path: `${SHOTS}/${shot}.png` });
+  await go.click();
+  let seen = "";
   await until(
-    "the round done",
+    "the run done",
     async () => {
       const note = await dialog.locator('[role="status"].action-note').innerText();
-      if (/reverted|stopped|denied|failed|did not go through/i.test(note)) throw fatal(note);
-      return /Round done/.test(note);
+      const progress = await dialog.locator("p.micro").allInnerTexts();
+      const line = `${note} || ${progress.filter((t) => /Round/.test(t)).join(" ")}`;
+      if (process.env.TRACE && line !== seen) console.log("  window:", (seen = line));
+      // While a run goes the status line is empty (progress has its own line): anything else but "Done" is a failure.
+      // The terminal waiting for a fresh read ("State is outdated…") is a pause, not a failure: the run waits it out.
+      if (note.trim() && !/^Done/.test(note) && !/State is outdated|Waiting for verified/.test(note)) throw fatal(note);
+      return /^Done after/.test(note) && note;
     },
-    180_000,
+    400_000,
   ).catch(async (e) => {
     if (SHOTS) await page.screenshot({ path: `${SHOTS}/${shot}-stuck.png` });
-    const note = await dialog.locator('[role="status"].action-note').innerText().catch(() => "");
-    const footer = await page.locator("footer").innerText().catch(() => "");
-    throw Error(`${e.message}\nwindow: ${note}\nfooter: ${footer}`);
+    throw Error(`${e.message}\nwindow: ${await dialog.innerText().catch(() => "")}\nfooter: ${await page.locator("footer").innerText().catch(() => "")}`);
   });
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/${shot}-done.png` });
+  await dialog.getByRole("button", { name: "Close", exact: true }).click();
   return plan;
 }
-const planned = (plan, label) => Number(new RegExp(`${label}\\s+([0-9.]+)%`).exec(plan)?.[1]);
+const planned = (plan) => Number(/After\s+[0-9.]+×\s+·\s+(\d+)%/.exec(plan)?.[1]);
 
-// Every run starts from the fork as it was and leaves it that way: a round moves the peg pool.
 const snapshot = await rpc("evm_snapshot");
 try {
-  // ---- Stale prices, as mainnet often is between purchases: the window says what to do instead of failing --
+  await freshFeeds();
+  if (process.env.ONLY !== "batch") {
   const a = await borrower(100n * E18);
-  const before = await position(a);
   const { page } = await open(a);
-  if (await read(FEEDS.PriceFeed, parseAbi(["function isStale() view returns (bool)"]), "isStale")) {
+  // ---- imdUSD under $0.9975: the loss must be accepted before anything is sent ----------------------------
+  const [sqrt] = await read("0x7fFE42C4a5DEeA5b0feC41C94C136Cf115597227", parseAbi(["function getSlot0(bytes32) view returns (uint160,int24,uint24,uint24)"]), "getSlot0", ["0x3cb8cc9c22f7da5c3169d4059131ddba9e61f68230977797c03a2f1214992035"]);
+  const pegNow = (Number(sqrt) / 2 ** 96) ** 2 * 1e12;
+  if (pegNow < 0.9975) {
     await page.getByRole("button", { name: "Loop leverage ↗" }).click();
     const dialog = page.locator("dialog.loop-dialog[open]");
-    await until("the stale-price refusal", async () => /Update price/.test(await dialog.locator('[role="status"].action-note').innerText()));
-    passed("with stale prices the window points to Update price");
+    await dialog.getByRole("button", { name: "1.5×", exact: true }).click();
+    await dialog.locator(".loop-check input").waitFor({ timeout: 120_000 });
+    assert.ok(await dialog.locator("button.primary").isDisabled(), "the button waits for the acceptance");
+    assert.match(await dialog.locator(".loop-check").innerText(), /trades at \$0\.\d{4} on the pool/);
+    await dialog.locator(".loop-check input").check();
+    assert.ok(await dialog.locator("button.primary").isEnabled());
+    if (SHOTS) await page.screenshot({ path: `${SHOTS}/0-depeg.png` });
+    passed(`with imdUSD at $${pegNow.toFixed(4)} the window shows the loss and waits for it to be accepted`);
+    // Buyers restore the peg (about 33k USDC today).
+    await arbitrage(34_000n * 10n ** 6n);
+    await freshFeeds();
+    await dialog.getByRole("button", { name: "Close", exact: true }).click();
+    await page.getByRole("button", { name: "Refresh state", exact: true }).click();
   }
-  await freshFeeds();
-  // ---- One by one ------------------------------------------------------------------------------------------
-  let plan = await round(page, "Leverage up", "1-up");
+
+  // ---- To 2× and back, one button each -------------------------------------------------------------------
+  let plan = await target(page, "2×", "1-up");
   let after = await position(a);
-  assert.ok(after.debt > 0n && after.collateral > before.collateral, "round up borrowed and deposited");
-  assert.equal(after.imdusd, 0n, "the whole borrow was swapped");
-  assert.ok(Math.abs(Number(after.cr) - planned(plan, "Ratio after round")) <= 2, `CR ${after.cr} vs plan\n${plan}`);
-  passed(`round up: debt ${Number(after.debt) / 1e18} imdUSD, CR ${after.cr}% (planned ${planned(plan, "Ratio after round")}%)`);
+  assert.ok(after.debt > 0n, "borrowed");
+  assert.ok(Math.abs(Number(after.cr) - planned(plan)) <= 3, `CR ${after.cr} vs plan ${planned(plan)}\n${plan}`);
+  passed(`to 2×: debt ${(Number(after.debt) / 1e18).toFixed(2)} imdUSD, CR ${after.cr}% (planned ${planned(plan)}%)`);
 
-  // The round left the peg pool at the band's edge: the window must say so rather than sell into it.
-  {
-    const dialog = page.locator("dialog.loop-dialog[open]");
-    await dialog.locator("input[name=loop-amount]").fill("50");
-    let note = "";
-    await until("the peg refusal", async () => /\$0\.9975/.test((note = await dialog.locator('[role="status"].action-note').innerText())), 180_000).catch(
-      async (e) => {
-        if (SHOTS) await page.screenshot({ path: `${SHOTS}/peg-refusal-stuck.png` });
-        throw Error(`${e.message}\nwindow: ${note}`);
-      },
-    );
-    assert.ok(await dialog.getByRole("button", { name: /Start round|Confirm round/ }).isDisabled());
-    await dialog.locator("input[name=loop-amount]").fill("");
-    passed("with the peg at the band's edge the window refuses another sale");
+  await freshFeeds();
+  await page.getByRole("button", { name: "Refresh state", exact: true }).click();
+  plan = await target(page, "Unwind", "2-unwind");
+  after = await position(a);
+  assert.ok(after.debt < E18, `debt left ${after.debt}`);
+  passed(`unwound: debt left ${(Number(after.debt) / 1e18).toFixed(4)} imdUSD`);
+
   }
-  // Arbitrage brings it back, as it would on mainnet (imdUSD under $1 is cheap to buy and repay or redeem with).
-  await arbitrage(250n * 10n ** 6n);
-  await freshFeeds();
-  const mid = after;
-  plan = await round(page, "Leverage up", "2-up-again");
-  after = await position(a);
-  assert.ok(after.debt > mid.debt && after.cr < mid.cr, "a second round adds leverage");
-  assert.ok(after.cr >= 180n, "never under minCR + buffer");
-  passed(`second round: debt ${Number(after.debt) / 1e18}, CR ${after.cr}%`);
-
-  await freshFeeds();
-  const high = after;
-  plan = await round(page, "Deleverage", "3-down");
-  after = await position(a);
-  assert.ok(after.debt < high.debt && after.collateral < high.collateral, "round down withdrew and repaid");
-  passed(`round down: debt ${Number(high.debt) / 1e18} -> ${Number(after.debt) / 1e18}, CR ${after.cr}%`);
-
-  // ---- One signature ---------------------------------------------------------------------------------------
+  let plan, after;
+  // ---- One signature per round ---------------------------------------------------------------------------
   await freshFeeds();
   const b = await borrower(100n * E18);
   const { page: batchPage } = await open(b, { batch: true });
-  await batchPage.getByRole("button", { name: "Loop leverage ↗" }).click();
-  await batchPage.locator("dialog.loop-dialog[open] .loop-check input").waitFor();
-  plan = await round(batchPage, "Leverage up", "4-batch-up");
+  plan = await target(batchPage, "1.5×", "3-batch");
+  const rounds = Number(/Rounds\s+(\d+)/.exec(plan)?.[1]);
   const batches = await batchPage.evaluate(() => window.__batches);
   after = await position(b);
-  assert.equal(batches, 1, "one wallet_sendCalls for the round");
-  assert.ok(after.debt > 0n && after.imdusd === 0n, "batched round borrowed, swapped and deposited");
-  passed(`batched round: one signature, debt ${Number(after.debt) / 1e18}, CR ${after.cr}%`);
+  assert.equal(batches, rounds, `one wallet_sendCalls per round (${rounds} planned)`);
+  assert.ok(Math.abs(Number(after.cr) - planned(plan)) <= 3, `CR ${after.cr} vs plan ${planned(plan)}`);
+  passed(`batched: ${batches} round(s), one signature each, CR ${after.cr}%`);
 
   assert.deepEqual(errors, [], `page errors: ${errors.join("; ")}`);
   console.log(`\n${results.length} passed`);
