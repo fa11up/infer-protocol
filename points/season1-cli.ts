@@ -10,7 +10,7 @@ import { writeFileSync } from "node:fs";
 import { computeSeason1, type S1Event } from "./season1.ts";
 import { display, shareBps } from "./engine.ts";
 import { decodeLog, fetchLogs, fetchFilteredLogs } from "./logs.ts";
-import { poolEvents, nftOwnerEvents, debtEvents, isWalletCode, S1_TOPICS, type RawLog } from "./pool.ts";
+import { poolEvents, nftOwnerEvents, debtEvents, isWalletCode, isSafeProxy, S1_TOPICS, type RawLog } from "./pool.ts";
 import { archiveLogs as archive } from "./archive.ts";
 import { CHAINS, PEG_POOLS } from "./chains.ts";
 
@@ -46,11 +46,15 @@ async function rpcCall(method: string, params: unknown[]): Promise<any> {
   }
 }
 
-const through = Number(BigInt(await rpcCall("eth_blockNumber", [])));
+const head = Number(BigInt(await rpcCall("eth_blockNumber", [])));
 
 const archiveLogs = (address: string, topics: (string | null)[], from: number, to: number) => archive(rpcCall, address, topics, from, to);
 const startBlock = Number(opt("start"));
-const endBlock = Number(opt("end", String(through)));
+const endBlock = Number(opt("end", String(head)));
+// THE DATA HORIZON IS THE END BLOCK once it has passed (rules/season-1.md: contracts are classified by code at the
+// end block; liquidity still pending at the end block does not count). Reading past it would make the result
+// depend on when it is run, and a panel's agents run at different times. Mid-season it is the chain head.
+const through = Math.min(head, endBlock);
 
 // Token transfers + liquidations (as in the preseason), and vault debt (rule 5).
 type V2Item = { topics: (string | null)[]; data: string; block_number: number | string; index: number | string; transaction_hash?: string };
@@ -126,7 +130,8 @@ for (const id of pool.tokenIds) {
   events.push(...nftOwnerEvents(t));
 }
 
-// Rule 1: classify every address that could earn by its code at `through`.
+// Rule 1: classify every address that could earn by its code at `through` (the end block once the season is over).
+// Wallets: EOAs, EIP-7702 accounts and Safe accounts (a Safe proxy whose singleton is a known Safe singleton).
 const candidates = new Set<string>();
 for (const e of events) {
   if (e.kind === "transfer") candidates.add(e.from.toLowerCase()), candidates.add(e.to.toLowerCase());
@@ -139,7 +144,9 @@ const contracts: string[] = [];
 const blockTag = "0x" + through.toString(16);
 for (const a of candidates) {
   const code = (await rpcCall("eth_getCode", [a, blockTag])) as string;
-  if (!isWalletCode(code) && !allow.has(a)) contracts.push(a);
+  if (isWalletCode(code) || allow.has(a)) continue;
+  const slot0 = (await rpcCall("eth_getStorageAt", [a, "0x0", blockTag])) as string;
+  if (!isSafeProxy(code, slot0)) contracts.push(a);
 }
 
 const season = {

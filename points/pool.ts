@@ -87,6 +87,30 @@ export function debtEvents(logs: RawLog[]): S1Event[] {
   return out;
 }
 
+/**
+ * Safe (Gnosis Safe) singletons on Ethereum mainnet, each checked on chain by its VERSION() on 2026-10-16:
+ * 1.1.1, 1.2.0, 1.3.0 (+ L2, + eip155 and eip155 L2), 1.4.1 (+ L2), 1.5.0 (+ L2).
+ */
+export const SAFE_SINGLETONS = new Set([
+  "0x34cfac646f301356faa8b21e94227e3583fe3f5f", // 1.1.1
+  "0x6851d6fdfafd08c0295c392436245e5bc78b0185", // 1.2.0
+  "0xd9db270c1b5e3bd161e8c8503c55ceabee709552", // 1.3.0
+  "0x3e5c63644e683549055b9be8653de26e0b4cd36e", // 1.3.0 L2
+  "0x69f4d1788e39c87893c980c06edf4b7f686e2938", // 1.3.0 (eip155)
+  "0xfb1bffc9d739b8d520daf37df666da4c687191ea", // 1.3.0 L2 (eip155)
+  "0x41675c099f32341bf84bfc5382af534df5c7461a", // 1.4.1
+  "0x29fcb43b46531bca003ddc8fcb67ffe91900c762", // 1.4.1 L2
+  "0xff51a5898e281db6dfc7855790607438df2ca44b", // 1.5.0
+  "0xedd160febbd92e350d4d398fb636302fccd67c7e", // 1.5.0 L2
+]);
+
+/** A Safe account: a proxy (at most 300 bytes of code) whose storage slot 0, its singleton, is a known Safe singleton. */
+export function isSafeProxy(code: string, slot0: string): boolean {
+  const bytes = (code.length - 2) / 2;
+  if (bytes <= 0 || bytes > 300) return false;
+  return SAFE_SINGLETONS.has(("0x" + slot0.slice(-40)).toLowerCase());
+}
+
 /** Code at a block -> earns as a wallet? Empty code (EOA) or an EIP-7702 delegation (0xef0100 + address). */
 export function isWalletCode(code: string): boolean {
   const c = code.toLowerCase();

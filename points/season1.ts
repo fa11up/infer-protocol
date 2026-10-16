@@ -5,7 +5,7 @@
 // $0.899, then ~48k BORROWED imdUSD was parked in a range above the price. Under "imdUSD deposited x 3" that one
 // position would have taken ~77% of all points while making the peg worse. The rules below (user, 2026-10-16):
 //
-// 1. HOLDING (1x) counts only for wallets: EOAs and EIP-7702 accounts, plus any explicitly allowed contract.
+// 1. HOLDING (1x) counts only for wallets: EOAs, EIP-7702 accounts and Safe accounts (pool.ts isSafeProxy).
 //    Pools, vaults, other hooks and every other contract earn nothing (the CLI classifies by code at a pinned
 //    block and passes them in `excluded`). imdUSD in any pool other than ours earns nothing.
 // 2. LIQUIDITY counts only in OUR hook pool, and only as DEPTH AT THE PEG: a position earns on the token1 value

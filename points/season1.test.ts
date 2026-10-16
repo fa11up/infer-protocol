@@ -3,6 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { computeSeason1, type S1Event, type S1Season } from "./season1.ts";
 import { sqrtPriceAtTick, amount1Between } from "./tickmath.ts";
+import { isSafeProxy, isWalletCode } from "./pool.ts";
 import { display, WAD } from "./engine.ts";
 
 const ZERO = "0x0000000000000000000000000000000000000000";
@@ -153,4 +154,18 @@ test("a position owned by an excluded contract earns nothing", () => {
 
 test("a missing liquidity log is refused", () => {
   assert.throws(() => computeSeason1([liq("p", LO, HI, -L, 0)], season(DAY)), /missing/);
+});
+
+// The governance Safe's runtime code (1.5.0 proxy, read from mainnet 2026-10-16) and its slot 0.
+const SAFE_PROXY = "0x608060405260005463a619486e60003560e01c14156024578060601b606c5260206060f35b3660008037600080366000845af43d6000803e806040573d6000fd5b3d6000f3fea2646970667358221220e61834ebd2d8cd909d362bf67c47ef58fd665df38e6dd036ce65611101d072e964736f6c63430007060033";
+const SAFE_150 = "0x000000000000000000000000ff51a5898e281db6dfc7855790607438df2ca44b";
+
+test("rule 1: a Safe account earns as a wallet; a contract pointing elsewhere does not", () => {
+  assert.equal(isSafeProxy(SAFE_PROXY, SAFE_150), true);
+  assert.equal(isSafeProxy(SAFE_PROXY, "0x" + "00".repeat(12) + "11".repeat(20)), false, "unknown singleton");
+  assert.equal(isSafeProxy("0x" + "60".repeat(400), SAFE_150), false, "too big to be a proxy");
+  assert.equal(isSafeProxy("0x", SAFE_150), false, "an EOA is not a Safe (and needs no exception)");
+  assert.equal(isWalletCode("0x"), true);
+  assert.equal(isWalletCode("0xef0100" + "ab".repeat(20)), true);
+  assert.equal(isWalletCode(SAFE_PROXY), false);
 });
