@@ -36,8 +36,8 @@ position's value at each block, so it needs only logs.
 
 ## Season 1 rules (`season1.ts`)
 
-The preseason closed at block 26,206,625 and its engine (`engine.ts`) is unchanged, so its frozen totals
-reproduce. Season 1 uses `season1.ts`, written after 2026-10-16, when the pool was pushed to $0.899 and ~48k
+The preseason runs from imdUSD's deployment until Season 1's start block, under `engine.ts`, which is unchanged so
+preseason totals reproduce at any block (a freeze at 26,206,625 on 2026-10-16 was lifted the same day). Season 1 uses `season1.ts`, written after 2026-10-16, when the pool was pushed to $0.899 and ~48k
 borrowed imdUSD was parked in a range above the price (under "imdUSD deposited x 3" that one position would
 have earned ~77% of all points while weakening the peg):
 
