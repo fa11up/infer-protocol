@@ -10,7 +10,9 @@ import {
 } from "../../points/engine.ts";
 import { lpEvents, type TxTransfer } from "../../points/lp.ts";
 import { computePreseason } from "../../points/preseason.ts";
-import { poolEvents, nftOwnerEvents, S1_TOPICS, type RawLog } from "../../points/pool.ts";
+import { poolEvents, nftOwnerEvents, isWalletCode, isSafeProxy, S1_TOPICS, type RawLog } from "../../points/pool.ts";
+import { computeSeason1, type S1Event } from "../../points/season1.ts";
+import { readSeason, firstBlockAtOrAfter, infer, type SeasonInfo } from "./season";
 import { history } from "./history";
 import { ours } from "./names";
 import { historyConfig, pointsConfig, type Runtime } from "./config";
@@ -125,10 +127,41 @@ async function pegPoolLogs(r: Runtime, head: number): Promise<{ pool: RawLog[]; 
 }
 
 /** Reads imdUSD transfers and vault liquidations, then runs the shared engine at the snapshot block. */
+/** Season 1's wallet rule (rules section 2.1): EOAs, EIP-7702 accounts and Safe accounts earn; other contracts do
+ * not. Classified by code at the head, as the reference scorer does through the head mid-season; remembered for the
+ * session (code rarely changes, and a wrong guess only moves this view, never the payout). */
+const walletCache = new WeakMap<Runtime, Map<string, boolean>>();
+async function contractsAmong(r: Runtime, addresses: Set<string>, head: bigint): Promise<string[]> {
+  let cache = walletCache.get(r);
+  if (!cache) walletCache.set(r, (cache = new Map()));
+  const out: string[] = [];
+  const todo = [...addresses].filter((a) => !cache!.has(a));
+  for (let i = 0; i < todo.length; i += 8)
+    await Promise.all(
+      todo.slice(i, i + 8).map(async (a) => {
+        const code = (await r.client.getCode({ address: a as `0x${string}`, blockNumber: head })) ?? "0x";
+        let wallet = isWalletCode(code);
+        if (!wallet) {
+          const slot0 = await r.client.getStorageAt({ address: a as `0x${string}`, slot: "0x0", blockNumber: head });
+          wallet = isSafeProxy(code, slot0 ?? "0x");
+        }
+        cache!.set(a, wallet);
+      }),
+    );
+  for (const a of addresses) if (cache.get(a) === false) out.push(a);
+  return out;
+}
+
+export type PointsData = PointsResult & {
+  season?: SeasonInfo;
+  /** Season 1's board, once it is live (points/season1.ts over the season's blocks). */
+  s1?: ReturnType<typeof computeSeason1>;
+};
+
 export async function loadPoints(
   r: Runtime,
   s: Snapshot,
-): Promise<PointsResult> {
+): Promise<PointsData> {
   const token = s.targets.stablecoin;
   const vault = s.targets.ParameterizedVault;
   const [tokenHistory, vaultHistory] = await Promise.all([
@@ -178,13 +211,13 @@ export async function loadPoints(
     });
   }
   const head = Number(s.block);
-  const endBlock =
-    pointsConfig.endBlock === undefined
-      ? head
-      : Math.min(pointsConfig.endBlock, head);
+  // The preseason ends at the block openSeason executed in (rules section 3): pinned in config, else read.
+  const info = await readSeason(r, s.block, Number(s.timestamp)).catch(() => undefined);
+  const preseasonEnd = pointsConfig.endBlock ?? (info && info.phase !== "preseason" ? info.openedBlock : undefined);
+  const endBlock = preseasonEnd === undefined ? head : Math.min(preseasonEnd, head);
   const season = {
     // Past the end nothing accrues: totals stay as they were at endBlock and every rate reads zero.
-    closed: pointsConfig.endBlock !== undefined && head >= pointsConfig.endBlock,
+    closed: preseasonEnd !== undefined && head >= preseasonEnd,
     // The first imdUSD transfer (the CLI's default too), not the history's read floor, which can sit earlier.
     startBlock: pointsConfig.startBlock ?? (tokenHistory.logs.length ? Number(tokenHistory.logs[0]!.blockNumber) : Number(tokenHistory.from)),
     endBlock,
@@ -200,24 +233,54 @@ export async function loadPoints(
   };
   // From lpSwitchBlock, liquidity earns by Season 1's reader (points/preseason.ts); holding is unchanged.
   const pegPool = pointsConfig.pegPools[r.config.chainId];
+  let pre: PointsResult = computePoints(events, season);
+  let poolLog: S1Event[] | undefined;
   if (pointsConfig.lpSwitchBlock !== undefined && pegPool?.positionManager && pegPool.bandLower !== undefined) {
     const logs = await pegPoolLogs(r, head);
     if (logs) {
       const pool = poolEvents(logs.pool, pegPool.positionManager);
-      return computePreseason(events, season, {
+      poolLog = [...pool.events, ...nftOwnerEvents(logs.nft)];
+      pre = computePreseason(events, season, {
         switchBlock: pointsConfig.lpSwitchBlock,
-        poolEvents: [...pool.events, ...nftOwnerEvents(logs.nft)],
+        poolEvents: poolLog,
         bandLower: pegPool.bandLower,
         bandUpper: pegPool.bandUpper!,
         token1Scale: pegPool.token1Scale ?? 10n ** 12n,
       });
     }
   }
-  return computePoints(events, season);
+  if (!info || (info.phase !== "live" && info.phase !== "ended") || !poolLog || !pegPool?.bandLower) return { ...pre, season: info };
+
+  // Season 1 (rules section 2): the same transfers and liquidations, the peg pool, wallets only.
+  const startBlock = Number(await firstBlockAtOrAfter(r, info.start!, s.block));
+  const s1End = info.phase === "ended" ? Number(await firstBlockAtOrAfter(r, info.end!, s.block)) - 1 : head;
+  const s1Events: S1Event[] = [...(events.filter((e) => e.kind === "transfer" || e.kind === "bite") as S1Event[]), ...poolLog];
+  const candidates = new Set<string>();
+  for (const e of s1Events) {
+    if (e.kind === "transfer") candidates.add(e.from.toLowerCase()), candidates.add(e.to.toLowerCase());
+    if (e.kind === "owner") candidates.add(e.owner.toLowerCase());
+    if (e.kind === "bite") candidates.add(e.liquidator.toLowerCase());
+  }
+  candidates.delete("0x0000000000000000000000000000000000000000");
+  const contracts = await contractsAmong(r, candidates, s.block);
+  const s1 = computeSeason1(s1Events, {
+    startBlock,
+    endBlock: s1End,
+    blocksPerDay: pointsConfig.blocksPerDay,
+    bandLower: pegPool.bandLower,
+    bandUpper: pegPool.bandUpper!,
+    token1Scale: pegPool.token1Scale ?? 10n ** 12n,
+    lpBps: pointsConfig.lpBps,
+    liquidationCreditDays: pointsConfig.liquidationCreditDays,
+    dataThroughBlock: head,
+    excluded: [vault.address, pointsConfig.poolManagers[r.config.chainId] ?? "", ...contracts].filter(Boolean),
+    closed: info.phase === "ended",
+  });
+  return { ...pre, season: info, s1 };
 }
 
 type Loaded = {
-  data?: PointsResult;
+  data?: PointsData;
   error?: string;
   loading: boolean;
   at?: number;
@@ -285,6 +348,18 @@ const perDay = (perBlock: bigint) =>
     pointsConfig.blocksPerDay,
   );
 
+/** INFER wei as whole INFER, grouped. */
+const fmtInfer = (wei: bigint) => (wei / 10n ** 18n).toLocaleString("en-US");
+const utcDay = (t: number) =>
+  new Date(t * 1000).toLocaleString("en-GB", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "UTC" }) + " UTC";
+const until = (t: number, now: number) => {
+  const s = Math.max(0, t - now);
+  const d = Math.floor(s / 86400), h = Math.floor((s % 86400) / 3600), m = Math.floor((s % 3600) / 60);
+  return d ? `${d}d ${h}h` : h ? `${h}h ${m}m` : `${m}m`;
+};
+
+type BoardRow = { owner: string; points: bigint; ratePerBlock: bigint; held: bigint; lpPending?: bigint };
+
 export function Points({
   r,
   account,
@@ -295,28 +370,28 @@ export function Points({
   points: ReturnType<typeof usePoints>;
 }) {
   const data = points.data;
-  const mine = account
-    ? data?.accounts.find((a) => a.owner === account.toLowerCase())
-    : undefined;
-  const rank = mine && data ? data.accounts.indexOf(mine) + 1 : undefined;
-  const top = data?.accounts.slice(0, 10) ?? [];
+  const info = data?.season;
+  const phase = info?.phase ?? "preseason";
+  const s1 = phase === "live" || phase === "ended" ? data?.s1 : undefined;
+  // The board shown: Season 1's once it is live, the preseason's until then.
+  const board: { accounts: BoardRow[]; total: bigint; totalRatePerBlock: bigint } | undefined = s1 ?? data;
+  const me = account?.toLowerCase();
+  const mine = me ? board?.accounts.find((a) => a.owner === me) : undefined;
+  const minePre = me ? data?.accounts.find((a) => a.owner === me) : undefined;
+  const rank = mine && board ? board.accounts.indexOf(mine) + 1 : undefined;
+  const top = board?.accounts.slice(0, 10) ?? [];
   useEns(top.map((a) => a.owner));
-  const liveMine = useLive(
-    mine?.points ?? 0n,
-    mine?.ratePerBlock ?? 0n,
-    points.at,
-    account?.toLowerCase() ?? "",
-  );
-  const liveTotal = useLive(
-    data?.total ?? 0n,
-    data?.totalRatePerBlock ?? 0n,
-    points.at,
-    "total",
-  );
+  const liveMine = useLive(mine?.points ?? 0n, mine?.ratePerBlock ?? 0n, points.at, `${phase}:${me ?? ""}`);
+  const liveTotal = useLive(board?.total ?? 0n, board?.totalRatePerBlock ?? 0n, points.at, `${phase}:total`);
   const testnet = r.config.chainId !== 1;
-  const closed = pointsConfig.endBlock !== undefined;
-  // Preseason: Season 1 has not opened. Points may still be counting (closed is false) or frozen.
-  const preseason = pointsConfig.preseason || closed;
+  // The preseason has stopped: pinned in config, or opened on chain with its block known.
+  const preEnd = pointsConfig.endBlock ?? (phase !== "preseason" ? info?.openedBlock : undefined);
+  const preClosed = preEnd !== undefined;
+  const preseason = phase === "preseason" || phase === "scheduled";
+  const counting = s1 ? phase === "live" : !preClosed;
+  const now = Math.floor(Date.now() / 1000);
+  const pot = info?.pot;
+  const preShare = pointsConfig.preseasonShareBps;
 
   if (points.error && !data)
     return (
@@ -331,6 +406,13 @@ export function Points({
       </div>
     );
 
+  const estimate = (pts: bigint | undefined, total: bigint | undefined, share: number) =>
+    pot !== undefined && pts !== undefined && total ? infer(pts, total, pot, share) : undefined;
+  const mineEst =
+    s1 && pot !== undefined
+      ? (estimate(mine?.points, s1.total, 10_000 - preShare) ?? 0n) + (estimate(minePre?.points, data?.total, preShare) ?? 0n)
+      : undefined;
+
   return (
     <>
       <div className="desk-col">
@@ -340,43 +422,66 @@ export function Points({
             fake, so these points do not count. The season runs on mainnet.
           </p>
         )}
-        {preseason && (
+        {phase === "preseason" && (
           <p className="notice notice-warn points-notice" role="note">
             <strong>Season 1 is yet to start.</strong> The points earned so far count towards your preseason total,
             which will be a capped distribution. LP positions now earn only while the price is $0.99–$1.01 (future
             points only; past points unchanged).
           </p>
         )}
+        {phase === "scheduled" && (
+          <p className="notice notice-warn points-notice" role="note">
+            <strong>Season 1 starts {utcDay(info!.start!)}</strong> (in {until(info!.start!, now)}). The preseason
+            {preClosed ? ` closed at block ${preEnd!.toLocaleString("en-US")}` : " is closing"}: its wallets share{" "}
+            {preShare / 100}% of the Season 1 pot. Nothing accrues until the start.
+          </p>
+        )}
+        {phase === "live" && (
+          <p className="notice points-notice" role="note">
+            <strong>Season 1 is live</strong> until {utcDay(info!.end!)}. Holding earns 1 point a day; liquidity earns{" "}
+            {pointsConfig.lpBps / 10_000}× only between $0.99 and $1.01, while the price is there.
+          </p>
+        )}
+        {phase === "ended" && (
+          <p className="notice points-notice" role="note">
+            <strong>Season 1 has ended.</strong> The payout is computed from its published rules and claimed from the
+            SeasonVault.
+          </p>
+        )}
         <div className="hero-stat">
           <span>
-            {preseason ? (account ? "Your preseason points" : "Preseason total") : account ? "Your points" : "Season total"}
+            {s1
+              ? account ? "Your Season 1 points" : "Season 1 total"
+              : preseason
+                ? `${account ? "Your preseason points" : "Preseason total"}${preClosed ? " (final)" : ""}`
+                : account ? "Your points" : "Season total"}
             <Info
               label="Points"
               text={
-                closed
-                  ? `Preseason points: 1 point for 1 imdUSD held for 1 day, ${pointsConfig.lpBps / 10_000}× for imdUSD provided to the imdUSD/USDC pool, counted until block ${pointsConfig.endBlock!.toLocaleString("en-US")}. Nothing accrues now; Season 1's rules are published when it opens.`
-                  : preseason
-                    ? `Preseason points: 1 point for 1 imdUSD held for 1 day; imdUSD you provide to the imdUSD/USDC pool earns ${pointsConfig.lpBps / 10_000}×. They count towards a capped preseason distribution. The counter runs between blocks at your current holdings and settles each refresh.`
-                    : `1 point = 1 imdUSD held for 1 day. imdUSD you provide to the imdUSD/USDC pool earns ${pointsConfig.lpBps / 10_000}×. The counter runs between blocks at your current holdings and settles each refresh.`
+                s1
+                  ? `Season 1: 1 point per imdUSD held per day in a wallet (EOA, EIP-7702 or Safe); ${pointsConfig.lpBps / 10_000}× on a peg-pool position's depth between $0.99 and $1.01 while the price is there, after a one-day hold; 3 days per imdUSD of debt repaid as a liquidator. Computed here with the reference code (points/season1.ts); the payout comes from the published rules.`
+                  : preClosed
+                    ? `Preseason points, counted from imdUSD's deployment to block ${preEnd!.toLocaleString("en-US")}, where governance opened Season 1. They no longer change; preseason wallets share ${preShare / 100}% of the Season 1 pot.`
+                    : `Preseason points: 1 point for 1 imdUSD held for 1 day; imdUSD you provide to the imdUSD/USDC pool earns ${pointsConfig.lpBps / 10_000}×. They count towards a capped preseason distribution. The counter runs between blocks at your current holdings and settles each refresh.`
               }
             />
           </span>
           <strong aria-live="off">
-            {points.loading && !data
-              ? "Reading…"
-              : fmtPoints(account ? liveMine : liveTotal)}
+            {points.loading && !data ? "Reading…" : fmtPoints(account ? liveMine : liveTotal)}
           </strong>
           <small>
             {account
               ? mine
-                ? `${closed ? "" : `+${perDay(mine.ratePerBlock)}/day · `}${(shareBps(mine.points, data!.total) / 100).toFixed(2)}% · #${rank} of ${data!.accounts.length}`
-                : closed
-                  ? "No preseason points for this wallet"
-                  : "Hold imdUSD or provide it to the imdUSD/USDC pool to start earning"
-              : data
-                ? closed
-                  ? `${data.accounts.length} wallets`
-                  : `${data.accounts.length} earning · +${perDay(data.totalRatePerBlock)}/day`
+                ? `${counting ? `+${perDay(mine.ratePerBlock)}/day · ` : ""}${(shareBps(mine.points, board!.total) / 100).toFixed(2)}% · #${rank} of ${board!.accounts.length}`
+                : s1
+                  ? "Hold imdUSD in a wallet or provide liquidity at the peg to earn"
+                  : preClosed
+                    ? "No preseason points for this wallet"
+                    : "Hold imdUSD or provide it to the imdUSD/USDC pool to start earning"
+              : board
+                ? counting
+                  ? `${board.accounts.length} earning · +${perDay(board.totalRatePerBlock)}/day`
+                  : `${board.accounts.length} wallets`
                 : ""}
           </small>
         </div>
@@ -388,59 +493,82 @@ export function Points({
             ? `Hold 1 · LP ${pointsConfig.lpBps / 10_000} (at peg) / day`
             : "Hold 1 / day · no pool on this network"}
         </Row>
-        <Row
-          label="Liquidations"
-          info="Each imdUSD of debt a liquidator repays earns this many days of holding."
-        >
-          {`${pointsConfig.liquidationCreditDays} days per imdUSD`}
-        </Row>
-        <Row
-          label={preseason ? "Preseason" : "Counting"}
-          info={
-            closed
-              ? `Preseason points counted from imdUSD's deployment to the block shown${pointsConfig.endedAt ? ` (${pointsConfig.endedAt})` : ""} and no longer change. INFER's seasons are opened on chain by governance, each with its own rules committed when it opens and published after it ends.`
-              : "Points count from imdUSD's deployment and are still counting. INFER's seasons are opened on chain by governance, each with its own rules committed when it opens and published after it ends."
-          }
-        >
-          {data
-            ? pointsConfig.endBlock === undefined
-              ? `Block ${data.startBlock.toLocaleString("en-US")} → live`
-              : `Blocks ${data.startBlock.toLocaleString("en-US")} → ${pointsConfig.endBlock.toLocaleString("en-US")}`
-            : "—"}
-        </Row>
-        {account && mine && !closed && (
-          <Row label="You hold" info="Earning at the holding rate right now.">
-            {`${display(mine.held * BigInt(pointsConfig.blocksPerDay), pointsConfig.blocksPerDay)} imdUSD`}
-          </Row>
-        )}
-        {account && mine && mine.lp > 0n && !closed && (
-          <Row label="You provide" info="imdUSD you deposited into the imdUSD/USDC pool, earning the liquidity rate.">
-            {`${display(mine.lp * BigInt(pointsConfig.blocksPerDay), pointsConfig.blocksPerDay)} imdUSD`}
-          </Row>
+        {s1 ? (
+          <>
+            <Row label="Peg pool" info="Liquidity earns only while the pool price is between $0.99 and $1.01.">
+              {s1.atPeg ? "At peg: liquidity earning" : "Off peg: liquidity not earning"}
+            </Row>
+            {account && mineEst !== undefined && (
+              <Row
+                label="Est. INFER"
+                info={`If the season ended now: ${(10_000 - preShare) / 100}% of the ${pot !== undefined ? fmtInfer(pot) : ""} INFER pot by Season 1 points, plus ${preShare / 100}% by preseason points. It moves as everyone's points do.`}
+              >
+                {`≈ ${fmtInfer(mineEst)} INFER`}
+              </Row>
+            )}
+            {account && mine?.lpPending && mine.lpPending > 0n ? (
+              <Row label="Pending" info="Liquidity points vest one day after your last addition; removing liquidity before then forfeits them.">
+                {`${display(mine.lpPending, pointsConfig.blocksPerDay)} points`}
+              </Row>
+            ) : null}
+            <Row label="Preseason" info={`Final preseason points; preseason wallets share ${preShare / 100}% of the pot.`}>
+              {account
+                ? minePre
+                  ? `${display(minePre.points, pointsConfig.blocksPerDay)} points`
+                  : "none"
+                : `${pot !== undefined ? fmtInfer((pot * BigInt(preShare)) / 10_000n) : "—"} INFER to ${data?.accounts.length ?? 0} wallets`}
+            </Row>
+            <Row label="Season 1" info="91 days from the start set on chain; the rules were committed when it opened.">
+              {`${utcDay(info!.start!)} → ${utcDay(info!.end!)}`}
+            </Row>
+          </>
+        ) : (
+          <>
+            <Row label="Liquidations" info="Each imdUSD of debt a liquidator repays earns this many days of holding.">
+              {`${pointsConfig.liquidationCreditDays} days per imdUSD`}
+            </Row>
+            <Row
+              label={preseason ? "Preseason" : "Counting"}
+              info={
+                preClosed
+                  ? `Preseason points counted from imdUSD's deployment to the block shown and no longer change. INFER's seasons are opened on chain by governance, each with its own rules committed when it opens and published after it ends.`
+                  : "Points count from imdUSD's deployment and are still counting. INFER's seasons are opened on chain by governance, each with its own rules committed when it opens and published after it ends."
+              }
+            >
+              {data
+                ? !preClosed
+                  ? `Block ${data.startBlock.toLocaleString("en-US")} → live`
+                  : `Blocks ${data.startBlock.toLocaleString("en-US")} → ${preEnd!.toLocaleString("en-US")}`
+                : "—"}
+            </Row>
+            {account && minePre && !preClosed && (
+              <Row label="You hold" info="Earning at the holding rate right now.">
+                {`${display(minePre.held * BigInt(pointsConfig.blocksPerDay), pointsConfig.blocksPerDay)} imdUSD`}
+              </Row>
+            )}
+            {account && minePre && minePre.lp > 0n && !preClosed && (
+              <Row label="You provide" info="imdUSD you deposited into the imdUSD/USDC pool, earning the liquidity rate.">
+                {`${display(minePre.lp * BigInt(pointsConfig.blocksPerDay), pointsConfig.blocksPerDay)} imdUSD`}
+              </Row>
+            )}
+          </>
         )}
       </div>
       <div className="desk-col points-board">
         <div className="loan-columns points-columns" aria-hidden="true">
-          <span>Top 10 holders</span>
+          <span>{s1 ? "Season 1 · top 10" : "Top 10 holders"}</span>
           <span>Points</span>
           <span>Share</span>
-          <span>{closed ? "" : "Per day"}</span>
+          <span>{counting ? "Per day" : ""}</span>
         </div>
-        {data && !top.length ? (
+        {board && !top.length ? (
           <p className="muted">
-            No imdUSD is held yet. Points start with the first mint.
+            {s1 ? "No Season 1 points yet." : "No imdUSD is held yet. Points start with the first mint."}
           </p>
         ) : (
           <ol className="loan-feed points-feed" aria-label="Points leaderboard">
             {top.map((a, i) => (
-              <li
-                key={a.owner}
-                className={
-                  a.owner === account?.toLowerCase()
-                    ? "selected-loan"
-                    : undefined
-                }
-              >
+              <li key={a.owner} className={a.owner === me ? "selected-loan" : undefined}>
                 <span className="loan-who">
                   <b className={ensName(a.owner) ? "ens-name" : undefined}>
                     {i + 1}. {displayName(a.owner)}
@@ -452,10 +580,8 @@ export function Points({
                 <span>
                   <Ticker text={display(a.points, pointsConfig.blocksPerDay)} />
                 </span>
-                <span>
-                  {(shareBps(a.points, data!.total) / 100).toFixed(2)}%
-                </span>
-                <span>{closed ? "" : `+${perDay(a.ratePerBlock)}`}</span>
+                <span>{(shareBps(a.points, board!.total) / 100).toFixed(2)}%</span>
+                <span>{counting ? `+${perDay(a.ratePerBlock)}` : ""}</span>
               </li>
             ))}
           </ol>
