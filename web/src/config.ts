@@ -240,8 +240,23 @@ export const pointsConfig = {
     1: {
       poolId: "0x3cb8cc9c22f7da5c3169d4059131ddba9e61f68230977797c03a2f1214992035",
       fromBlock: 26_167_383,
+      // Season 1's liquidity reader (points/season1.ts), used from `lpSwitchBlock`: positions are keyed by the
+      // PositionManager's tokenId; depth counts inside the peg band [$0.99005, $1.01005) in ticks.
+      positionManager: "0xbd216513d74c8cf14cf4747e6aaa6420ff64ee9e",
+      bandLower: -276424,
+      bandUpper: -276224,
+      token1Scale: 10n ** 12n,
     },
-  } as Record<number, { poolId: `0x${string}`; fromBlock: number }>,
+  } as Record<
+    number,
+    { poolId: `0x${string}`; fromBlock: number; positionManager?: string; bandLower?: number; bandUpper?: number; token1Scale?: bigint }
+  >,
+  /**
+   * From this block, liquidity earns by Season 1's reader (depth at the peg, only while in range and at peg,
+   * one-day hold) instead of imdUSD deposited x lpBps (user, 2026-10-16, after ~48k borrowed imdUSD was parked
+   * above a pushed-down price). 26,206,625 is where the preseason was first frozen. Holding is unchanged.
+   */
+  lpSwitchBlock: 26_206_625 as number | undefined,
   /** Uniswap v4 PoolManager per chain: the pool's imdUSD is its LPs', never a holding of the manager. */
   poolManagers: {
     1: "0x000000000004444c5dc75cb358380d2e3de08a90",

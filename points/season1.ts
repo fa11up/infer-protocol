@@ -23,7 +23,9 @@
 //
 // Liquidators keep the flat credit (debt repaid x 3 days), as in the preseason.
 
-import { WAD, byChainOrder } from "./engine.ts";
+import { WAD } from "./engine.ts";
+
+const byChainOrder = (a: { block: number; logIndex: number }, b: { block: number; logIndex: number }) => a.block - b.block || a.logIndex - b.logIndex;
 import { amount1Between } from "./tickmath.ts";
 
 export type S1Transfer = { kind: "transfer"; from: string; to: string; value: bigint; block: number; logIndex: number };

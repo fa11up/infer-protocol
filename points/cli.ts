@@ -3,6 +3,10 @@
 //
 //   node points/cli.ts --stablecoin 0x.. --vault 0x.. [--chain ethereum] [--exclude 0x..,0x..]
 //                      [--start <block>] [--end <block>] [--lp-x 3] [--credit-days 3] [--out points.json]
+//                      [--lp-switch <block> [--rpc <url>]]
+//
+// --lp-switch: from that block liquidity earns by Season 1's reader (points/preseason.ts), as the terminal does
+// from pointsConfig.lpSwitchBlock (26206625). Holding is unchanged.
 //
 // --start defaults to the stablecoin's first log, --end to the latest log, so a run mid-season is a
 // live leaderboard. The vault and the chain's v4 PoolManager are always excluded; pass the Treasury
@@ -14,7 +18,9 @@ import { writeFileSync } from "node:fs";
 import { computePoints, display, shareBps, DEFAULTS } from "./engine.ts";
 import { decodeLog, fetchLogs, liquidityTxs } from "./logs.ts";
 import { lpEvents } from "./lp.ts";
-import { CHAINS } from "./chains.ts";
+import { CHAINS, PEG_POOLS } from "./chains.ts";
+import { computePreseason } from "./preseason.ts";
+import { readPegPool } from "./poolread.ts";
 
 const args = process.argv.slice(2);
 const opt = (name: string, fallback?: string) => {
@@ -54,7 +60,23 @@ const season = {
   liquidationCreditDays: Number(opt("credit-days", String(DEFAULTS.liquidationCreditDays))),
   excluded,
 };
-const r = computePoints(events, season);
+const lpSwitch = opt("lp-switch");
+let r;
+if (lpSwitch !== undefined) {
+  const peg = PEG_POOLS[chainName];
+  if (!peg) throw Error(`no peg pool configured for ${chainName}`);
+  const rpcUrl = opt("rpc", process.env.RPC_URL ?? "https://eth.drpc.org")!;
+  const rpc = async (method: string, params: unknown[]) => {
+    const res = await fetch(rpcUrl, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) });
+    const body = (await res.json()) as { result?: unknown; error?: { message: string } };
+    if (body.error || body.result === undefined) throw Error(`rpc ${method}: ${body.error?.message ?? "no result"}`);
+    return body.result;
+  };
+  const poolEvents = await readPegPool({ blockscout: chain.blockscout, poolManager: chain.poolManager, peg, through: endBlock, rpc });
+  r = computePreseason(events, season, { switchBlock: Number(lpSwitch), poolEvents, bandLower: peg.bandLower, bandUpper: peg.bandUpper, token1Scale: peg.token1Scale });
+} else {
+  r = computePoints(events, season);
+}
 const out = {
   chain: chainName,
   stablecoin: stablecoin!.toLowerCase(),

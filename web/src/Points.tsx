@@ -9,6 +9,8 @@ import {
   type PointsResult,
 } from "../../points/engine.ts";
 import { lpEvents, type TxTransfer } from "../../points/lp.ts";
+import { computePreseason } from "../../points/preseason.ts";
+import { poolEvents, nftOwnerEvents, S1_TOPICS, type RawLog } from "../../points/pool.ts";
 import { history } from "./history";
 import { ours } from "./names";
 import { historyConfig, pointsConfig, type Runtime } from "./config";
@@ -75,6 +77,53 @@ async function pegLiquidityTxs(r: Runtime, head: number): Promise<Set<string> | 
   return txs;
 }
 
+/** Every log of the peg pool (Initialize, Swap, ModifyLiquidity) and its positions' NFT transfers, for Season 1's
+ * liquidity reader (points/preseason.ts). Read in the same aligned windows as above; kept in memory per runtime. */
+const poolScans = new WeakMap<Runtime, { through: number; logs: RawLog[] }>();
+async function pegPoolLogs(r: Runtime, head: number): Promise<{ pool: RawLog[]; nft: RawLog[] } | undefined> {
+  const pool = pointsConfig.pegPools[r.config.chainId];
+  const pm = pointsConfig.poolManagers[r.config.chainId];
+  if (!pool?.positionManager || !pm) return undefined;
+  const old = poolScans.get(r);
+  const step = Number(historyConfig.chunkSize);
+  const windowsFrom = (from: number) => {
+    const w: [number, number][] = [];
+    for (let a = from; a <= head; ) {
+      const b = (Math.floor((a + step - 1) / step) + 1) * step - 1;
+      w.push([a, Math.min(head, b)]);
+      a = b + 1;
+    }
+    return w;
+  };
+  const scan = async (windows: [number, number][], address: string, topics: unknown[]) => {
+    const out: RawLog[] = [];
+    let next = 0;
+    await Promise.all(
+      Array.from({ length: Math.min(historyConfig.parallel, windows.length) }, async () => {
+        while (next < windows.length) {
+          const [a, b] = windows[next++];
+          const logs = (await r.client.request({
+            method: "eth_getLogs",
+            params: [{ address: address as `0x${string}`, topics: topics as never, fromBlock: `0x${a.toString(16)}`, toBlock: `0x${b.toString(16)}` }],
+          })) as RawLog[];
+          out.push(...logs);
+        }
+      }),
+    );
+    return out;
+  };
+  // Re-read from 64 blocks before the last scan, dropping what was kept from there, so a reorganised block is read again.
+  const from = old ? Math.max(pool.fromBlock, old.through - 63) : pool.fromBlock;
+  const fresh = await scan(windowsFrom(from), pm, [[S1_TOPICS.initialize, S1_TOPICS.swap, S1_TOPICS.modifyLiquidity], pool.poolId]);
+  const logs = [...(old?.logs.filter((l) => Number(BigInt(l.blockNumber)) < from) ?? []), ...fresh];
+  poolScans.set(r, { through: head, logs });
+  if (!logs.some((l) => l.topics[0]?.toLowerCase() === S1_TOPICS.initialize)) throw new Error("the peg pool's Initialize was not read: liquidity cannot be priced");
+  const { tokenIds } = poolEvents(logs, pool.positionManager);
+  const ids = tokenIds.map((id) => "0x" + id.toString(16).padStart(64, "0"));
+  const nft = ids.length ? await scan(windowsFrom(pool.fromBlock), pool.positionManager, [S1_TOPICS.transfer, null, null, ids]) : [];
+  return { pool: logs, nft };
+}
+
 /** Reads imdUSD transfers and vault liquidations, then runs the shared engine at the snapshot block. */
 export async function loadPoints(
   r: Runtime,
@@ -133,7 +182,7 @@ export async function loadPoints(
     pointsConfig.endBlock === undefined
       ? head
       : Math.min(pointsConfig.endBlock, head);
-  return computePoints(events, {
+  const season = {
     // Past the end nothing accrues: totals stay as they were at endBlock and every rate reads zero.
     closed: pointsConfig.endBlock !== undefined && head >= pointsConfig.endBlock,
     // The first imdUSD transfer (the CLI's default too), not the history's read floor, which can sit earlier.
@@ -148,7 +197,23 @@ export async function loadPoints(
       pointsConfig.poolManagers[r.config.chainId] ?? "",
       ...pointsConfig.excluded,
     ].filter(Boolean),
-  });
+  };
+  // From lpSwitchBlock, liquidity earns by Season 1's reader (points/preseason.ts); holding is unchanged.
+  const pegPool = pointsConfig.pegPools[r.config.chainId];
+  if (pointsConfig.lpSwitchBlock !== undefined && pegPool?.positionManager && pegPool.bandLower !== undefined) {
+    const logs = await pegPoolLogs(r, head);
+    if (logs) {
+      const pool = poolEvents(logs.pool, pegPool.positionManager);
+      return computePreseason(events, season, {
+        switchBlock: pointsConfig.lpSwitchBlock,
+        poolEvents: [...pool.events, ...nftOwnerEvents(logs.nft)],
+        bandLower: pegPool.bandLower,
+        bandUpper: pegPool.bandUpper!,
+        token1Scale: pegPool.token1Scale ?? 10n ** 12n,
+      });
+    }
+  }
+  return computePoints(events, season);
 }
 
 type Loaded = {
