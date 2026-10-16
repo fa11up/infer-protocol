@@ -31,24 +31,68 @@ if (!isAddr(stablecoin) || !isAddr(vault) || !chain || !peg || !opt("start")) {
 }
 
 async function rpcCall(method: string, params: unknown[]): Promise<any> {
-  const res = await fetch(rpc, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) });
-  const body = (await res.json()) as { result?: unknown; error?: { message: string } };
-  if (body.error || body.result === undefined) throw Error(`rpc ${method}: ${body.error?.message ?? "no result"}`);
-  return body.result;
+  // A free RPC throttles: back off and retry a few times before giving up (never on a definite error).
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const res = await fetch(rpc, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }) });
+      const body = (await res.json()) as { result?: unknown; error?: { message: string } };
+      if (body.error || body.result === undefined) throw Error(`rpc ${method}: ${body.error?.message ?? "no result"}`);
+      return body.result;
+    } catch (e) {
+      if (attempt >= 4 || !/429|rate|limit exceeded|timeout|fetch failed|too many/i.test((e as Error).message)) throw e;
+      await new Promise((r) => setTimeout(r, 1500 * 2 ** attempt));
+    }
+  }
 }
 
 const through = Number(BigInt(await rpcCall("eth_blockNumber", [])));
 
-/** Filtered eth_getLogs in 10k-block chunks (fallback only; callers check the result is non-empty). */
+/** Filtered eth_getLogs in 5,000-block chunks (free RPCs refuse 10,000 inclusive; fallback only; callers check
+ * the result is non-empty). */
+const CHUNK = 5_000;
 async function rpcLogs(address: string, topics: (string | null)[], from: number, to: number): Promise<RawLog[]> {
   const out: RawLog[] = [];
-  for (let b = from; b <= to; b += 10_000) {
-    const hi = Math.min(b + 9_999, to);
+  for (let b = from; b <= to; b += CHUNK) {
+    const hi = Math.min(b + CHUNK - 1, to);
     const logs = (await rpcCall("eth_getLogs", [{ address, topics, fromBlock: "0x" + b.toString(16), toBlock: "0x" + hi.toString(16) }])) as RawLog[];
     out.push(...logs);
   }
   return out;
 }
+/** Etherscan v2 getLogs (an archive source, keyed by ETHERSCAN_API_KEY): pages of up to 1,000, advancing from the
+ * last block seen and dropping the repeats, until a short page. Used when Blockscout refuses, before the RPC. */
+const etherscanKey = process.env.ETHERSCAN_API_KEY;
+async function etherscanLogs(address: string, topics: (string | null)[], from: number, to: number): Promise<RawLog[]> {
+  if (!etherscanKey) throw Error("no ETHERSCAN_API_KEY");
+  const seen = new Map<string, RawLog>();
+  for (let b = from; b <= to; ) {
+    const q = new URLSearchParams({ chainid: "1", module: "logs", action: "getLogs", address, fromBlock: String(b), toBlock: String(to), page: "1", offset: "1000", apikey: etherscanKey });
+    topics.forEach((t, i) => t && q.set(`topic${i}`, t));
+    for (let i = 1; i < topics.length; i++) if (topics[i]) q.set(`topic0_${i}_opr`, "and");
+    let body: { status: string; message: string; result: RawLog[] | string } | undefined;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      body = await (await fetch(`https://api.etherscan.io/v2/api?${q}`)).json();
+      if (body!.status === "1" || /No records/.test(body!.message)) break;
+      if (!/rate limit/i.test(String(body!.result))) throw Error(`etherscan: ${body!.message} ${String(body!.result).slice(0, 120)}`);
+      await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
+    }
+    const page = Array.isArray(body!.result) ? body!.result : [];
+    for (const l of page) seen.set(`${l.transactionHash}:${Number(BigInt(l.logIndex))}`, l);
+    if (page.length < 1000) break;
+    const last = Number(BigInt(page[page.length - 1].blockNumber));
+    if (last === b) throw Error(`etherscan: over 1,000 logs in block ${b}`);
+    b = last; // the last block may be split across pages: read it again; repeats are dropped
+  }
+  return [...seen.values()];
+}
+const archiveLogs = async (address: string, topics: (string | null)[], from: number, to: number): Promise<RawLog[]> => {
+  try {
+    return await etherscanLogs(address, topics, from, to);
+  } catch (err) {
+    console.error(`  ${address.slice(0, 10)}: ${(err as Error).message}; trying the RPC`);
+    return rpcLogs(address, topics, from, to);
+  }
+};
 const startBlock = Number(opt("start"));
 const endBlock = Number(opt("end", String(through)));
 
@@ -59,8 +103,8 @@ async function addressLogs(address: string, from: number): Promise<V2Item[]> {
   try {
     return await fetchLogs(chain.blockscout, address);
   } catch (err) {
-    console.error(`  ${address}: ${(err as Error).message}; reading its logs from the RPC instead`);
-    return (await rpcLogs(address, [], from, through)).map(fromRaw);
+    console.error(`  ${address}: ${(err as Error).message}; reading its logs from Etherscan instead`);
+    return (await archiveLogs(address, [], from, through)).map(fromRaw);
   }
 }
 const tokenLogs = await addressLogs(stablecoin!, 26_166_000);
@@ -83,8 +127,8 @@ const poolQ = async (topic0: string, from = peg.fromBlock, to = through): Promis
   try {
     return await fetchFilteredLogs(chain.blockscout, { address: chain.poolManager, topic0, topic1: peg.id, fromBlock: from, toBlock: to });
   } catch (err) {
-    console.error(`  pool ${topic0.slice(0, 10)}: ${(err as Error).message}; reading from the RPC instead`);
-    return rpcLogs(chain.poolManager, [topic0, peg.id], from, to);
+    console.error(`  pool ${topic0.slice(0, 10)}: ${(err as Error).message}; reading from Etherscan instead`);
+    return archiveLogs(chain.poolManager, [topic0, peg.id], from, to);
   }
 };
 // Sequential on purpose: keyless Blockscout rate-limits parallel bursts.
@@ -116,10 +160,10 @@ for (const id of pool.tokenIds) {
   try {
     t = await fetchFilteredLogs(chain.blockscout, { address: peg.positionManager, topic0: S1_TOPICS.transfer, topic3, fromBlock: peg.fromBlock, toBlock: through });
   } catch (err) {
-    // Blockscout refused (rate limit). Fall back to the RPC's filtered getLogs in chunks. The silent-empty risk of
-    // a public RPC is covered by the check below: every position has at least its mint log.
-    console.error(`  position #${id}: ${(err as Error).message}; reading its transfers from the RPC instead`);
-    t = await rpcLogs(peg.positionManager, [S1_TOPICS.transfer, null, null, topic3], peg.fromBlock, through);
+    // Blockscout refused (rate limit). Fall back to Etherscan, then the RPC. The silent-empty risk of a public RPC
+    // is covered by the check below: every position has at least its mint log.
+    console.error(`  position #${id}: ${(err as Error).message}; reading its transfers from Etherscan instead`);
+    t = await archiveLogs(peg.positionManager, [S1_TOPICS.transfer, null, null, topic3], peg.fromBlock, through);
   }
   if (!t.length) throw Error(`no mint/transfer logs for position #${id}: refusing to guess its owner`);
   await new Promise((r) => setTimeout(r, 400));
