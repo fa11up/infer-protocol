@@ -18,10 +18,28 @@ import {
   ensRpcUrls,
   askerBody,
   askerPrice,
+  fixtureDeploymentDir,
 } from "./fixture.mjs";
 const root = resolve(fileURLToPath(new URL("../..", import.meta.url)));
 const evidence = resolve(root, "docs/frontend");
 await mkdir(evidence, { recursive: true });
+// imd-deployment.json as scripts/manifest.mjs writes it (the source plus a sha256 inventory, which config.ts checks
+// every ABI against), built from tests/fixture-deployment; and the ABIs themselves.
+const fixtureAbis = new URL("abi/", fixtureDeploymentDir);
+const fixtureManifest = await (async () => {
+  const { readdir } = await import("node:fs/promises");
+  const { createHash } = await import("node:crypto");
+  const assets = [];
+  for (const f of (await readdir(fixtureAbis)).sort())
+    assets.push({ path: `abi/${f}`, sha256: createHash("sha256").update(await readFile(new URL(f, fixtureAbis))).digest("hex") });
+  return Buffer.from(JSON.stringify({ ...config, assets }));
+})();
+async function fixtureAsset(suffix) {
+  const name = suffix.split("/").at(-1);
+  if (name === "imd-deployment.json") return fixtureManifest;
+  const abi = suffix.match(/(?:^|\/)abi\/([A-Za-z0-9]+\.json)$/);
+  return abi ? readFile(new URL(abi[1], fixtureAbis)).catch(() => undefined) : undefined;
+}
 const server = createServer(async (req, res) => {
   try {
     const pathname = new URL(req.url, "http://localhost").pathname;
@@ -30,6 +48,13 @@ const server = createServer(async (req, res) => {
       return;
     }
     const suffix = decodeURIComponent(pathname.slice(9)) || "index.html";
+    // The fixture's deployment and ABIs stand in for the build's (fixture.mjs), wherever the page asks for them.
+    const fixtureFile = await fixtureAsset(suffix);
+    if (fixtureFile) {
+      res.setHeader("Content-Type", "application/json");
+      res.end(fixtureFile);
+      return;
+    }
     // A directory serves its index.html, as any static host does for /terminal/ and /docs/.
     const file = suffix.endsWith("/") ? `${suffix}index.html` : suffix;
     const path = resolve(root, "dist", file);
@@ -77,6 +102,10 @@ async function setup({
   const page = await context.newPage();
   page.setDefaultTimeout(12000);
   page.on("pageerror", (e) => errors.push(e.message));
+  // The console's "Failed to load resource" names no URL: record which one.
+  page.on("response", (res) => {
+    if (res.status() >= 400) errors.push(`${res.status()} ${res.url()}`);
+  });
   page.on("console", (msg) => {
     if (msg.type() === "error") errors.push(msg.text());
   });
@@ -208,7 +237,14 @@ async function openFeed(page, name) {
     await toggle.click();
 }
 async function expectText(locator, text) {
-  await locator.getByText(text, { exact: false }).first().waitFor();
+  try {
+    await locator.getByText(text, { exact: false }).first().waitFor();
+  } catch (e) {
+    // Say what was there instead, so a reworded figure reads as drift and not as a hang.
+    const el = typeof locator.first === "function" ? locator.first() : locator.locator("body"); // a page has no first()
+    const shown = (await el.innerText({ timeout: 1000 }).catch(() => "(not rendered)")).replace(/\s+/g, " ");
+    throw Error(`expected ${JSON.stringify(text)}; the element read: ${shown.slice(0, 1200)}`, { cause: e });
+  }
 }
 async function review(page, label) {
   await page.getByRole("button", { name: label, exact: true }).click();
@@ -237,8 +273,8 @@ try {
     .waitFor();
   const live = page.locator(".live-panel");
   await expectText(live, "Reserves");
-  await expectText(live, "$1K");
-  await expectText(live, "$10K");
+  await expectText(live, "$\u00a01K");
+  await expectText(live, "$\u00a010K");
   await expectText(live, "Price actions");
   assert.equal(
     await page.locator('.site-nav a[aria-current="page"]').count(),
@@ -268,6 +304,7 @@ try {
   assert.deepEqual(
     axeHome.violations.map((v) => v.id),
     [],
+    axeHome.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).slice(0, 5).join(", ")}`).join("; "),
   );
   await page.locator(".site-nav").getByRole("link", { name: "Docs" }).click();
   await page
@@ -283,6 +320,7 @@ try {
   assert.deepEqual(
     axeDocs.violations.map((v) => v.id),
     [],
+    axeDocs.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).slice(0, 5).join(", ")}`).join("; "),
   );
   await page
     .locator(".site-nav")
@@ -858,11 +896,14 @@ try {
       !document.querySelector(".pane-redemption button[type=submit]").disabled,
   );
   passed("RPC failure disables transactions and refresh recovers");
+  // Code once seen is remembered for the page's life (state.ts hasCode: these contracts cannot self-destruct), so
+  // the check is made on a fresh load.
   s.codeMissing = true;
-  await refresh(page);
+  await page.reload();
   await expectText(page, "No deployed code");
   s.codeMissing = false;
-  await refresh(page);
+  await page.reload();
+  await page.getByRole("button", { name: "Refresh state", exact: true }).waitFor();
   passed("Missing deployed code fails closed");
   await page.route("**/abi/PriceFeed.json", (route) =>
     route.fulfill({ json: [] }),
@@ -1075,31 +1116,26 @@ try {
   await tab(page, "loans");
   await expectText(page.locator(".loan-coverage"), "Blockscout");
   assert.equal(await page.locator(".loan-mark").count(), 3);
+  // A failed refresh keeps the last good book on screen (Charts.tsx), says so, and names the block it was read at.
+  const stale = page.locator(".pane-loans").getByText("Could not refresh the loan book");
   s.explorerEmpty = true;
   await refresh(page);
-  await expectText(page.locator(".pane-loans"), "Could not read loan book");
-  assert.equal(await page.locator(".loan-mark").count(), 0);
-  assert.match(
-    await page.locator(".pane-loans").textContent(),
-    /position count is unknown/,
-  );
+  await expectText(page.locator(".pane-loans"), "Could not refresh the loan book");
+  await expectText(page.locator(".pane-loans"), "Showing the book as read at block");
+  assert.equal(await page.locator(".loan-mark").count(), 3, "the last good book stays");
   s.explorerEmpty = false;
   s.logMode = "rpc";
-  await page
-    .getByRole("button", { name: "Retry history", exact: true })
-    .click();
-  await page.locator(".loan-mark").first().waitFor();
+  await refresh(page);
+  await stale.waitFor({ state: "detached" });
   s.ownerReadFail = true;
   await refresh(page);
-  await expectText(page.locator(".pane-loans"), "Could not read loan book");
-  assert.equal(await page.locator(".loan-mark").count(), 0);
+  await expectText(page.locator(".pane-loans"), "Could not refresh the loan book");
+  assert.equal(await page.locator(".loan-mark").count(), 3, "a partial owner failure keeps the last good book too");
   s.ownerReadFail = false;
-  await page
-    .getByRole("button", { name: "Retry history", exact: true })
-    .click();
-  await page.locator(".loan-mark").first().waitFor();
+  await refresh(page);
+  await stale.waitFor({ state: "detached" });
   passed(
-    "Silent empty RPC uses paginated Blockscout fallback; empty fallback and partial owner failure render unknown, retry restores the book",
+    "Silent empty RPC uses paginated Blockscout fallback; an empty fallback or partial owner failure keeps the last good book with its error, and a refresh clears it",
   );
   await tab(page, "points");
   const pointsPane = page.locator(".pane-points");
@@ -1118,20 +1154,22 @@ try {
     "holding plus three days of liquidation credit",
   );
   assert.match(rows[1], /3\.62/);
-  assert.match(await pointsPane.textContent(), /3× once the pool is live/);
+  // The fixture runs on Sepolia, where no peg pool is configured (Points.tsx: pointsConfig.pegPools).
+  assert.match(await pointsPane.textContent(), /no pool on this network/);
   assert.match(await pointsPane.textContent(), /3 days per imdUSD/);
   await page.screenshot({ path: `${evidence}/points-1440.png` });
   s.logMode = "empty";
   s.explorerEmpty = true;
   await refresh(page);
-  await expectText(pointsPane, "not the same as nobody holding imdUSD");
-  assert.equal(await page.locator(".points-feed li").count(), 0);
+  // A failed refresh keeps the last board and says so beneath it (Points.tsx).
+  await expectText(pointsPane, "Could not refresh the points history");
+  assert.equal(await page.locator(".points-feed li").count(), 2, "the last board stays");
   s.explorerEmpty = false;
   s.logMode = "rpc";
   await pointsPane.getByRole("button", { name: "Retry", exact: true }).click();
-  await page.locator(".points-feed li").first().waitFor();
+  await pointsPane.getByText("Could not refresh the points history").waitFor({ state: "detached" });
   passed(
-    "Points: holders ranked from imdUSD transfers, Treasury excluded, liquidation credit, testnet label, LP boost marked not live; unreadable history is an error, never an empty board",
+    "Points: holders ranked from imdUSD transfers, Treasury excluded, liquidation credit, testnet label, LP boost shown as no pool on Sepolia; a failed refresh keeps the board with its error, never an empty board",
   );
   // System default, live OS change, explicit persistence, theme-color, and both palettes.
   await page.emulateMedia({ colorScheme: "dark" });
@@ -1345,7 +1383,7 @@ try {
     const pos = page.locator(".pane-position");
     await expectText(pos, "800 sIMD ≈ 1,000 IMD");
     await expectText(pos, "10,000 IMD / 8,000 sIMD");
-    await expectText(pos, "$1.5 / IMD");
+    await expectText(pos, "$\u00a01.5 / IMD");
     await expectText(pos, "1 sIMD = 1.25 IMD");
     passed(
       "sIMD collateral reads in its own 24 decimals, with its IMD value and a per-IMD liquidation price",
@@ -1440,8 +1478,8 @@ try {
     // Three prices: the primary the vault uses, the attested spot check, and the live market.
     const hero = panel.locator(".price-hero");
     for (const label of ["Primary", "Spot", "Market"]) await expectText(hero, label);
-    await expectText(hero, "$2.00"); // primary and spot agree in the fixture
-    await expectText(hero, "$2.20"); // the fixture's pool sits 10% above the primary feed
+    await expectText(hero, "$\u00a02.00"); // primary and spot agree in the fixture
+    await expectText(hero, "$\u00a02.20"); // the fixture's pool sits 10% above the primary feed
     await expectText(hero, "0% off");
     await expectText(hero, "10% vs primary");
     // The sentence shown beside the button is the one about the viewer's own position.
@@ -1530,8 +1568,11 @@ try {
   }
   {
     // Once configured: approve IMD for exactly the two answers, then buy the primary and the spot together in
-    // one transaction (askPaidMany) with the pinned bodies.
+    // one transaction (askPaidMany) with the pinned bodies. The spot is added only when it would disagree with the
+    // new primary (priceUpdate), so it sits 15% under the primary here: inside skew now, well off the market the
+    // new primary will reflect (10% above the primary).
     const { page, s } = await setup({
+      state: { spotMultiplier: 0.85 },
       deployment: (d) => ({
         ...d,
         oracleAsker: {
@@ -1578,6 +1619,61 @@ try {
     );
   }
   {
+    // When the asker's own rules let the Treasury pay (ask simulates cleanly), the button sends ask for the primary:
+    // no approval, no IMD from the wallet, the pinned body.
+    const { page, s } = await setup({
+      state: { askerFree: true },
+      deployment: (d) => ({
+        ...d,
+        oracleAsker: {
+          address: "0x0000000000000000000000000000000000000019",
+          requests: { PriceFeed: askerBody, NhiFeed: askerBody, SpotFeed: askerBody },
+        },
+      }),
+    });
+    await connect(page);
+    await tab(page, "oracle");
+    const panel = page.locator(".pane-oracle .price-status");
+    assert.equal(await panel.getByRole("button", { name: /^Approve/ }).count(), 0, "nothing to approve");
+    await panel.getByRole("button", { name: "About Update price" }).first().hover();
+    await expectText(page.locator("body"), "The Treasury pays for the price update now");
+    await panel.getByRole("button", { name: "Update price", exact: true }).click();
+    await page.locator("dialog[open]").waitFor();
+    await page.locator("dialog").getByRole("button", { name: "Confirm in wallet" }).click();
+    await expectText(page.locator("footer"), "Confirmed on chain.");
+    assert.equal(s.sent.at(-1).name, "asker");
+    assert.equal(s.sent.at(-1).functionName, "ask");
+    assert.deepEqual(s.sent.at(-1).args[1], askerBody);
+    assert.ok(!s.sent.some((t) => t.name === "payToken"), "no IMD approval was sent");
+    passed("Update price sends the Treasury-paid ask, with no approval, when the asker's rules allow it");
+  }
+  {
+    // The oracle top-up: hidden while the asker holds 2 IMD or more, offered below it as a plain IMD transfer.
+    const asker = {
+      address: "0x0000000000000000000000000000000000000019",
+      requests: { PriceFeed: askerBody, NhiFeed: askerBody, SpotFeed: askerBody },
+    };
+    let { page, s } = await setup({ state: { askerHeld: 2n * 10n ** 18n }, deployment: (d) => ({ ...d, oracleAsker: asker }) });
+    await connect(page);
+    await tab(page, "oracle");
+    await page.locator(".pane-oracle .price-status").waitFor();
+    assert.equal(await page.locator(".oracle-topup").count(), 0, "no top-up at 2 IMD");
+    ({ page, s } = await setup({ state: { askerHeld: 15n * 10n ** 17n }, deployment: (d) => ({ ...d, oracleAsker: asker }) }));
+    await connect(page);
+    await tab(page, "oracle");
+    const topUp = page.locator(".oracle-topup");
+    await expectText(topUp, "enough for 3 more Treasury-paid updates");
+    await page.locator(".pane-oracle").screenshot({ path: `${evidence}/oracle-topup-1440.png` });
+    await topUp.getByLabel("IMD to send").fill("1");
+    await review(page, "Review top-up");
+    await page.locator("dialog").getByRole("button", { name: "Confirm in wallet" }).click();
+    await expectText(page.locator("footer"), "Confirmed on chain.");
+    assert.equal(s.sent.at(-1).name, "payToken");
+    assert.equal(s.sent.at(-1).functionName, "transfer");
+    assert.deepEqual(s.sent.at(-1).args, [asker.address, 10n ** 18n]);
+    passed("Oracle top-up: hidden at 2 IMD, offered below it, and sends exactly the IMD entered to the asker");
+  }
+  {
     // sIMD is priced from IMD: with the vault's collateral feed unreadable, the terminal derives the same
     // figure from IMD / USD and the exchange rate, so the position still reads the same.
     const { page } = await setup({
@@ -1586,13 +1682,34 @@ try {
     await connect(page);
     await tab(page, "position");
     const pos = page.locator(".pane-position");
-    await expectText(pos, "$1.5 / IMD");
+    await expectText(pos, "$\u00a01.5 / IMD");
     await expectText(pos, "800 sIMD ≈ 1,000 IMD");
     passed(
       "An unreadable collateral feed falls back to IMD / USD times the exchange rate",
     );
   }
-  assert.deepEqual(errors, []);
+  {
+    // With no good book yet, an unverifiable history reads as unknown, not as an empty book; retry restores it.
+    const { page, s } = await setup({ state: { logMode: "empty", explorerEmpty: true } });
+    await tab(page, "loans");
+    await expectText(page.locator(".pane-loans"), "Could not read loan book");
+    assert.equal(await page.locator(".loan-mark").count(), 0);
+    assert.match(await page.locator(".pane-loans").textContent(), /position count is unknown/);
+    s.explorerEmpty = false;
+    s.logMode = "rpc";
+    await page.getByRole("button", { name: "Retry history", exact: true }).click();
+    await page.locator(".loan-mark").first().waitFor();
+    passed("With no book yet, unverifiable history reads as unknown and Retry history restores it");
+    // The same for points: with no board yet, unreadable history is an error, never an empty board.
+    s.logMode = "empty";
+    s.explorerEmpty = true;
+    await page.reload();
+    await page.getByRole("tab", { name: "Points", exact: true }).click();
+    await expectText(page.locator(".pane-points"), "not the same as nobody holding imdUSD");
+    assert.equal(await page.locator(".points-feed li").count(), 0);
+    passed("With no board yet, unreadable points history is an error, never an empty board");
+  }
+  assert.deepEqual(errors, [], JSON.stringify(errors.slice(0, 10)));
   passed(
     "No browser console errors or uncaught exceptions in mocked workflows",
   );

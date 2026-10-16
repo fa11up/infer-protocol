@@ -12,8 +12,12 @@ import {
   parseAbiParameters,
   keccak256,
 } from "viem";
+// The mocked suite's own deployment: the Sepolia test deployment (legacy names, faucet work oracle) and its ABIs,
+// kept in tests/fixture-deployment so the suite does not follow web/deployment-source.json, which is mainnet's
+// since 5ba2182. tests/browser.mjs serves these in place of the build's imd-deployment.json and abi/.
+export const fixtureDeploymentDir = new URL("./fixture-deployment/", import.meta.url);
 export const config = JSON.parse(
-  readFileSync(new URL("../deployment-source.json", import.meta.url)),
+  readFileSync(new URL("deployment-source.json", fixtureDeploymentDir)),
 );
 export const abi = Object.fromEntries(
   [
@@ -31,7 +35,7 @@ export const abi = Object.fromEntries(
   ].map((n) => [
     n,
     JSON.parse(
-      readFileSync(new URL(`../public/abi/${n}.json`, import.meta.url)),
+      readFileSync(new URL(`abi/${n}.json`, fixtureDeploymentDir)),
     ),
   ]),
 );
@@ -60,11 +64,12 @@ abi.ParameterizedVault = [
     "function lockIMD(uint256 assets)",
   ]),
 ];
-// The protocol's OracleAsker (asker mode): price, pay token, pinned request hashes, askPaid.
+// The protocol's OracleAsker (asker mode): price, pay token, pinned request hashes, ask (Treasury-paid), askPaid.
 abi.asker = parseAbi([
   "function price() view returns (uint256)",
   "function payToken() view returns (address)",
   "function feeds(address) view returns (bytes32 bodyHash, bool tracksPool, bool keepAlive, uint64 lastAsk, uint64 armedAt, uint64 inFlightAt, bool treasuryPaid, bytes32 inFlight)",
+  "function ask(address feed, bytes body) returns (bytes32)",
   "function askPaid(address feed, bytes body, uint256 maxPrice) returns (bytes32)",
   "function askPaidMany(address[] feeds, bytes[] bodies, uint256 maxPriceEach) returns (bytes32[])",
 ]);
@@ -132,6 +137,10 @@ export const fixture = () => ({
   share: false,
   underlyingAllowance: 0n,
   askerAllowance: 0n,
+  /** Whether the asker's `ask` (Treasury-paid) passes for every feed; by default it reverts NotNeeded. */
+  askerFree: false,
+  /** IMD the asker itself holds (the Oracle pane offers a top-up below 2 IMD). */
+  askerHeld: 35n * 10n ** 17n,
 });
 export const block = (s) => ({
   number: "0x100",
@@ -169,7 +178,27 @@ const abiName = {
   usdPriceFeed: "UsdPriceFeed",
   oracle: "SwarmWorkOracle",
 };
+// Multicall3, as the terminal bundles its reads (src/config.ts): each inner call is answered by `call` like a
+// direct eth_call, and a revert in one fails only that one, as on chain.
+const MULTICALL3 = "0xca11bde05977b3631167028862be2a173976ca11";
+const multicallAbi = parseAbi([
+  "struct Call3 { address target; bool allowFailure; bytes callData; }",
+  "struct Result { bool success; bytes returnData; }",
+  "function aggregate3(Call3[] calls) payable returns (Result[] returnData)",
+]);
 function call(s, params) {
+  if (params[0].to.toLowerCase() === MULTICALL3) {
+    const { args } = decodeFunctionData({ abi: multicallAbi, data: params[0].data });
+    const results = args[0].map((c) => {
+      try {
+        return { success: true, returnData: call(s, [{ ...params[0], to: c.target, data: c.callData }, ...params.slice(1)]) };
+      } catch (e) {
+        if (!c.allowFailure) throw e;
+        return { success: false, returnData: e.data ?? "0x" };
+      }
+    });
+    return encodeFunctionResult({ abi: multicallAbi, functionName: "aggregate3", result: results });
+  }
   const tx = params[0],
     name = byAddr[tx.to.toLowerCase()];
   if (!name) throw Error("Unknown target " + tx.to);
@@ -232,6 +261,7 @@ function call(s, params) {
     return encodeFunctionResult({ abi: a, functionName: f, result: value });
   }
   if (name === "asker") {
+    if (f === "ask" && !s.askerFree) throw Error("execution reverted");
     value =
       f === "price"
         ? askerPrice
@@ -339,7 +369,11 @@ function call(s, params) {
       decimals: shareToken ? 24 : 18,
       // The deployed Sepolia token still carries the testnet symbol; the terminal reads it.
       symbol: name === "compToken" ? "COMP" : shareToken ? "sIMD" : "IMD",
-      balanceOf: shareToken ? 8000n * 10n ** 24n : 10000n * W,
+      balanceOf: shareToken
+        ? 8000n * 10n ** 24n
+        : name === "payToken" && String(args[0]).toLowerCase() === addresses.asker
+          ? s.askerHeld
+          : 10000n * W,
       allowance:
         name === "underlying"
           ? s.underlyingAllowance
@@ -750,10 +784,14 @@ export function ensRpc(body) {
         [1n, 2000n * 10n ** 8n, 0n, 0n, 1n],
       ),
     );
-  const { args } = decodeFunctionData({
-    abi: reverseAbi,
-    data,
-  });
+  // Anything else this mock does not model (e.g. a vault read such as gem() routed to the mainnet client)
+  // reverts, as an unknown call to a real node would, instead of throwing out of the route handler.
+  let args;
+  try {
+    ({ args } = decodeFunctionData({ abi: reverseAbi, data }));
+  } catch {
+    return { jsonrpc: "2.0", id: body.id, error: { code: 3, message: "execution reverted", data: "0x" } };
+  }
   const name = ensNames[String(args[0]).toLowerCase()];
   if (!name)
     return {

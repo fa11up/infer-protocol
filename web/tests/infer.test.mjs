@@ -274,3 +274,98 @@ test("imdusd.com/rpc (worker/index.js) serves the terminal's event logs: allowli
   assert.match((await r.json()).error.message, /imdUSD terminal/);
   assert.equal(await (await worker.fetch(new Request("https://imdusd.com/terminal/"), env)).text(), "page");
 });
+
+test("/rpc keeps final log windows for a month (never an empty one), and tries a provider that just refused a method last", async () => {
+  const { handleRpc, resetAllowlist, resetBench } = await import("../worker/rpc.js");
+  const OURS = "0x1111111111111111111111111111111111111111";
+  const HEAD = 0x18f8000;
+  const env = {
+    RPC_UPSTREAMS: "https://keyed.example/a, https://keyed.example/b",
+    ASSETS: { fetch: async () => new Response(JSON.stringify([OURS])) },
+  };
+  const store = new Map();
+  const ages = new Map();
+  const cache = {
+    match: async (k) => store.get(k.url)?.clone(),
+    put: async (k, r) => (ages.set(k.url, r.headers.get("cache-control")), void store.set(k.url, r)),
+  };
+  let calls = [];
+  let logs = [{ blockNumber: "0x18f4001" }];
+  const fetchStub = async (url, init) => {
+    const body = JSON.parse(init.body);
+    calls.push({ url, method: body.method });
+    // Provider a has no archive: it refuses every log range.
+    if (url.endsWith("/a") && body.method === "eth_getLogs") return new Response("archive not available", { status: 403 });
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: body.method === "eth_blockNumber" ? `0x${HEAD.toString(16)}` : logs }));
+  };
+  const post = (filter) =>
+    handleRpc(new Request("https://imdusd.com/rpc", { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 3, method: "eth_getLogs", params: [filter] }) }), env, { fetch: fetchStub, cache }, { logs: true, pages: "the imdUSD terminal" });
+  resetAllowlist();
+  resetBench();
+  const deep = { address: OURS, fromBlock: "0x18f4000", toBlock: "0x18f47cf" };
+  const r1 = await post(deep);
+  assert.equal(r1.headers.get("x-rpc"), "upstream");
+  assert.deepEqual((await r1.json()).result, logs);
+  // Final: kept for 30 days.
+  assert.ok([...ages.values()].includes(`max-age=${30 * 86400}`));
+  // Provider a refused logs, so the next log range goes to b first; a block number still asks a first.
+  calls = [];
+  await post({ ...deep, fromBlock: "0x18f47d0", toBlock: "0x18f4f9f" });
+  assert.deepEqual(calls.filter((c) => c.method === "eth_getLogs").map((c) => c.url), ["https://keyed.example/b"]);
+  // The same deep window again comes from the cache.
+  assert.equal((await post(deep)).headers.get("x-rpc"), "cache");
+  // A window touching the last 64 blocks is shared for one block only.
+  ages.clear();
+  await post({ ...deep, fromBlock: `0x${(HEAD - 100).toString(16)}`, toBlock: `0x${(HEAD - 10).toString(16)}` });
+  assert.ok([...ages.values()].includes("max-age=12"));
+  // An empty answer for a deep window is never kept for a month.
+  ages.clear();
+  logs = [];
+  await post({ ...deep, fromBlock: "0x18f5000", toBlock: "0x18f57cf" });
+  assert.ok(![...ages.values()].includes(`max-age=${30 * 86400}`));
+  resetBench();
+  resetAllowlist();
+});
+
+test("/rpc shares the provider bench through the cache, and recent log ranges a provider serves do not clear its bench for old ones", async () => {
+  const { handleRpc, resetAllowlist, resetBench } = await import("../worker/rpc.js");
+  const OURS = "0x1111111111111111111111111111111111111111";
+  const HEAD = 0x18f8000;
+  const env = {
+    RPC_UPSTREAMS: "https://keyed.example/a, https://keyed.example/b",
+    ASSETS: { fetch: async () => new Response(JSON.stringify([OURS])) },
+  };
+  const store = new Map();
+  const cache = {
+    match: async (k) => store.get(k.url)?.clone(),
+    put: async (k, r) => void store.set(k.url, r),
+    delete: async (k) => store.delete(k.url),
+  };
+  let calls = [];
+  const fetchStub = async (url, init) => {
+    const body = JSON.parse(init.body);
+    calls.push({ url, method: body.method });
+    // Provider a is a non-archive node: it serves recent log ranges and refuses old ones.
+    if (url.endsWith("/a") && body.method === "eth_getLogs" && BigInt(body.params[0].fromBlock) + 100n < BigInt(HEAD))
+      return new Response("archive not available", { status: 403 });
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: body.method === "eth_blockNumber" ? `0x${HEAD.toString(16)}` : [{ blockNumber: body.params?.[0]?.fromBlock }] }));
+  };
+  const post = (filter) =>
+    handleRpc(new Request("https://imdusd.com/rpc", { method: "POST", body: JSON.stringify({ jsonrpc: "2.0", id: 3, method: "eth_getLogs", params: [filter] }) }), env, { fetch: fetchStub, cache }, { logs: true, pages: "the imdUSD terminal" });
+  const logsTo = () => calls.filter((c) => c.method === "eth_getLogs").map((c) => c.url);
+  const old = (from) => ({ address: OURS, fromBlock: `0x${from.toString(16)}`, toBlock: `0x${(from + 1999).toString(16)}` });
+  resetAllowlist();
+  resetBench();
+  await post(old(0x18f0000)); // a refuses: benched for old ranges, in memory and in the cache
+  // A recent range a does serve leaves that bench alone.
+  calls = [];
+  await post({ address: OURS, fromBlock: `0x${(HEAD - 20).toString(16)}`, toBlock: `0x${(HEAD - 1).toString(16)}` });
+  assert.deepEqual(logsTo(), ["https://keyed.example/a"]);
+  // A new isolate (memory cleared) reads the shared bench: the next old range goes to b first.
+  resetBench();
+  calls = [];
+  await post(old(0x18f2000));
+  assert.deepEqual(logsTo(), ["https://keyed.example/b"]);
+  resetBench();
+  resetAllowlist();
+});

@@ -59,13 +59,13 @@ The top of the tab shows three IMD prices in dollars:
 - **Spot:** the attested reading at a single block, checked against the primary. If the two differ by more than `skew`, borrowing, marking, liquidation and redemption pause.
 - **Market:** read live from IMD's pool and Chainlink every 30 seconds. It is not attested and the vault does not use it; it shows where the next update would move the price.
 
-Beneath them a line says whether price actions are open or paused, and why. When an update is needed, a button buys one with your own IMD through `OracleAsker`: **Update price** buys the primary, plus the spot in the same transaction (`askPaidMany`) only when the spot is stale, would disagree with the new primary or would run out well before it; **Update spot check** buys the spot alone; **Update network health** buys the health feed. Each answer arrives on its own, usually minutes later. The same line and buttons appear above the Position tab's actions.
+Beneath them a line says whether price actions are open or paused, and why. When an update is needed, a button buys one with your own IMD through `OracleAsker`: **Update price** buys the primary, plus the spot in the same transaction (`askPaidMany`) only when the spot is stale, would disagree with the new primary or would run out well before it; **Update spot check** buys the spot alone; **Update network health** buys the health feed. Each answer arrives on its own, usually minutes later. When the protocol's own rules already let the Treasury pay for a feed (a kept-alive feed near expiry, a feed stale long enough to be wide open, or a recorded fall in IMD's pool), the button sends `ask` instead: the Treasury pays and you pay only gas, one feed per click, and any feed it does not cover is bought from your wallet on the next click. While the request contract holds under 2 IMD, the Oracle pane also offers **Top up the oracle**: a plain IMD transfer to `OracleAsker`, which has no withdraw, so what you send is spent only on the updates its rules allow. The same line and buttons appear above the Position tab's actions.
 
 Each feed row expands to show its latest value, when it was updated, its maximum age and its question. **Question: Pinned** means the feed refuses answers to any question other than its own. **None pinned** would mean it accepts any question; **Not reported** means the feed cannot say. **Last window** is the last block of the most recent accepted price window. The IMD/USD row is calculated on chain from the main price and Chainlink ETH/USD, so it is marked Derived and has no question of its own.
 
 ### Backing
 
-- **Backing per imdUSD:** the figure redemption pays against, never above $1. "At par" means backing is at the cap; "Cap binds" means it is below $1 and redemptions pay less.
+- **Backing per imdUSD:** the figure redemption pays against, never above $ 1. "At par" means backing is at the cap; "Cap binds" means it is below $ 1 and redemptions pay less.
 - **Reserve value:** the Treasury's assets in dollars.
 - **Collateral-backed debt:** principal still standing behind collateral, net of bad debt.
 - **Secured collateral:** collateral counted as backing, bounded by each position's own debt. Surplus and debt-free deposits are excluded.
@@ -88,7 +88,7 @@ Right column, **Act**: choose Deposit (`lock`), Borrow (`draw`), Repay (`wipe`) 
 
 ### Redemption
 
-Left: **Current fee** (before your amount is added), **Floor / cap**, **Paid at** ($1, or the backing figure if lower), **Reserve on hand** (Treasury sIMD), **Eligibility ceiling**, and a table of the fee for 1%, 5% and 10% of supply.
+Left: **Current fee** (before your amount is added), **Floor / cap**, **Paid at** ($ 1, or the backing figure if lower), **Reserve on hand** (Treasury sIMD), **Eligibility ceiling**, and a table of the fee for 1%, 5% and 10% of supply.
 
 Right: enter an amount, a slippage tolerance in basis points and, if the reserve is short, a **Candidate position**. Press Quote redemption. The quote shows what you receive, your fee, whether it is served by the reserve, a position or both, the debt cancelled and your minimum. Any edit clears the quote. Then press Review redemption to run Redeem (`cash`).
 

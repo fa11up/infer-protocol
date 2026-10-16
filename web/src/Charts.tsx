@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import { pack } from "./swarm";
 import { formatUnits, maxUint256 } from "viem";
 import type { Runtime } from "./config";
-import type { Snapshot } from "./state";
+import { shownEarnLine, type Snapshot } from "./state";
 import {
   loanBook,
   cadence,
@@ -13,7 +13,7 @@ import {
   type Cadence,
   type Result,
 } from "./history";
-import { fmt, ratio, WAD, message, liquidationPrice, cushion } from "./math";
+import { fmt, money, ratio, WAD, message, liquidationPrice, cushion } from "./math";
 import { Ticker } from "./motion";
 import { Info, Select } from "./actions";
 import { useEns, ensName, displayName } from "./ens";
@@ -48,8 +48,10 @@ export function useCharts(r: Runtime, s?: Snapshot) {
       }
     };
     void Promise.all([
+      // A failed read keeps the last good book on screen with its error, rather than emptying the chart.
       load(() => loanBook(r, s)).then((result) => {
-        if (mounted.current) setBook(result);
+        if (mounted.current)
+          setBook((old) => (result.error && old.data ? { ...old, loading: false, error: result.error } : result));
       }),
       ...[
         "PriceFeed",
@@ -63,7 +65,11 @@ export function useCharts(r: Runtime, s?: Snapshot) {
             [name]: { ...old[name], loading: true },
           }));
         const result = await load(() => cadence(r, s.targets[name], s.block));
-        if (mounted.current) setFeeds((old) => ({ ...old, [name]: result }));
+        if (mounted.current)
+          setFeeds((old) => ({
+            ...old,
+            [name]: result.error && old[name]?.data ? { ...old[name], loading: false, error: result.error } : result,
+          }));
       }),
     ]).finally(() => {
       running.current = false;
@@ -81,7 +87,7 @@ const liquidation = (p: { collateral: bigint; debt: bigint }, s?: Snapshot) => {
   const at =
     s?.v.mat && perImd(liquidationPrice(p.collateral, p.debt, s.v.mat));
   return at
-    ? `liquidates at $${fmt(at, 18, 2)}, ${cushion(s!.feeds.USD?.value, at)}`
+    ? `liquidates at $\u00a0${fmt(at, 18, 2)}, ${cushion(s!.feeds.USD?.value, at)}`
     : "liquidation price unavailable";
 };
 const stateOf = (cr: bigint, min: bigint, ceiling: bigint) =>
@@ -182,12 +188,19 @@ export function LoanBook({
           />
         </p>
         <span className="muted">
+          {/* The book's own block: after a failed refresh the last good book stays on screen, read at its block. */}
           {valid
-            ? `${positions.length} open · block ${s!.block}`
+            ? `${positions.length} open · block ${(book.snapshot ?? s!).block}`
             : "Coverage unverified"}
           {book.loading && " · Reading…"}
         </span>
       </div>
+      {valid && book.error && !book.loading && (
+        <p className="micro danger-text" role="status">
+          Could not refresh the loan book: {book.error} Showing the book as read at block{" "}
+          {(book.snapshot ?? s!).block}. Refresh state to try again.
+        </p>
+      )}
       <div className="book-legend">
         <span className="danger-text">Below minCR · liquidatable</span>
         <span>minCR → ceiling · redeemable</span>
@@ -293,7 +306,7 @@ export function LoanBook({
                       {displayName(p.owner)}
                     </b>
                     <span>
-                      {p.cr === maxUint256 ? "No debt" : `${p.cr}%`} · {fmt(p.debt)} {unit()} ·{" "}
+                      {p.cr === maxUint256 ? "No debt" : `${p.cr}%`} · {money(p.debt)} ·{" "}
                       {stateOf(p.cr, min!, ceiling!)}
                     </span>
                     <span>{liquidation(p, s)}</span>
@@ -478,9 +491,9 @@ function LoanFeed({
                 >
                   {ratio(p.cr)}
                 </span>
-                <span>{fmt(p.debt, 18, 2)}</span>
+                <span>{money(p.debt)}</span>
                 <span>
-                  {at ? `$${fmt(at, 18, 2)}` : "—"}
+                  {at ? `$\u00a0${fmt(at, 18, 2)}` : "—"}
                   <small>{at ? cushion(s.feeds.USD?.value, at) : ""}</small>
                 </span>
               </button>
@@ -609,7 +622,7 @@ export function Sparkline({
 
 export function WorkChart({ s }: { s?: Snapshot }) {
   const minted = s?.v.totalEarned as bigint | undefined,
-    ceiling = s?.v.earnLine as bigint | undefined;
+    ceiling = shownEarnLine(s?.v).value;
   if (minted === undefined || ceiling === undefined)
     return <Unavailable>Could not read work ceiling headroom.</Unavailable>;
   const max = minted > ceiling ? minted : ceiling;
@@ -633,8 +646,8 @@ export function WorkChart({ s }: { s?: Snapshot }) {
         <Ticker
           text={
             minted > ceiling
-              ? `${fmt(minted - ceiling)} ${unit()} over ceiling`
-              : `${fmt(ceiling - minted)} ${unit()} available`
+              ? `${money(minted - ceiling)} over ceiling`
+              : `${money(ceiling - minted)} available`
           }
         />
       </p>
@@ -688,7 +701,7 @@ export function SupplyChart({ s }: { s?: Snapshot }) {
   return (
     <figure className="mini-chart supply-chart">
       <figcaption className="figure-head">
-        Supply · <Ticker text={`${fmt(supply)} ${unit()}`} />
+        Supply · <Ticker text={`${money(supply)}`} />
         <Info
           label="Supply composition"
           text={`■ collateral-backed principal (capped at supply) and ▨ net work-issued ${unit()}. Solid marker = backing ratio, dashed = par.`}

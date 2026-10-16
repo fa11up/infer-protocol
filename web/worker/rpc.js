@@ -44,6 +44,14 @@ const ALLOWED = new Set([
   "eth_feeHistory",
 ]);
 const BLOCK_MS = 12_000;
+// Logs in a window this many blocks below the head can no longer be reorganised: they are shared for a month, so a
+// terminal's history (fixed, aligned windows) is read from a provider once per Cloudflare location, not per visitor.
+const FINAL_DEPTH = 64n;
+const FINAL_MS = 30 * 86_400_000;
+// A provider that just refused a method (no archive, out of credits, range limits) is tried last for that method
+// for a while, instead of first on every call; it is still tried if nothing else answers.
+const BENCH_MS = 5 * 60_000;
+const ARCHIVE_DEPTH = 100n;
 // The terminal reads logs in 2,000-block chunks (src/config.ts historyConfig.chunkSize); public RPCs refuse
 // spans above 50,000. One request may not ask a provider for more than this.
 const MAX_LOG_SPAN = 10_000n;
@@ -115,7 +123,7 @@ function refusal(call, allowed, opts) {
  * How long an answer may be shared, in ms, or 0 for never: reads that do not depend on who asks, at the
  * latest block (one block) or at a fixed block (an hour; history does not change).
  */
-function shareable(call) {
+function shareable(call, head) {
   const p = call.params ?? [];
   const at = (tag) => (tag === undefined || tag === "latest" ? BLOCK_MS : /^0x[0-9a-f]+$/i.test(tag) ? 3_600_000 : 0);
   switch (call.method) {
@@ -133,9 +141,12 @@ function shareable(call) {
       return at(p[1]);
     case "eth_getBlockByNumber":
       return p[1] === false ? at(p[0]) : 0;
-    case "eth_getLogs":
-      // A numbered range near the head can still be reorganised, so logs are shared for one block only.
-      return BLOCK_MS;
+    case "eth_getLogs": {
+      // A numbered range near the head can still be reorganised, so logs are shared for one block only; a range
+      // wholly below FINAL_DEPTH of the head is final.
+      const to = p[0]?.toBlock;
+      return head !== undefined && /^0x[0-9a-f]+$/i.test(to ?? "") && BigInt(to) + FINAL_DEPTH <= head ? FINAL_MS : BLOCK_MS;
+    }
     default:
       return 0;
   }
@@ -153,10 +164,63 @@ async function cacheKey(call, ttl, origin) {
 const providerTrouble = (e) =>
   e && (e.code === -32005 || e.code === 429 || /rate|limit|capacity|unavailable|timeout|too many|exceeded|unauthor|forbidden/i.test(e.message ?? ""));
 
-/** One call upstream: the first provider that answers, revert included. */
-async function forward(call, upstreams, fetcher) {
+// The bench is kept in this isolate's memory and in Cloudflare's cache, so every isolate at a location shares what one
+// learned instead of each walking the refusing providers again. An isolate reads the shared entry at most every
+// BENCH_RECHECK_MS per provider and method. Keys are hashes: the upstream URLs carry API keys.
+const BENCH_RECHECK_MS = 30_000;
+const benched = new Map(); // "method url" -> { until, checked }
+/** Tests reset the providers' standing between cases. */
+export const resetBench = () => benched.clear();
+
+async function benchKey(method, url, origin) {
+  const bytes = new TextEncoder().encode(`${method} ${url}`);
+  const hash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map((b) => b.toString(16).padStart(2, "0")).join("");
+  return new Request(`${origin}/__rpc-bench/${hash}`);
+}
+
+/** Whether each upstream is benched for this method: memory first, the shared cache when memory is old. */
+async function benchedNow(method, upstreams, cache, origin) {
+  const now = Date.now();
+  return Promise.all(
+    upstreams.map(async (url) => {
+      const k = `${method} ${url}`;
+      const m = benched.get(k);
+      if (m && (m.until > now || now - m.checked < BENCH_RECHECK_MS)) return m.until > now;
+      let until = m?.until ?? 0;
+      if (cache && origin)
+        try {
+          const hit = await cache.match(await benchKey(method, url, origin));
+          if (hit) until = Math.max(until, Number(await hit.text()) || 0);
+        } catch {
+          /* the shared bench is an optimisation only */
+        }
+      benched.set(k, { until, checked: now });
+      return until > now;
+    }),
+  );
+}
+
+/** One call upstream: the first provider that answers, revert included. `kind` is what a provider is benched for:
+ * the method, or "eth_getLogs:old" for a log range reaching back past what non-archive nodes serve. */
+async function forward(call, upstreams, fetcher, cache, origin, kind = call.method) {
   let last = "no upstream answered";
-  for (const url of upstreams) {
+  const isOut = await benchedNow(kind, upstreams, cache, origin);
+  const out = (url) => isOut[upstreams.indexOf(url)];
+  const bench = async (url) => {
+    const until = Date.now() + BENCH_MS;
+    benched.set(`${kind} ${url}`, { until, checked: Date.now() });
+    if (cache && origin)
+      await benchKey(kind, url, origin)
+        .then((k) => cache.put(k, new Response(String(until), { headers: { "cache-control": `max-age=${BENCH_MS / 1000}` } })))
+        .catch(() => undefined);
+  };
+  const clear = async (url) => {
+    const k = `${kind} ${url}`;
+    if ((benched.get(k)?.until ?? 0) === 0) return;
+    benched.set(k, { until: 0, checked: Date.now() });
+    if (cache && origin && cache.delete) await benchKey(kind, url, origin).then((key) => cache.delete(key)).catch(() => undefined);
+  };
+  for (const url of [...upstreams.filter((u) => !out(u)), ...upstreams.filter(out)]) {
     try {
       const r = await fetcher(url, {
         method: "POST",
@@ -166,23 +230,45 @@ async function forward(call, upstreams, fetcher) {
       });
       if (!r.ok) {
         last = `HTTP ${r.status}`;
+        await bench(url);
         continue;
       }
       const d = await r.json();
       if (d.error && providerTrouble(d.error)) {
         last = d.error.message;
+        await bench(url);
         continue;
       }
       if (!("result" in d) && !d.error) {
         last = "empty answer";
+        await bench(url);
         continue;
       }
+      await clear(url);
       return { result: d.result, error: d.error };
     } catch (e) {
       last = e instanceof Error ? e.message : String(e);
+      await bench(url);
     }
   }
   return { error: { code: -32603, message: `upstream unavailable: ${last}` } };
+}
+
+/** The chain head for deciding what is final: from the cache within a block, else from a provider; undefined if
+ * nobody answers (then nothing is treated as final). Not counted against the visitor's upstream limit. */
+async function latest(upstreams, fetcher, cache, origin) {
+  const call = { jsonrpc: "2.0", id: 0, method: "eth_blockNumber", params: [] };
+  const key = cache ? await cacheKey(call, BLOCK_MS, origin) : null;
+  try {
+    const hit = key && (await cache.match(key));
+    if (hit) return BigInt((await hit.json()).result);
+  } catch {
+    /* fall through to a provider */
+  }
+  const got = await forward(call, upstreams, fetcher, cache, origin);
+  if (got.error || typeof got.result !== "string") return undefined;
+  if (key) await cache.put(key, new Response(JSON.stringify({ result: got.result }), { headers: { "cache-control": `max-age=${BLOCK_MS / 1000}` } }));
+  return BigInt(got.result);
 }
 
 /** Whether `binding` lets `key` through; a missing binding, or one that fails, never blocks. */
@@ -202,7 +288,12 @@ async function answer(call, env, allowed, upstreams, fetcher, cache, who, opts, 
     console.log(`rpc refused: ${no}`);
     return { body: fail(call?.id, -32601, no), source: "refused" };
   }
-  const ttl = shareable(call);
+  const head = call?.method === "eth_getLogs" && cache ? await latest(upstreams, fetcher, cache, origin) : undefined;
+  const ttl = shareable(call, head);
+  // Non-archive providers serve only the last ~100 blocks of logs: an older range is its own kind for the bench, so a
+  // provider refusing it is not cleared by the recent ranges it does serve.
+  const from = call?.params?.[0]?.fromBlock;
+  const kind = head !== undefined && /^0x[0-9a-f]+$/i.test(from ?? "") && BigInt(from) + ARCHIVE_DEPTH < head ? "eth_getLogs:old" : call?.method;
   const key = ttl && cache ? await cacheKey(call, ttl, origin) : null;
   if (key) {
     const hit = await cache.match(key);
@@ -210,9 +301,13 @@ async function answer(call, env, allowed, upstreams, fetcher, cache, who, opts, 
   }
   if (!(await under(env.RPC_UPSTREAM, who)))
     return { body: fail(call.id, -32005, "rate limited: too many uncached calls from this address, retry in a minute"), source: "limited" };
-  const got = await forward(call, upstreams, fetcher);
-  if (key && !got.error && got.result !== null && got.result !== undefined)
-    await cache.put(key, new Response(JSON.stringify({ result: got.result }), { headers: { "cache-control": `max-age=${Math.ceil(ttl / 1000)}` } }));
+  const got = await forward(call, upstreams, fetcher, cache, origin, kind);
+  // An empty log list is never kept past one block: some providers answer [] for ranges they will not serve, and a
+  // month of that would hide real logs.
+  const keep = Array.isArray(got.result) && got.result.length === 0 ? Math.min(ttl, BLOCK_MS) : ttl;
+  const storeKey = key && keep !== ttl ? await cacheKey(call, keep, origin) : key;
+  if (storeKey && !got.error && got.result !== null && got.result !== undefined)
+    await cache.put(storeKey, new Response(JSON.stringify({ result: got.result }), { headers: { "cache-control": `max-age=${Math.ceil(keep / 1000)}` } }));
   return { body: { jsonrpc: "2.0", id: call.id, ...got }, source: "upstream" };
 }
 

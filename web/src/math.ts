@@ -1,4 +1,4 @@
-import { unit } from "./unit.ts";
+import { unit, SIGN } from "./unit.ts";
 import {
   formatUnits,
   parseUnits,
@@ -8,7 +8,7 @@ import {
 } from "viem";
 import { ours } from "./names.ts";
 export const WAD = 10n ** 18n;
-export const fmt = (v: bigint | undefined, d = 18, places = 4): string => {
+export const fmt = (v: bigint | undefined, d = 18, places = 2): string => {
   if (v === undefined) return "—";
   const [a, b = ""] = formatUnits(v, d).split(".");
   return (
@@ -18,6 +18,10 @@ export const fmt = (v: bigint | undefined, d = 18, places = 4): string => {
       : "")
   );
 };
+/** An imdUSD amount as shown: the sign, a no-break space (touching, the sign reads as a 1), then the figure. The
+ * legacy Sepolia stack's COMP keeps its name after the number. */
+export const money = (v: bigint | undefined, d = 18, places = 2): string =>
+  unit() === "imdUSD" ? `${SIGN}\u00a0${fmt(v, d, places)}` : `${fmt(v, d, places)} ${unit()}`;
 export const exact = (v: bigint, d = 18) => formatUnits(v, d);
 export const percent = (v: bigint | undefined) =>
   v === undefined ? "—" : `${formatUnits(v, 2)}%`;

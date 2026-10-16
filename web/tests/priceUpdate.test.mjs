@@ -34,7 +34,7 @@ test("stale: says price actions are paused, an update reopens them, and buys pri
   assert.match(a.lines[0], /reopens them for 1 hour/);
   assert.deepEqual(a.buy, ["PriceFeed", "SpotFeed"]);
   assert.match(a.lines.at(-1), /two answers in one transaction/);
-  assert.match(a.lines.at(-1), /1 IMD \(about \$10\.00\)/);
+  assert.match(a.lines.at(-1), /1 IMD \(about \$\u00a010\.00\)/);
 });
 
 test("market above: the borrower's ratio and borrowing room rise, in plain numbers", () => {
@@ -133,7 +133,7 @@ test("after a fast move: holds the purchase while the two-hour median would stil
   assert.match(a.wait, /Not yet/);
   assert.match(a.wait, /about 30 minutes/);
   assert.equal(a.waitShort, "Wait about 30 minutes");
-  assert.match(a.wait, /land at about \$8\.\d\d while a fresh spot check would land at the market \(\$8\.\d\d\): 7\.\d% apart/);
+  assert.match(a.wait, /land at about \$\u00a08\.\d\d while a fresh spot check would land at the market \(\$\u00a08\.\d\d\): 7\.\d% apart/);
   assert.equal(a.lines[0], a.wait);
   assert.ok(!a.lines.some((l) => /from your wallet/.test(l)), "no price quoted for a held purchase");
 });
@@ -244,7 +244,7 @@ test("both stale after a fast move: held, and says the fresh spot would land at 
     projected: { median: 3657000000000000n, samples: Array(13).fill(3657000000000000n), spacingBlocks: 50n },
   });
   assert.deepEqual(a.buy, ["PriceFeed", "SpotFeed"]);
-  assert.match(a.wait ?? "", /a fresh spot check would land at the market \(\$10\.\d\d\)/);
+  assert.match(a.wait ?? "", /a fresh spot check would land at the market \(\$\u00a010\.\d\d\)/);
 });
 
 test("network health is a separate daily update, never folded into the price", () => {
@@ -258,5 +258,5 @@ test("helpers", () => {
   assert.equal(stepsTo(2n * WAD, 2000n, 4000n), 3); // 1.4, 1.68, 2.016
   assert.equal(stepsTo(WAD / 2n, 2000n, 4000n), 2); // 0.6, 0.48
   assert.equal(pct(1050n), "10.5%");
-  assert.equal(dollars(1234567n * 10n ** 16n), "$12,345.67");
+  assert.equal(dollars(1234567n * 10n ** 16n), "$\u00a012,345.67");
 });

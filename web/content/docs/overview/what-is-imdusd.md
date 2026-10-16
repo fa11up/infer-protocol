@@ -32,15 +32,15 @@ Two things stand behind imdUSD:
 1. **Collateral.** Every position must hold more sIMD, valued in dollars, than the imdUSD it owes. The required margin (the minimum collateral ratio, `mat`) rises and falls with the health of the IdentityMD network.
 2. **A reserve.** The protocol's Treasury holds sIMD and any other assets governance lists. Redemptions are paid from it first.
 
-The dollar price of IMD is not read from an exchange contract. A panel of IdentityMD agents answers a fixed question about it, the answer is signed, and anyone may submit it on chain. sIMD is then valued as the IMD it is a claim on. [How imdUSD holds a dollar](./how-it-holds-a-dollar.md) explains how these pieces keep the price near $1.
+The dollar price of IMD is not read from an exchange contract. A panel of IdentityMD agents answers a fixed question about it, the answer is signed, and anyone may submit it on chain. sIMD is then valued as the IMD it is a claim on. [How imdUSD holds a dollar](./how-it-holds-a-dollar.md) explains how these pieces keep the price near $ 1.
 
 ## What it pays when redeemed
 
-A holder can burn imdUSD for sIMD worth $1, less a fee. If the system holds less than $1 of backing per imdUSD, the payout shrinks to match instead of redemption closing.
+A holder can burn imdUSD for sIMD worth $ 1, less a fee. If the system holds less than $ 1 of backing per imdUSD, the payout shrinks to match instead of redemption closing.
 
 ## What is unproven
 
-- The peg depends on traders buying imdUSD below the redemption price. Nothing guarantees the market price stays at $1.
+- The peg depends on traders buying imdUSD below the redemption price. Nothing guarantees the market price stays at $ 1.
 - The price comes from one signer, the IdentityMD oracle service, answering one fixed question. Minimum panel sizes, the fixed question and a second comparison price limit that trust; they do not remove it.
 - Network health is also a signed figure, and it moves both the collateral requirement and how long a marked borrower has to recover.
 - A liquidation can leave bad debt. There is no insurance fund. Anyone can cancel a drained position's bad debt with imdUSD the Treasury holds (`cover`), but only as far as the Treasury has it.

@@ -48,6 +48,7 @@ export const LEGACY_REDEEMER = parseAbi([
   "function redeemed(address legacy) view returns (uint256)",
   "function closesAt() view returns (uint64)",
   "function redeem(address legacy, uint256 amount) returns (uint256)",
+  "function advanceClock(address legacy, uint256 steps)",
 ]);
 
 export const STAKED_INFER = parseAbi([

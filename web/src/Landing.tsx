@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { SiteHeader, href, WHITEPAPER, INFER_SITE, TERMINAL, XLink } from "./site";
+import { SiteHeader, href, WHITEPAPER, INFER_SITE, TERMINAL, XLink, DexLink } from "./site";
 // The live homepage (chain reads, viem, the deployment file) lives in its own module. The public
 // build aliases it to an empty stub (vite.config.ts), so no chain code ships on imdusd.com.
 import { LiveLanding } from "./landing-live";
@@ -158,7 +158,7 @@ export function Page({
             <article>
               <h3>Redeem</h3>
               <p>
-                Burn imdUSD for sIMD at the lesser of $1 and the backing behind
+                Burn imdUSD for sIMD at the lesser of $&nbsp;1 and the backing behind
                 each imdUSD, less a fee that grows with the size of the
                 redemption and stays in the protocol as backing.
               </p>
@@ -211,6 +211,7 @@ export function Page({
             Whitepaper ↗
           </a>
           <XLink />
+          <DexLink />
         </nav>
         <span>imdUSD · built on IdentityMD</span>
       </footer>

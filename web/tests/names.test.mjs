@@ -11,8 +11,8 @@ import {
 } from "../src/names.ts";
 
 // Every row of the table is checked against real ABIs: the protocol's own names against the current
-// contracts (docs/abi at HEAD), the legacy names against the ABIs the deployed terminal ships
-// (public/abi, pinned to the Sepolia deployment). A typo here would otherwise surface as a
+// contracts (docs/abi at HEAD), the legacy names against the Sepolia deployment's ABIs (tests/fixture-deployment/abi;
+// public/abi has shipped mainnet's since 5ba2182). A typo here would otherwise surface as a
 // "function not found" in a user's transaction.
 const names = (dir) => {
   const out = new Set();
@@ -27,7 +27,7 @@ const names = (dir) => {
   return out;
 };
 const current = names(new URL("../../docs/abi", import.meta.url).pathname);
-const deployed = names(new URL("../public/abi", import.meta.url).pathname);
+const deployed = names(new URL("./fixture-deployment/abi", import.meta.url).pathname);
 
 test("every protocol name in the table exists in the current contracts", () => {
   const missing = Object.keys(LEGACY_NAMES).filter((n) => !current.has(n));

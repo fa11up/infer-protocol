@@ -17,6 +17,7 @@ import {
   message,
   ratio,
   WAD,
+  money,
 } from "./math";
 import { explained } from "./explain";
 import { onChain } from "./names";
@@ -55,14 +56,12 @@ export function Redemption({
     version.current++;
     setQ(undefined);
   }, [input, candidate, slippage, actions.account]);
-  // A new snapshot (every 15 s) clears a quote already shown, which names an older block, but lets one in
-  // flight land: voiding that too meant a quote slower than the refresh never appeared, with no error.
-  useEffect(() => {
-    setQ(undefined);
-  }, [s]);
+  // A quote stays through refreshes (it names its block, and submitting simulates again against the minimum
+  // it carries); clearing it every 15 s made it vanish while it was being read.
   useEffect(() => {
     let active = true;
-    setCurve([]);
+    // The last curve stays until the new one is read: emptied first, the table blinked "Supply —" each refresh.
+    if (s && !(s.v.supply > 0n)) setCurve([]);
     if (s && s.v.supply > 0n) {
       Promise.all(
         [1, 5, 10].map(async (pct) => {
@@ -112,13 +111,13 @@ export function Redemption({
         </Row>
         <Row
           label={`Paid at, per ${unit()}`}
-          info={`A redemption pays the lesser of $1 and backing per ${unit()}, less the fee.`}
+          info={`A redemption pays the lesser of $\u00a01 and backing per ${unit()}, less the fee.`}
         >
           {v.backingPerUnit === undefined
             ? "Par (backing unavailable)"
             : v.backingPerUnit < WAD
-              ? `$${fmt(v.backingPerUnit)} · cap binds`
-              : "$1 · par"}
+              ? `$\u00a0${fmt(v.backingPerUnit)} · cap binds`
+              : "$\u00a01 · par"}
         </Row>
         <Row
           label="Reserve on hand"
@@ -390,7 +389,7 @@ export function Redemption({
             </Row>
             <Row label="Your fee">
               {percent(q.fee)} ·{" "}
-              {q.capped ? `$${fmt(q.paidAt)} (backing cap)` : "$1 (par)"}
+              {q.capped ? `$\u00a0${fmt(q.paidAt)} (backing cap)` : "$\u00a01 (par)"}
             </Row>
             <Row label="Served by">{q.source}</Row>
             {q.reserveOut > 0n && q.positionOut > 0n && (
@@ -411,7 +410,7 @@ export function Redemption({
             )}
             {q.debtCancelled > 0n && (
               <Row label="Debt cancelled">
-                {fmt(q.debtCancelled)} {unit()}
+                {money(q.debtCancelled)}
               </Row>
             )}
             <Row label="Minimum received">
@@ -425,7 +424,7 @@ export function Redemption({
                 target: s!.targets.ParameterizedVault,
                 fn: "cash",
                 args: [q.amount, q.minimum, q.candidate],
-                summary: `Burn ${exact(q.amount)} ${unit()}. Receive at least ${exactGem(q.minimum)} ${gemUnit()}; quoted ${exactGem(q.out)} ${gemUnit()} from ${q.source.toLowerCase()} at ${percent(q.fee)}${q.capped ? `, paid at $${fmt(q.paidAt)} per ${unit()} because backing is below par` : ""}. Candidate: ${q.candidate}. The fee is retained as backing.`,
+                summary: `Burn ${exact(q.amount)} ${unit()}. Receive at least ${exactGem(q.minimum)} ${gemUnit()}; quoted ${exactGem(q.out)} ${gemUnit()} from ${q.source.toLowerCase()} at ${percent(q.fee)}${q.capped ? `, paid at $\u00a0${fmt(q.paidAt)} per ${unit()} because backing is below par` : ""}. Candidate: ${q.candidate}. The fee is retained as backing.`,
               })}
             />
           </div>

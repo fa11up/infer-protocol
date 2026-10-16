@@ -7,7 +7,7 @@ audience: everyone
 
 # The peg pool
 
-imdUSD trades against USDC in one Uniswap v4 pool. It opened at exactly $1, charges a 0.01% fee to trade near the peg, and adds a surcharge to any swap that pushes the price away from $1. The surcharge rules live in a v4 hook, `PegFeeHook`, which has no owner and nothing anyone can change.
+imdUSD trades against USDC in one Uniswap v4 pool. It opened at exactly $ 1, charges a 0.01% fee to trade near the peg, and adds a surcharge to any swap that pushes the price away from $ 1. The surcharge rules live in a v4 hook, `PegFeeHook`, which has no owner and nothing anyone can change.
 
 | | |
 |---|---|
@@ -23,26 +23,26 @@ Anyone can deploy a copy of the hook at another address and open a pool beside t
 
 ## What a swap pays
 
-Every swap pays the pool's fee, 0.01%, to the liquidity providers. A swap that ends with imdUSD more than 0.25% from $1, having pushed it that way, also pays a surcharge. The surcharge is priced from where the swap **ends**:
+Every swap pays the pool's fee, 0.01%, to the liquidity providers. A swap that ends with imdUSD more than 0.25% from $ 1, having pushed it that way, also pays a surcharge. The surcharge is priced from where the swap **ends**:
 
 | imdUSD price where the swap ends | Total fee (pool fee + surcharge) |
 |---|---|
-| $0.9975 to $1.0025 | 0.01% |
-| $0.995 or $1.005 | about 0.72% |
-| $0.99 or $1.01 | about 2.15% |
-| $0.98 or $1.02 and beyond | 5% |
+| $ 0.9975 to $ 1.0025 | 0.01% |
+| $ 0.995 or $ 1.005 | about 0.72% |
+| $ 0.99 or $ 1.01 | about 2.15% |
+| $ 0.98 or $ 1.02 and beyond | 5% |
 
-Between 0.25% and 2% from $1 the surcharge rises in a straight line, and from 2% out the total stays at 5%. A swap that moves the price **towards** $1 pays only the 0.01% pool fee, however far from $1 it starts. So does any swap that ends inside the ±0.25% band.
+Between 0.25% and 2% from $ 1 the surcharge rises in a straight line, and from 2% out the total stays at 5%. A swap that moves the price **towards** $ 1 pays only the 0.01% pool fee, however far from $ 1 it starts. So does any swap that ends inside the ±0.25% band.
 
 Three consequences of pricing by the end price:
 
 - **A sale split into steps pays less than one swap to the same price,** about a third to a half less, because each step pays at its own end price. It never pays less than the pool fee.
-- **A swap that crosses $1 is charged by where it lands,** on its whole amount, even if it started further from $1 on the other side. Arbitrage that restores the peg stops at $1 and pays only the pool fee.
+- **A swap that crosses $ 1 is charged by where it lands,** on its whole amount, even if it started further from $ 1 on the other side. Arbitrage that restores the peg stops at $ 1 and pays only the pool fee.
 - **A trade placed just before yours can push your swap past the band's edge,** so it pays the ramp. The surcharge goes to the Treasury, not to whoever placed that trade, and your swap's own price limit caps what you pay.
 
 ## Why a surcharge
 
-Below $1, imdUSD has a floor that does not depend on this pool: redemption swaps imdUSD for collateral, for a fee of 0.5% to 5% (see [Redeem](../guides/redeem.md)). A swap that pushes imdUSD to $0.98 or below pays 5%, the most redemption ever charges, so a large sale that would break the peg costs at least as much as redeeming would, while redemption itself pulls the price back towards $1. Above $1 the same surcharge applies to buying, and the cheaper source of imdUSD is borrowing it from the vault. The surcharge falls away as the price returns to the band.
+Below $ 1, imdUSD has a floor that does not depend on this pool: redemption swaps imdUSD for collateral, for a fee of 0.5% to 5% (see [Redeem](../guides/redeem.md)). A swap that pushes imdUSD to $ 0.98 or below pays 5%, the most redemption ever charges, so a large sale that would break the peg costs at least as much as redeeming would, while redemption itself pulls the price back towards $ 1. Above $ 1 the same surcharge applies to buying, and the cheaper source of imdUSD is borrowing it from the vault. The surcharge falls away as the price returns to the band.
 
 ## Where the surcharge goes
 
@@ -50,13 +50,13 @@ The surcharge is taken in the currency on the swap's unspecified side: the outpu
 
 ## What the hook allows
 
-`PegFeeHook` attaches to exactly one pool. Its `beforeInitialize` refuses any pool key other than imdUSD/USDC at fee 100, tick spacing 1, with this hook, and any opening price other than exactly $1. It has no owner, no settings and no storage: the fee, the band, the ramp, the Treasury and the tokens are fixed in the contract. Its address carries exactly the three hook permissions it uses: `beforeInitialize`, `afterSwap` and `afterSwapReturnDelta`.
+`PegFeeHook` attaches to exactly one pool. Its `beforeInitialize` refuses any pool key other than imdUSD/USDC at fee 100, tick spacing 1, with this hook, and any opening price other than exactly $ 1. It has no owner, no settings and no storage: the fee, the band, the ramp, the Treasury and the tokens are fixed in the contract. Its address carries exactly the three hook permissions it uses: `beforeInitialize`, `afterSwap` and `afterSwapReturnDelta`.
 
-Read-only helpers: `stablePrice(sqrtPriceX96)` gives imdUSD's price in USDC (1e18 = $1), `feeFor(sqrtPriceX96, zeroForOne)` gives the total fee in hundredths of a basis point for a swap ending at that price, and `surchargeFor` gives the surcharge alone.
+Read-only helpers: `stablePrice(sqrtPriceX96)` gives imdUSD's price in USDC (1e18 = $ 1), `feeFor(sqrtPriceX96, zeroForOne)` gives the total fee in hundredths of a basis point for a swap ending at that price, and `surchargeFor` gives the surcharge alone.
 
 ## Adding liquidity
 
-The first position covers $0.9524 to $1.05. Anyone may add liquidity through Uniswap's PositionManager like any v4 pool, at any range. The first deposit was bounded at $1: each token's maximum was what a $1 position needs, so a pool pushed off the peg before it would have made the deposit revert rather than land at a moved price. Deposit the same way, with `amount0Max` and `amount1Max` set for the price you expect.
+The first position covers $ 0.9524 to $ 1.05. Anyone may add liquidity through Uniswap's PositionManager like any v4 pool, at any range. The first deposit was bounded at $ 1: each token's maximum was what a $ 1 position needs, so a pool pushed off the peg before it would have made the deposit revert rather than land at a moved price. Deposit the same way, with `amount0Max` and `amount1Max` set for the price you expect.
 
 ## Audits
 

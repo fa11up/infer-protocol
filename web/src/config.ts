@@ -164,8 +164,9 @@ export async function loadConfig() {
       ),
     ]),
     // Bundles only reads made in the same moment at the same block; a revert in one call still fails only
-    // that read. batchSize is calldata bytes: 512 keeps a bundle under the Worker's 64 calls.
-    batch: { multicall: { batchSize: 512, wait: 16 } },
+    // that read. batchSize is calldata bytes and the smallest read is 4 (a bare selector): 256 keeps even a bundle of
+    // those at the Worker's 64 calls (512 let 128 through once the snapshot read everything at once).
+    batch: { multicall: { batchSize: 256, wait: 16 } },
   });
   return { config, abis, targets, chain, client };
 }
@@ -258,6 +259,8 @@ export const historyConfig = {
    */
   historyFloor: { "imdusd-mainnet-26166417": 26165887n } as Record<string, bigint>,
   chunkSize: 2000n,
+  /** History windows read at once. */
+  parallel: 6,
   maxChunks: 10000,
   maxPages: 2000,
   overlap: 12n,

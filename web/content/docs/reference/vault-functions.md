@@ -40,13 +40,13 @@ Charges the owner's accrued fees, cancels fees then principal, burns the caller'
 
 ### `cash(uint256 amount, uint256 minGemOut, address candidate)`
 
-Redeem imdUSD for sIMD. Needs a positive `amount` no larger than total supply, enough imdUSD in the caller's wallet, live prices, and a payout above zero and at least `minGemOut`. The payout is `amount` at the payout price (`payoutPrice()`: the higher of the dollar price and a paced price that falls at most 1% an hour), times `backingPerUnit()` (so less than $1 a unit while backing is below $1), less the fee. If the Treasury cannot cover the payout, `candidate` must have debt, a ratio strictly below `mat() + gap()`, enough debt for the shortfall, and must not end up with a worse collateral-to-debt ratio.
+Redeem imdUSD for sIMD. Needs a positive `amount` no larger than total supply, enough imdUSD in the caller's wallet, live prices, and a payout above zero and at least `minGemOut`. The payout is `amount` at the payout price (`payoutPrice()`: the higher of the dollar price and a paced price that falls at most 1% an hour), times `backingPerUnit()` (so less than $ 1 a unit while backing is below $ 1), less the fee. If the Treasury cannot cover the payout, `candidate` must have debt, a ratio strictly below `mat() + gap()`, enough debt for the shortfall, and must not end up with a worse collateral-to-debt ratio.
 
 Burns all of `amount`, pays from the Treasury's sIMD first and from the candidate's collateral for the rest, cancelling the candidate's fees before principal (fees are not reminted). Stores the new redemption base rate and the redemption time; the part of the burn that cancelled the candidate's principal from the last twelve hours is charged in full but does not raise the stored rate. Emits `Cash`, and `Heel` if a mark was cleared. Returns `gemOut`, the sIMD paid. No partial fills and no approval.
 
 ### `cover(address owner, uint256 amount)`
 
-Cancel a drained position's bad debt with the Treasury's imdUSD. Anyone may call it. Needs a positive `amount` no larger than the position's debt, a Treasury holding at least `amount` imdUSD, and a position with recorded bad debt. The position may hold no collateral; or dust (worth under about 1.2 imdUSD, or a millionth of a debt above a million), which is moved to the Treasury first; or collateral worth less than the position's recorded bad debt, which the Treasury takes at its value, so `amount` must then be at least that value. Anything but no collateral needs live prices unless the dust is below what a liquidation of one wei of debt would seize.
+Cancel a drained position's bad debt with the Treasury's imdUSD. Anyone may call it. Needs a positive `amount` no larger than the position's debt, a Treasury holding at least `amount` imdUSD, and a position with recorded bad debt. The position may hold no collateral; or dust (worth under about Ɨ 1.2, or a millionth of a debt above a million), which is moved to the Treasury first; or collateral worth less than the position's recorded bad debt, which the Treasury takes at its value, so `amount` must then be at least that value. Anything but no collateral needs live prices unless the dust is below what a liquidation of one wei of debt would seize.
 
 Burns `amount` of the Treasury's imdUSD and applies it like a repayment: fees first (reminted to the Treasury), then principal. `totalDebt`, the position's bad debt and `totalBadDebt` fall together, which raises backing for every holder. Emits `Cover`. Reverts with `NoRealizedBadDebt` if the position holds collateral worth at least its recorded bad debt, or has no recorded bad debt, and with `CoverBelowCollateralValue` if it takes collateral for less than its value.
 
@@ -120,7 +120,7 @@ Returns `uint256`. The liquidation bonus, as a percent of debt repaid: 20. Fixed
 
 ### `FOLLOW_BPS_PER_HOUR()`
 
-Returns `uint256`. How far the paced supply (the fee base) and the paced debt (what the work ceiling counts) may move toward the live figures per hour of elapsed time, in basis points of themselves or of the 100,000 imdUSD floor when larger: 1,000. The paced debt falls at once. Fixed.
+Returns `uint256`. How far the paced supply (the fee base) and the paced debt (what the work ceiling counts) may move toward the live figures per hour of elapsed time, in basis points of themselves or of the Ɨ 100,000 floor when larger: 1,000. The paced debt falls at once. Fixed.
 
 ### `PACE_INTERVAL()`
 
@@ -144,7 +144,7 @@ Returns `uint256`. The principal that counts toward the work-minting ceiling: to
 
 ### `backingPerUnit()`
 
-Returns `uint256`. Dollar backing per imdUSD, scaled by 1e18 and capped at $1: the Treasury's sIMD, other listed reserve assets and collateral that secures debt, divided by supply (plus any imdUSD repaid earlier in the same transaction). It is the lower of the live figure and the paced backing, which falls at once and rises at most two points of par an hour (`BACKING_RISE_PER_HOUR`). Redemption pays against this. Needs a nonzero dollar price but does not check freshness. See [Monetary policy](../economics/monetary-policy.md).
+Returns `uint256`. Dollar backing per imdUSD, scaled by 1e18 and capped at $ 1: the Treasury's sIMD, other listed reserve assets and collateral that secures debt, divided by supply (plus any imdUSD repaid earlier in the same transaction). It is the lower of the live figure and the paced backing, which falls at once and rises at most two points of par an hour (`BACKING_RISE_PER_HOUR`). Redemption pays against this. Needs a nonzero dollar price but does not check freshness. See [Monetary policy](../economics/monetary-policy.md).
 
 ### `badDebtOf(address owner)`
 
@@ -224,7 +224,7 @@ Returns `uint256`. When the last redemption happened; starts at deployment.
 
 ### `line()`
 
-Returns `uint256`. The ceiling on outstanding borrowed principal, in imdUSD raw units: 1,000,000 imdUSD at launch. Governed. Fees and work minting do not count against it.
+Returns `uint256`. The ceiling on outstanding borrowed principal, in imdUSD raw units: Ɨ 1,000,000 at launch. Governed. Fees and work minting do not count against it.
 
 ### `liquidationMarks(address account)`
 
@@ -276,7 +276,7 @@ Returns `uint256`. `mat() + gap()`, in whole percentage points. A candidate must
 
 ### `redemptionDivisor()`
 
-Returns `uint256`. How fast the redemption fee climbs: each redemption adds redeemed ÷ fee base ÷ this to the base rate, where the fee base is the paced supply (see [Monetary policy](../economics/monetary-policy.md)), never less than 100,000 imdUSD. Governed: 2 at launch.
+Returns `uint256`. How fast the redemption fee climbs: each redemption adds redeemed ÷ fee base ÷ this to the base rate, where the fee base is the paced supply (see [Monetary policy](../economics/monetary-policy.md)), never less than Ɨ 100,000. Governed: 2 at launch.
 
 ### `redemptionFeeBps(uint256 amount)`
 

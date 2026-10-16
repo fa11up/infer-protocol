@@ -32,18 +32,46 @@ async function pegLiquidityTxs(r: Runtime, head: number): Promise<Set<string> | 
   const pool = pointsConfig.pegPools[r.config.chainId];
   const pm = pointsConfig.poolManagers[r.config.chainId];
   if (!pool || !pm) return undefined;
-  const old = lpScans.get(r);
+  // Kept in the browser between visits (missing or full storage just means a full scan), and re-read from 64 blocks
+  // before where the last scan stopped, so a reorganised block is read again.
+  const storeKey = `lp-scan:${r.config.chainId}:${pool.poolId}`;
+  let old = lpScans.get(r);
+  if (!old)
+    try {
+      const kept = JSON.parse(localStorage.getItem(storeKey) ?? "null");
+      if (kept && Number.isSafeInteger(kept.through) && Array.isArray(kept.txs)) old = { through: kept.through, txs: new Set(kept.txs) };
+    } catch {
+      /* no storage */
+    }
   const txs = new Set(old?.txs);
   const step = Number(historyConfig.chunkSize);
-  for (let a = old ? old.through + 1 : pool.fromBlock; a <= head; a += step) {
-    const b = Math.min(head, a + step - 1);
-    const logs = (await r.client.request({
-      method: "eth_getLogs",
-      params: [{ address: pm as `0x${string}`, topics: [MODIFY_LIQUIDITY, pool.poolId], fromBlock: `0x${a.toString(16)}`, toBlock: `0x${b.toString(16)}` }],
-    })) as { transactionHash: string }[];
-    for (const l of logs) txs.add(l.transactionHash.toLowerCase());
+  // Windows aligned to multiples of the chunk size, as history.ts reads them, so /rpc can serve closed ones from
+  // its cache; several at a time.
+  const windows: [number, number][] = [];
+  for (let a = old ? Math.max(pool.fromBlock, old.through - 63) : pool.fromBlock; a <= head; ) {
+    const b = (Math.floor((a + step - 1) / step) + 1) * step - 1;
+    windows.push([a, Math.min(head, b)]);
+    a = b + 1;
   }
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(historyConfig.parallel, windows.length) }, async () => {
+      while (next < windows.length) {
+        const [a, b] = windows[next++];
+        const logs = (await r.client.request({
+          method: "eth_getLogs",
+          params: [{ address: pm as `0x${string}`, topics: [MODIFY_LIQUIDITY, pool.poolId], fromBlock: `0x${a.toString(16)}`, toBlock: `0x${b.toString(16)}` }],
+        })) as { transactionHash: string }[];
+        for (const l of logs) txs.add(l.transactionHash.toLowerCase());
+      }
+    }),
+  );
   lpScans.set(r, { through: head, txs });
+  try {
+    localStorage.setItem(storeKey, JSON.stringify({ through: head, txs: [...txs] }));
+  } catch {
+    /* no storage */
+  }
   return txs;
 }
 
@@ -136,8 +164,9 @@ export function usePoints(r: Runtime, s?: Snapshot) {
     let live = true;
     setState((old) => ({ ...old, loading: true }));
     loadPoints(r, s).then(
-      (data) => live && setState({ data, loading: false, at: Date.now() }),
-      (e) => live && setState({ error: message(e), loading: false }),
+      (data) => live && setState({ data, loading: false, at: Date.now(), error: undefined }),
+      // A failed refresh keeps the last board (with the error noted under it) rather than replacing it.
+      (e) => live && setState((old) => ({ ...old, error: message(e), loading: false })),
     );
     return () => {
       live = false;
@@ -147,7 +176,7 @@ export function usePoints(r: Runtime, s?: Snapshot) {
 }
 
 /** A figure that keeps counting between blocks, from the points at the snapshot and the rate since. */
-function useLive(base: bigint, perBlock: bigint, since: number | undefined) {
+function useLive(base: bigint, perBlock: bigint, since: number | undefined, id: string) {
   const [now, setNow] = useState(() => Date.now());
   const reduced = useRef(
     typeof matchMedia === "function" &&
@@ -165,10 +194,15 @@ function useLive(base: bigint, perBlock: bigint, since: number | undefined) {
     since === undefined
       ? 0
       : Math.max(0, (now - since) / 1000 / SECONDS_PER_BLOCK);
-  return (
+  const value =
     displayNumber(base, pointsConfig.blocksPerDay) +
-    displayNumber(perBlock, pointsConfig.blocksPerDay) * blocks
-  );
+    displayNumber(perBlock, pointsConfig.blocksPerDay) * blocks;
+  // Never backwards. The count runs on from when the points were read, which is some seconds after the block
+  // they were read at, so it runs a little ahead and the next read would pull it back. It holds instead,
+  // until the chain catches up. Another account (`id`) starts afresh.
+  const shown = useRef({ id: "", value: 0 });
+  if (shown.current.id !== id || value >= shown.current.value) shown.current = { id, value };
+  return shown.current.value;
 }
 
 // Rounded DOWN, like every exact figure the engine displays, so the counter never shows a point the
@@ -204,15 +238,17 @@ export function Points({
     mine?.points ?? 0n,
     mine?.ratePerBlock ?? 0n,
     points.at,
+    account?.toLowerCase() ?? "",
   );
   const liveTotal = useLive(
     data?.total ?? 0n,
     data?.totalRatePerBlock ?? 0n,
     points.at,
+    "total",
   );
   const testnet = r.config.chainId !== 1;
 
-  if (points.error)
+  if (points.error && !data)
     return (
       <div className="desk-col">
         <p className="notice" role="alert">
@@ -341,6 +377,14 @@ export function Points({
               </li>
             ))}
           </ol>
+        )}
+        {points.error && data && (
+          <p className="micro danger-text" role="status">
+            Could not refresh the points history: {points.error}. Showing the last board read.{" "}
+            <button type="button" onClick={points.retry}>
+              Retry
+            </button>
+          </p>
         )}
       </div>
     </>

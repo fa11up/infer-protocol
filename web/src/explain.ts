@@ -3,7 +3,7 @@ import { gemUnit, fmtGem } from "./collateral.ts";
 import type { Address } from "viem";
 import type { Snapshot } from "./state.ts";
 import { ours } from "./names.ts";
-import { age, fmt, maxDebt, percent, requiredCollateral } from "./math.ts"; // explicit extension: tests import this file directly under node
+import { age, fmt, money, maxDebt, percent, requiredCollateral } from "./math.ts"; // explicit extension: tests import this file directly under node
 
 // A refused simulation names a revert. The reader needs the figure that blocked them, so each
 // known revert is restated with the numbers the snapshot already holds. Anything not covered here
@@ -38,7 +38,7 @@ const feedLabel: Record<string, string> = {
   USD: "IMD / USD",
 };
 const imd = (v: bigint) => `${fmtGem(v)} ${gemUnit()}`;
-const comp = (v: bigint) => `${fmt(v)} ${unit()}`;
+const comp = (v: bigint) => `${money(v)}`;
 
 export function explain(f: Failure, c: Context): string | undefined {
   const { s } = c;

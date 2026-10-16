@@ -30,7 +30,7 @@ test("a refused borrow names the collateral it needs and what is held", () => {
   );
   assert.match(text, /needs 375 IMD/);
   assert.match(text, /holds 300 IMD/);
-  assert.match(text, /borrow now is 1,000 imdUSD/);
+  assert.match(text, /borrow now is Ɨ\u00a01,000\./);
 });
 test("a refused withdrawal names the floor and the withdrawable amount", () => {
   const text = explain(
@@ -46,7 +46,7 @@ test("ceiling, divergence and staleness carry their figures", () => {
       { name: "DebtCeilingReached", args: [] },
       ctx("draw", [200n * WAD]),
     ),
-    /Room left: 100 imdUSD/,
+    /Room left: Ɨ\u00a0100\./,
   );
   assert.match(
     explain({ name: "PriceDivergence", args: [] }, ctx("draw", [1n])),
@@ -77,6 +77,6 @@ test("figures carry the unit the deployed token reports", () => {
   setUnit("<b>bad</b>"); // not a symbol: ignored
   assert.match(
     explain({ name: "DebtCeilingReached", args: [] }, ctx("draw", [200n * WAD])),
-    /Room left: 100 imdUSD/,
+    /Room left: Ɨ\u00a0100\./,
   );
 });
