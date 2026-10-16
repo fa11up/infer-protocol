@@ -1,4 +1,5 @@
-// The liquidity window: add imdUSD + USDC to the peg pool over its band ($0.9524-$1.05), and see, collect from and
+// The liquidity window: add imdUSD + USDC to the peg pool over a chosen range (Season 1's peg band $0.99-$1.01 by
+// default, or the wide $0.9524-$1.05), and see, collect from and
 // take out of the positions this wallet holds there. Everything goes from the viewer's wallet to Uniswap's
 // PositionManager; approvals ride in the same batch when the wallet can batch. The arithmetic and calldata live in
 // lp.ts (fork-tested: tests/lp.fork.test.mjs).
@@ -17,9 +18,11 @@ import {
   POSITION_MANAGER,
   POSITION_MANAGER_ABI,
   STATE_VIEW_LP,
-  TICK_LOWER,
-  TICK_UPPER,
+  DEFAULT_RANGE,
+  RANGES,
+  type RangeKey,
   amountsForLiquidity,
+  decodeInfo,
   encodeMint,
   encodeRemove,
   feesOwed,
@@ -34,13 +37,30 @@ import {
 const POOL_TTL_MS = 15_000;
 const PM = { address: POSITION_MANAGER, abi: POSITION_MANAGER_ABI };
 const BLOCKSCOUT = "https://eth.blockscout.com/api/v2/";
-const band = () => {
-  const { sqrtA, sqrtB } = BAND();
+const band = (key: RangeKey) => {
+  const { sqrtA, sqrtB } = BAND(RANGES[key]);
   return { lo: usdAtSqrt(sqrtA), hi: usdAtSqrt(sqrtB) };
 };
 
 type Pool = { sqrtP: bigint; liquidity: bigint; at: number };
-type Position = { id: bigint; liquidity: bigint; imdusd: bigint; usdc: bigint; feeImdusd: bigint; feeUsdc: bigint };
+/** A position's range in dollars, named when it is one of the window's two. */
+const rangeLabel = (p: { tickLower: number; tickUpper: number }) => {
+  const { sqrtA, sqrtB } = BAND({ lower: p.tickLower, upper: p.tickUpper });
+  const dollars = `$${fmt(usdAtSqrt(sqrtA), 18, 4)} – $${fmt(usdAtSqrt(sqrtB), 18, 4)}`;
+  const name = (Object.keys(RANGES) as RangeKey[]).find((k) => RANGES[k].lower === p.tickLower && RANGES[k].upper === p.tickUpper);
+  return name === "peg" ? `${dollars} (peg band)` : name === "wide" ? `${dollars} (wide)` : dollars;
+};
+/** A position, read at its own ticks (either range from this window, or any other range in the pool). */
+type Position = {
+  id: bigint;
+  liquidity: bigint;
+  imdusd: bigint;
+  usdc: bigint;
+  feeImdusd: bigint;
+  feeUsdc: bigint;
+  tickLower: number;
+  tickUpper: number;
+};
 
 // Position ids this browser minted or was told about, per wallet: found again even when the explorer is down.
 const storeKey = (me: Address) => `imdusd-lp-positions:${me.toLowerCase()}`;
@@ -100,6 +120,8 @@ export function LpWindow({
   const [tab, setTab] = useState<"add" | "positions">("add");
   const [inputs, setInputs] = useState({ imdusd: "", usdc: "" });
   const [side, setSide] = useState<"imdusd" | "usdc">("imdusd");
+  // Season 1's band by default: only liquidity between $0.99 and $1.01 earns points (points/season1.ts).
+  const [range, setRange] = useState<RangeKey>(DEFAULT_RANGE);
   const [pool, setPool] = useState<Pool>();
   const [poolError, setPoolError] = useState("");
   const [wallet, setWallet] = useState<{ imdusd: bigint; usdc: bigint }>();
@@ -159,16 +181,7 @@ export function LpWindow({
       note = "The explorer could not be reached, so only positions this browser knows are listed. Add one by its id below.";
     }
     const unique = [...new Set(ids.map(String))].map((x) => BigInt(x));
-    const [inside, sqrtP] = await Promise.all([
-      r.client.readContract({
-        address: UNISWAP.stateView,
-        abi: STATE_VIEW_LP,
-        functionName: "getFeeGrowthInside",
-        args: [PEG_POOL_ID, TICK_LOWER, TICK_UPPER],
-      }),
-      readPool(),
-    ]);
-    const { sqrtA, sqrtB } = BAND();
+    const sqrtP = await readPool();
     const found = await Promise.all(
       unique.map(async (id): Promise<Position | undefined> => {
         try {
@@ -177,21 +190,31 @@ export function LpWindow({
             r.client.readContract({ ...PM, functionName: "getPoolAndPositionInfo", args: [id] }),
           ]);
           if ((owner as string).toLowerCase() !== me.toLowerCase() || !inPegPool(info)) return undefined;
-          const [liquidity, last0, last1] = await r.client.readContract({
-            address: UNISWAP.stateView,
-            abi: STATE_VIEW_LP,
-            functionName: "getPositionInfo",
-            args: [PEG_POOL_ID, POSITION_MANAGER, TICK_LOWER, TICK_UPPER, saltOf(id)],
-          });
+          // Every read at the position's OWN ticks: liquidity, fee growth and amounts are all keyed by them.
+          const { tickLower, tickUpper } = decodeInfo(info);
+          const [[liquidity, last0, last1], inside] = await Promise.all([
+            r.client.readContract({
+              address: UNISWAP.stateView,
+              abi: STATE_VIEW_LP,
+              functionName: "getPositionInfo",
+              args: [PEG_POOL_ID, POSITION_MANAGER, tickLower, tickUpper, saltOf(id)],
+            }),
+            r.client.readContract({
+              address: UNISWAP.stateView,
+              abi: STATE_VIEW_LP,
+              functionName: "getFeeGrowthInside",
+              args: [PEG_POOL_ID, tickLower, tickUpper],
+            }),
+          ]);
+          const { sqrtA, sqrtB } = BAND({ lower: tickLower, upper: tickUpper });
           const held = sqrtP ? amountsForLiquidity(sqrtP, sqrtA, sqrtB, liquidity) : { amount0: 0n, amount1: 0n };
           const fees = feesOwed(liquidity, inside, [last0, last1]);
-          return { id, liquidity, imdusd: held.amount0, usdc: held.amount1, feeImdusd: fees.imdusd, feeUsdc: fees.usdc };
+          return { id, liquidity, imdusd: held.amount0, usdc: held.amount1, feeImdusd: fees.imdusd, feeUsdc: fees.usdc, tickLower, tickUpper };
         } catch {
           return undefined; // Burned, or not a position: skip it.
         }
       }),
     );
-    // A position over another range in this pool is the wallet's too, but the window only manages the band.
     setPositions(found.filter((p): p is Position => !!p));
     setScan(note);
   }, [r, me, readPool]);
@@ -204,18 +227,18 @@ export function LpWindow({
     if (!pool) return undefined;
     try {
       const n = amount(inputs[side], side === "imdusd" ? 18 : 6);
-      return planAdd(pool.sqrtP, side, n);
+      return planAdd(pool.sqrtP, side, n, RANGES[range]);
     } catch {
       return undefined;
     }
-  }, [pool, inputs, side]);
+  }, [pool, inputs, side, range]);
   const other = side === "imdusd" ? "usdc" : "imdusd";
   const shown = {
     ...inputs,
     [other]: plan ? exact(other === "imdusd" ? plan.imdusd : plan.usdc, other === "imdusd" ? 18 : 6) : inputs[other],
   };
   const usd = pool ? usdAtSqrt(pool.sqrtP) : undefined;
-  const { lo, hi } = band();
+  const { lo, hi } = band(range);
   const inBand = usd !== undefined && usd >= lo && usd < hi;
   const short =
     plan && wallet
@@ -227,7 +250,7 @@ export function LpWindow({
       : "";
   // Share in millionths, so a small deposit is not floored to 0.00% (whole basis points did that for 100 imdUSD).
   const share = plan && pool ? (plan.liquidity * 1_000_000n) / (pool.liquidity + plan.liquidity) : undefined;
-  const max = pool && wallet ? planMax(pool.sqrtP, wallet.imdusd, wallet.usdc) : undefined;
+  const max = pool && wallet ? planMax(pool.sqrtP, wallet.imdusd, wallet.usdc, RANGES[range]) : undefined;
 
   const run = async (calls: Call[]) => {
     setSteps({ labels: calls.map((c) => c.label), done: 0 });
@@ -243,7 +266,7 @@ export function LpWindow({
       const sqrtP = await readPool();
       if (!sqrtP) throw Error("The peg pool could not be read. Try again.");
       const typed = side === "imdusd" ? plan.imdusd : plan.usdc;
-      const now = planAdd(sqrtP, side, amount(inputs[side], side === "imdusd" ? 18 : 6));
+      const now = planAdd(sqrtP, side, amount(inputs[side], side === "imdusd" ? 18 : 6), RANGES[range]);
       if (!now) throw Error("The price moved out of reach of this deposit. Review it again.");
       const was = side === "imdusd" ? plan.usdc : plan.imdusd;
       const is = side === "imdusd" ? now.usdc : now.imdusd;
@@ -297,7 +320,7 @@ export function LpWindow({
       if (!actions.sequence || !me || !s) throw Error("Not ready.");
       const sqrtP = await readPool();
       if (!sqrtP) throw Error("The peg pool could not be read. Try again.");
-      const { sqrtA, sqrtB } = BAND();
+      const { sqrtA, sqrtB } = BAND({ lower: p.tickLower, upper: p.tickUpper });
       const all = percent === 100;
       const liquidity = all ? p.liquidity : (p.liquidity * BigInt(percent)) / 100n;
       const out = amountsForLiquidity(sqrtP, sqrtA, sqrtB, liquidity);
@@ -361,22 +384,44 @@ export function LpWindow({
       />
       <div className="loop-now">
         <Row label={`${unit()} price`}>{usd !== undefined ? `$${fmt(usd, 18, 4)}` : poolError ? "unreadable" : "…"}</Row>
-        <Row
-          label="Band"
-          info={`Every position from this window covers the band the pool's first deposit used, $${fmt(lo, 18, 4)} to $${fmt(hi, 18, 4)}, where the peg needs depth. Inside it, it earns the pool's 0.01% fee on every swap; the peg hook's surcharge goes to the Treasury, not to liquidity providers.`}
-        >
-          ${fmt(lo, 18, 4)} – ${fmt(hi, 18, 4)}
-        </Row>
-        {usd !== undefined && !inBand && (
-          <p className="danger-text review-warning">
-            The price is outside the band: a new position earns no fees until it comes back, and takes only{" "}
-            {usd < lo ? unit() : "USDC"}.
-          </p>
+        {tab === "add" && (
+          <>
+            <Row
+              label="Band"
+              info={
+                range === "peg"
+                  ? `Season 1's band, $${fmt(lo, 18, 4)} to $${fmt(hi, 18, 4)}: all of this position's liquidity sits where Season 1 points are earned, about five times the depth at the peg of the wide range for the same deposit. If the price leaves the band the position holds one token only and earns no fees or points until it comes back. Inside it, it earns the pool's 0.01% fee on every swap; the peg hook's surcharge goes to the Treasury.`
+                  : `The band the pool's first deposit used, $${fmt(lo, 18, 4)} to $${fmt(hi, 18, 4)}: it keeps earning fees through a bigger move, but only its slice between $0.99 and $1.01 earns Season 1 points. Inside it, it earns the pool's 0.01% fee on every swap; the peg hook's surcharge goes to the Treasury.`
+              }
+            >
+              ${fmt(lo, 18, 4)} – ${fmt(hi, 18, 4)}
+            </Row>
+            {usd !== undefined && !inBand && (
+              <p className="danger-text review-warning">
+                The price is outside the band: a new position earns no fees until it comes back, and takes only{" "}
+                {usd < lo ? unit() : "USDC"}.
+              </p>
+            )}
+          </>
         )}
       </div>
 
       {tab === "add" ? (
         <>
+          <Choice
+            label="Range for a new position"
+            value={range}
+            onChange={(x) => {
+              if (busy) return;
+              setRange(x as RangeKey);
+              setError("");
+              setFinished("");
+            }}
+            options={[
+              ["peg", "Peg band $0.99–$1.01 (earns Season 1 points)"],
+              ["wide", "Wide $0.95–$1.05"],
+            ]}
+          />
           <p className="micro">
             Type either amount; the other is what the band needs at today's price. Both come from your wallet, and
             the position (a Uniswap v4 NFT) is yours: take it out here at any time.
@@ -442,7 +487,7 @@ export function LpWindow({
           {positions === undefined ? (
             <p className="micro">{scan || "…"}</p>
           ) : positions.length === 0 ? (
-            <p className="micro">No positions in the peg pool's band for this wallet. {scan}</p>
+            <p className="micro">No positions in the peg pool for this wallet. {scan}</p>
           ) : (
             <>
               {scan && <p className="micro">{scan}</p>}
@@ -451,6 +496,7 @@ export function LpWindow({
                   <Row label={`Position #${p.id}`}>
                     {fmt(p.imdusd, 18, 2)} {unit()} + {fmt(p.usdc, 6, 2)} USDC
                   </Row>
+                  <Row label="Range">{rangeLabel(p)}</Row>
                   <Row label="Fees to collect">
                     {fmt(p.feeImdusd, 18, 4)} {unit()} + {fmt(p.feeUsdc, 6, 4)} USDC
                   </Row>

@@ -14,6 +14,18 @@ export const PEG_TICK = -276325;
 export const BAND_TICKS = 488;
 export const TICK_LOWER = PEG_TICK - BAND_TICKS;
 export const TICK_UPPER = PEG_TICK + BAND_TICKS;
+/**
+ * The ranges a new position can cover. `peg` is Season 1's band ($0.99005-$1.01005, the same ticks as
+ * points/season1.ts and points/chains.ts PEG_POOLS): only liquidity inside it earns Season 1 points, so it is the
+ * window's default. `wide` is the band the pool's first deposit used ($0.9522-$1.0499). Tick spacing is 1.
+ */
+export type RangeKey = "peg" | "wide";
+export type Range = { lower: number; upper: number };
+export const RANGES: Record<RangeKey, Range> = {
+  peg: { lower: -276424, upper: -276224 },
+  wide: { lower: TICK_LOWER, upper: TICK_UPPER },
+};
+export const DEFAULT_RANGE: RangeKey = "peg";
 /** Amounts may move this far from the quote between review and inclusion. */
 export const LP_SLIPPAGE_BPS = 50n;
 
@@ -97,7 +109,8 @@ export function amountsForLiquidity(sqrtP: bigint, sqrtA: bigint, sqrtB: bigint,
   return { amount0: a0(sqrtP, sqrtB), amount1: a1(sqrtA, sqrtP) };
 }
 
-export const BAND = () => ({ sqrtA: sqrtAtTick(TICK_LOWER), sqrtB: sqrtAtTick(TICK_UPPER) });
+/** The sqrt prices bounding a range (the wide band by default). */
+export const BAND = (range: Range = RANGES.wide) => ({ sqrtA: sqrtAtTick(range.lower), sqrtB: sqrtAtTick(range.upper) });
 
 export type AddPlan = {
   liquidity: bigint;
@@ -107,14 +120,17 @@ export type AddPlan = {
   /** The most it may take (LP_SLIPPAGE_BPS over), which Permit2 is approved for. */
   imdusdMax: bigint;
   usdcMax: bigint;
+  /** The range the plan was sized for; the mint uses exactly these ticks. */
+  tickLower: number;
+  tickUpper: number;
 };
 /**
  * A deposit sized from one side: the typed `side` amount, and the other side the band needs at the current price.
  * With imdUSD under $0.9524 (below the band) only imdUSD is taken, over $1.05 only USDC; a typed amount of the side
  * not taken gives nothing.
  */
-export function planAdd(sqrtP: bigint, side: "imdusd" | "usdc", typed: bigint): AddPlan | undefined {
-  const { sqrtA, sqrtB } = BAND();
+export function planAdd(sqrtP: bigint, side: "imdusd" | "usdc", typed: bigint, range: Range = RANGES.wide): AddPlan | undefined {
+  const { sqrtA, sqrtB } = BAND(range);
   if (typed <= 0n) return undefined;
   const big = (1n << 255n) - 1n;
   const liquidity =
@@ -122,17 +138,17 @@ export function planAdd(sqrtP: bigint, side: "imdusd" | "usdc", typed: bigint): 
   if (liquidity <= 0n || liquidity >= Q128) return undefined;
   const { amount0, amount1 } = amountsForLiquidity(sqrtP, sqrtA, sqrtB, liquidity, true);
   const over = (x: bigint) => (x * (10_000n + LP_SLIPPAGE_BPS) + 9_999n) / 10_000n;
-  return { liquidity, imdusd: amount0, usdc: amount1, imdusdMax: over(amount0), usdcMax: over(amount1) };
+  return { liquidity, imdusd: amount0, usdc: amount1, imdusdMax: over(amount0), usdcMax: over(amount1), tickLower: range.lower, tickUpper: range.upper };
 }
 /** The biggest deposit two balances allow: the mint's maximums (slippage included) fit inside both. */
-export function planMax(sqrtP: bigint, imdusdBalance: bigint, usdcBalance: bigint): AddPlan | undefined {
+export function planMax(sqrtP: bigint, imdusdBalance: bigint, usdcBalance: bigint, range: Range = RANGES.wide): AddPlan | undefined {
   const under = (x: bigint) => (x * 10_000n) / (10_000n + LP_SLIPPAGE_BPS);
-  const { sqrtA, sqrtB } = BAND();
+  const { sqrtA, sqrtB } = BAND(range);
   const liquidity = liquidityForAmounts(sqrtP, sqrtA, sqrtB, under(imdusdBalance), under(usdcBalance));
   if (liquidity <= 0n) return undefined;
   const { amount0, amount1 } = amountsForLiquidity(sqrtP, sqrtA, sqrtB, liquidity, true);
   const over = (x: bigint) => (x * (10_000n + LP_SLIPPAGE_BPS) + 9_999n) / 10_000n;
-  return { liquidity, imdusd: amount0, usdc: amount1, imdusdMax: over(amount0), usdcMax: over(amount1) };
+  return { liquidity, imdusd: amount0, usdc: amount1, imdusdMax: over(amount0), usdcMax: over(amount1), tickLower: range.lower, tickUpper: range.upper };
 }
 
 // ---- PositionManager calldata -------------------------------------------------------------------------------
@@ -159,12 +175,12 @@ const unlock = (actions: number[], params: Hex[]): Hex =>
   );
 const pair = encodeAbiParameters([{ type: "address" }, { type: "address" }], [IMDUSD, USDC]);
 
-/** `modifyLiquidities` data for a new position over the band, owned by `owner`. */
+/** `modifyLiquidities` data for a new position over the plan's range, owned by `owner`. */
 export function encodeMint(plan: AddPlan, owner: Address): Hex {
   if (plan.imdusdMax > U128 || plan.usdcMax > U128) throw Error("Amount does not fit uint128.");
   const mint = encodeAbiParameters(
     [KEY_ABI, { type: "int24" }, { type: "int24" }, { type: "uint256" }, { type: "uint128" }, { type: "uint128" }, { type: "address" }, { type: "bytes" }],
-    [{ ...PEG_KEY }, TICK_LOWER, TICK_UPPER, plan.liquidity, plan.imdusdMax, plan.usdcMax, owner, "0x"],
+    [{ ...PEG_KEY }, plan.tickLower, plan.tickUpper, plan.liquidity, plan.imdusdMax, plan.usdcMax, owner, "0x"],
   );
   return unlock([MINT_POSITION, SETTLE_PAIR], [mint, pair]);
 }

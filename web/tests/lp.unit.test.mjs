@@ -112,3 +112,45 @@ test("share of the pool: a small deposit reads at least 0.01%, never 0.00%", asy
   assert.equal(sharePct(123_456n), "12.35%");
   assert.equal(sharePct(1_000_000n), "100.00%");
 });
+
+test("ranges: the peg band is Season 1's $0.99-$1.01, the window's default; wide is the original band", async () => {
+  const { RANGES, DEFAULT_RANGE, BAND, TICK_LOWER, TICK_UPPER } = await import("../src/lp.ts");
+  const { usdAtSqrt } = await import("../src/leverage.ts");
+  assert.equal(DEFAULT_RANGE, "peg");
+  assert.deepEqual(RANGES.peg, { lower: -276424, upper: -276224 }); // points/season1.ts, points/chains.ts
+  assert.deepEqual(RANGES.wide, { lower: TICK_LOWER, upper: TICK_UPPER });
+  const usd = (x) => Number(x) / 1e18;
+  const peg = BAND(RANGES.peg);
+  assert.ok(Math.abs(usd(usdAtSqrt(peg.sqrtA)) - 0.99005) < 0.0001, `peg low ${usd(usdAtSqrt(peg.sqrtA))}`);
+  assert.ok(Math.abs(usd(usdAtSqrt(peg.sqrtB)) - 1.01005) < 0.0001, `peg high ${usd(usdAtSqrt(peg.sqrtB))}`);
+  const wide = BAND(RANGES.wide);
+  assert.ok(usd(usdAtSqrt(wide.sqrtA)) < 0.96 && usd(usdAtSqrt(wide.sqrtB)) > 1.04);
+});
+
+test("ranges: a plan carries its range, and the mint uses exactly those ticks", async () => {
+  const { RANGES, planAdd, encodeMint, sqrtAtTick, PEG_TICK } = await import("../src/lp.ts");
+  const sqrtP = sqrtAtTick(PEG_TICK);
+  for (const key of ["peg", "wide"]) {
+    const plan = planAdd(sqrtP, "imdusd", 100n * 10n ** 18n, RANGES[key]);
+    assert.equal(plan.tickLower, RANGES[key].lower);
+    assert.equal(plan.tickUpper, RANGES[key].upper);
+    const data = encodeMint(plan, "0x0000000000000000000000000000000000000001");
+    const [, params] = decodeAbiParameters([{ type: "bytes" }, { type: "bytes[]" }], data);
+    const [, lower, upper] = decodeAbiParameters(
+      [{ type: "tuple", components: [{ type: "address" }, { type: "address" }, { type: "uint24" }, { type: "int24" }, { type: "address" }] }, { type: "int24" }, { type: "int24" }],
+      params[0],
+    );
+    assert.deepEqual([lower, upper], [RANGES[key].lower, RANGES[key].upper], key);
+  }
+});
+
+test("ranges: at the peg the band gives about 5x the liquidity per dollar of the wide range", async () => {
+  const { RANGES, planAdd, sqrtAtTick, PEG_TICK } = await import("../src/lp.ts");
+  const sqrtP = sqrtAtTick(PEG_TICK);
+  const peg = planAdd(sqrtP, "imdusd", 100n * 10n ** 18n, RANGES.peg);
+  const wide = planAdd(sqrtP, "imdusd", 100n * 10n ** 18n, RANGES.wide);
+  // Same imdUSD typed: per dollar deposited (imdUSD + USDC at ~$1), the band's liquidity is ~4.9x the wide range's.
+  const dollars = (p) => Number(p.imdusd) / 1e18 + Number(p.usdc) / 1e6;
+  const ratio = (Number(peg.liquidity) / dollars(peg)) / (Number(wide.liquidity) / dollars(wide));
+  assert.ok(ratio > 4.5 && ratio < 5.5, `ratio ${ratio}`);
+});
