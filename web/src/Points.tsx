@@ -331,14 +331,14 @@ export function Points({
           label={closed ? "Preseason" : "Counting"}
           info={
             closed
-              ? "Preseason points counted from imdUSD's deployment to the block shown and no longer change. INFER's seasons are opened on chain by governance, each with its own rules committed when it opens and published after it ends."
+              ? `Preseason points counted from imdUSD's deployment to the block shown${pointsConfig.endedAt ? ` (${pointsConfig.endedAt})` : ""} and no longer change. INFER's seasons are opened on chain by governance, each with its own rules committed when it opens and published after it ends.`
               : "Points count from imdUSD's deployment and are still counting. INFER's seasons are opened on chain by governance, each with its own rules committed when it opens and published after it ends."
           }
         >
           {data
             ? pointsConfig.endBlock === undefined
               ? `Block ${data.startBlock.toLocaleString("en-US")} → live`
-              : `Blocks ${data.startBlock.toLocaleString("en-US")} → ${pointsConfig.endBlock.toLocaleString("en-US")}${pointsConfig.endedAt ? ` · ended ${pointsConfig.endedAt}` : ""}`
+              : `Blocks ${data.startBlock.toLocaleString("en-US")} → ${pointsConfig.endBlock.toLocaleString("en-US")}`
             : "—"}
         </Row>
         <Row
