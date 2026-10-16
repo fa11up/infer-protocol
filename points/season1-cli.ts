@@ -38,11 +38,33 @@ async function rpcCall(method: string, params: unknown[]): Promise<any> {
 }
 
 const through = Number(BigInt(await rpcCall("eth_blockNumber", [])));
+
+/** Filtered eth_getLogs in 10k-block chunks (fallback only; callers check the result is non-empty). */
+async function rpcLogs(address: string, topics: (string | null)[], from: number, to: number): Promise<RawLog[]> {
+  const out: RawLog[] = [];
+  for (let b = from; b <= to; b += 10_000) {
+    const hi = Math.min(b + 9_999, to);
+    const logs = (await rpcCall("eth_getLogs", [{ address, topics, fromBlock: "0x" + b.toString(16), toBlock: "0x" + hi.toString(16) }])) as RawLog[];
+    out.push(...logs);
+  }
+  return out;
+}
 const startBlock = Number(opt("start"));
 const endBlock = Number(opt("end", String(through)));
 
 // Token transfers + liquidations (as in the preseason), and vault debt (rule 5).
-const [tokenLogs, vaultLogs] = await Promise.all([fetchLogs(chain.blockscout, stablecoin!), fetchLogs(chain.blockscout, vault!)]);
+type V2Item = { topics: (string | null)[]; data: string; block_number: number | string; index: number | string; transaction_hash?: string };
+const fromRaw = (l: RawLog): V2Item => ({ topics: l.topics, data: l.data, block_number: Number(BigInt(l.blockNumber)), index: Number(BigInt(l.logIndex)), transaction_hash: l.transactionHash });
+async function addressLogs(address: string, from: number): Promise<V2Item[]> {
+  try {
+    return await fetchLogs(chain.blockscout, address);
+  } catch (err) {
+    console.error(`  ${address}: ${(err as Error).message}; reading its logs from the RPC instead`);
+    return (await rpcLogs(address, [], from, through)).map(fromRaw);
+  }
+}
+const tokenLogs = await addressLogs(stablecoin!, 26_166_000);
+const vaultLogs = await addressLogs(vault!, 26_166_000);
 const asRaw = (l: { topics: (string | null)[]; data: string; block_number: number | string; index: number | string }): RawLog => ({
   topics: l.topics.filter((t): t is string => !!t),
   data: l.data,
@@ -57,20 +79,48 @@ for (const l of [...tokenLogs, ...vaultLogs]) {
 events.push(...debtEvents(vaultLogs.map(asRaw)));
 
 // The peg pool: price and liquidity (rules 2-4), then the owners of its PositionManager positions.
-const poolQ = (topic0: string) => fetchFilteredLogs(chain.blockscout, { address: chain.poolManager, topic0, topic1: peg.id, fromBlock: peg.fromBlock, toBlock: through });
+const poolQ = async (topic0: string, from = peg.fromBlock, to = through): Promise<RawLog[]> => {
+  try {
+    return await fetchFilteredLogs(chain.blockscout, { address: chain.poolManager, topic0, topic1: peg.id, fromBlock: from, toBlock: to });
+  } catch (err) {
+    console.error(`  pool ${topic0.slice(0, 10)}: ${(err as Error).message}; reading from the RPC instead`);
+    return rpcLogs(chain.poolManager, [topic0, peg.id], from, to);
+  }
+};
 // Sequential on purpose: keyless Blockscout rate-limits parallel bursts.
 // The pool is initialised exactly once, at peg.fromBlock: ask for that block only (cheap, and a wrong
 // fromBlock in chains.ts shows up as "expected exactly one Initialize").
-const init = await fetchFilteredLogs(chain.blockscout, { address: chain.poolManager, topic0: S1_TOPICS.initialize, topic1: peg.id, fromBlock: peg.fromBlock, toBlock: peg.fromBlock });
+const init = await poolQ(S1_TOPICS.initialize, peg.fromBlock, peg.fromBlock);
 const swaps = await poolQ(S1_TOPICS.swap);
 const mods = await poolQ(S1_TOPICS.modifyLiquidity);
 if (init.length !== 1) throw Error(`expected exactly one Initialize for the peg pool, got ${init.length}: refusing to guess the price`);
 if (!mods.length) throw Error("no liquidity logs for the peg pool: refusing to report that nobody provided any");
 const pool = poolEvents([...init, ...swaps, ...mods], peg.positionManager);
 events.push(...pool.events);
+
+// CONTROLS against a source that silently drops logs: the replay must land where the chain is.
+const lastTick = [...pool.events].filter((e) => e.kind === "price").sort((a, b) => a.block - b.block || a.logIndex - b.logIndex).pop();
+const slot0 = (await rpcCall("eth_call", [{ to: "0x7ffe42c4a5deea5b0fec41c94c136cf115597227", data: "0xc815641c" + peg.id.slice(2) }, "0x" + through.toString(16)])) as string;
+const tickNow = Number(BigInt.asIntN(24, BigInt("0x" + slot0.slice(2 + 64, 2 + 128))));
+if (!lastTick || (lastTick as { tick: number }).tick !== tickNow) throw Error(`pool replay ends at tick ${(lastTick as { tick?: number })?.tick}, the chain says ${tickNow}: swap logs are incomplete`);
+const supplyHex = (await rpcCall("eth_call", [{ to: stablecoin, data: "0x18160ddd" }, "0x" + through.toString(16)])) as string;
+let minted = 0n;
+for (const e of events) if (e.kind === "transfer" && e.block <= through) {
+  if (e.from === "0x0000000000000000000000000000000000000000") minted += e.value;
+  if (e.to === "0x0000000000000000000000000000000000000000") minted -= e.value;
+}
+if (minted !== BigInt(supplyHex)) throw Error(`replayed imdUSD supply ${minted} != totalSupply ${BigInt(supplyHex)}: transfer logs are incomplete`);
 for (const id of pool.tokenIds) {
   const topic3 = "0x" + id.toString(16).padStart(64, "0");
-  const t = await fetchFilteredLogs(chain.blockscout, { address: peg.positionManager, topic0: S1_TOPICS.transfer, topic3, fromBlock: peg.fromBlock, toBlock: through });
+  let t: RawLog[];
+  try {
+    t = await fetchFilteredLogs(chain.blockscout, { address: peg.positionManager, topic0: S1_TOPICS.transfer, topic3, fromBlock: peg.fromBlock, toBlock: through });
+  } catch (err) {
+    // Blockscout refused (rate limit). Fall back to the RPC's filtered getLogs in chunks. The silent-empty risk of
+    // a public RPC is covered by the check below: every position has at least its mint log.
+    console.error(`  position #${id}: ${(err as Error).message}; reading its transfers from the RPC instead`);
+    t = await rpcLogs(peg.positionManager, [S1_TOPICS.transfer, null, null, topic3], peg.fromBlock, through);
+  }
   if (!t.length) throw Error(`no mint/transfer logs for position #${id}: refusing to guess its owner`);
   await new Promise((r) => setTimeout(r, 400));
   events.push(...nftOwnerEvents(t));
