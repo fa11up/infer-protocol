@@ -25,12 +25,21 @@ export async function etherscanLogs(address: string, topics: (string | null)[], 
     for (let i = 1; i < topics.length; i++) if (topics[i]) q.set(`topic0_${i}_opr`, "and");
     let body: { status: string; message: string; result: RawLog[] | string } | undefined;
     for (let attempt = 0; attempt < 5; attempt++) {
-      body = await (await fetch(`https://api.etherscan.io/v2/api?${q}`)).json();
+      try {
+        body = await (await fetch(`https://api.etherscan.io/v2/api?${q}`)).json();
+      } catch (err) {
+        // A dropped connection or a non-JSON answer: back off and ask again.
+        if (attempt === 4) throw err;
+        await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)));
+        continue;
+      }
       if (body!.status === "1" || /No records/.test(body!.message)) break;
       if (!/rate limit/i.test(String(body!.result))) throw Error(`etherscan: ${body!.message} ${String(body!.result).slice(0, 120)}`);
       await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
     }
-    const page = Array.isArray(body!.result) ? body!.result : [];
+    // Etherscan writes zero as "0x" (log index 0, transaction index 0): normalise before anything parses it.
+    const zero = (x: string) => (x === "0x" ? "0x0" : x);
+    const page = (Array.isArray(body!.result) ? body!.result : []).map((l) => ({ ...l, blockNumber: zero(l.blockNumber), logIndex: zero(l.logIndex) }));
     for (const l of page) seen.set(`${l.transactionHash}:${Number(BigInt(l.logIndex))}`, l);
     if (page.length < 1000) break;
     const last = Number(BigInt(page[page.length - 1].blockNumber));
