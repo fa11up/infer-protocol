@@ -69,3 +69,34 @@ export async function fetchLogs(host: string, address: string, apiKey = process.
   if (!items.length) throw Error(`no logs at all for ${address} on ${host}: wrong address or chain, or the explorer declined; refusing to report "nobody holds anything"`);
   return items;
 }
+
+/** Etherscan-style filtered logs from Blockscout (`?module=logs&action=getLogs`), paged 1,000 at a time. */
+export async function fetchFilteredLogs(
+  host: string,
+  q: { address: string; topic0: string; topic1?: string; topic3?: string; fromBlock: number; toBlock: number },
+  apiKey = process.env.BLOCKSCOUT_API_KEY,
+): Promise<{ topics: string[]; data: string; blockNumber: string; logIndex: string; transactionHash?: string }[]> {
+  const out: { topics: string[]; data: string; blockNumber: string; logIndex: string; transactionHash?: string }[] = [];
+  for (let page = 1; page < 10_000; ++page) {
+    const p = new URLSearchParams({ module: "logs", action: "getLogs", address: q.address, fromBlock: String(q.fromBlock), toBlock: String(q.toBlock), topic0: q.topic0, page: String(page), offset: "1000" });
+    if (q.topic1) p.set("topic1", q.topic1), p.set("topic0_1_opr", "and");
+    if (q.topic3) p.set("topic3", q.topic3), p.set("topic0_3_opr", "and");
+    if (apiKey) p.set("apikey", apiKey);
+    let res: Response | undefined;
+    // Keyless Blockscout rate-limits (429): back off and retry rather than fail a whole run.
+    for (let attempt = 0; attempt < 6; ++attempt) {
+      res = await fetch(`https://${host}/api?${p}`, { headers: { Accept: "application/json", "User-Agent": "infer-points/1.0" } });
+      if (res.status !== 429) break;
+      await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
+    }
+    if (!res!.ok) throw Error(`blockscout ${res!.status} for ${q.address} ${q.topic0}`);
+    const body = (await res!.json()) as { status?: string; message?: string; result?: unknown };
+    if (!Array.isArray(body.result)) {
+      if (body.message === "No logs found") break;
+      throw Error(`blockscout: ${body.message ?? "malformed response"}`);
+    }
+    out.push(...(body.result as typeof out));
+    if (body.result.length < 1000) break;
+  }
+  return out;
+}
