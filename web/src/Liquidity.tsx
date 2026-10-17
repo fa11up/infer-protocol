@@ -36,6 +36,8 @@ import {
   amountsForLiquidity,
   decodeInfo,
   encodeMint,
+  encodeIncrease,
+  fitToBalances,
   encodeRemove,
   feesOwed,
   inPegPool,
@@ -235,11 +237,14 @@ export function LpWindow({
         }
       }),
     );
-    setPositions(found.filter((p): p is Position => !!p));
+    const list = found.filter((p): p is Position => !!p);
+    setPositions(list);
     setScan(note);
+    return list;
   }, [r, me, readPool]);
   useEffect(() => {
-    if (tab === "positions") void readPositions();
+    // The Add tab needs them too: a deposit over a range the wallet already holds goes into that position.
+    if (tab === "positions" || tab === "add") void readPositions();
   }, [tab, readPositions]);
 
   // The deposit from whichever box was typed in last; the other box shows what the band needs with it.
@@ -262,10 +267,10 @@ export function LpWindow({
   const inBand = usd !== undefined && usd >= lo && usd < hi;
   const short =
     plan && wallet
-      ? plan.imdusdMax > wallet.imdusd
-        ? `Needs up to ${fmt(plan.imdusdMax, 18, 2)} ${unit()}; the wallet holds ${fmt(wallet.imdusd, 18, 2)}.`
-        : plan.usdcMax > wallet.usdc
-          ? `Needs up to ${fmt(plan.usdcMax, 6, 2)} USDC; the wallet holds ${fmt(wallet.usdc, 6, 2)}.`
+      ? plan.imdusd > wallet.imdusd
+        ? `Needs ${fmt(plan.imdusd, 18, 2)} ${unit()}; the wallet holds ${fmt(wallet.imdusd, 18, 2)}.`
+        : plan.usdc > wallet.usdc
+          ? `Needs ${fmt(plan.usdc, 6, 2)} USDC; the wallet holds ${fmt(wallet.usdc, 6, 2)}.`
           : ""
       : "";
   // Share in millionths, so a small deposit is not floored to 0.00% (whole basis points did that for 100 imdUSD).
@@ -334,6 +339,20 @@ export function LpWindow({
       const is = side === "imdusd" ? now.usdc : now.imdusd;
       if (typed > 0n && (is > (was * (10_000n + LP_SLIPPAGE_BPS)) / 10_000n || is * (10_000n + LP_SLIPPAGE_BPS) < was * 10_000n))
         throw Error("The pool's price moved since this was shown. The amounts are updated: review them again.");
+      // Balances read now, not the 15-second ones: right after a deposit those still show what it spent.
+      const [heldImdusd, heldUsdc] = await Promise.all(
+        [IMDUSD, USDC].map(
+          (t) => r.client.readContract({ address: t, abi: ERC20, functionName: "balanceOf", args: [me] }) as Promise<bigint>,
+        ),
+      );
+      setWallet({ imdusd: heldImdusd, usdc: heldUsdc });
+      const fit = fitToBalances(now, heldImdusd, heldUsdc);
+      if (!fit) throw Error("This deposit needs more than the wallet holds now. The balances are updated: lower the amount.");
+      // Same range already held: add to that position (the largest, if several) instead of minting another NFT.
+      const held = (positions ?? (await readPositions()) ?? []).filter(
+        (p) => p.tickLower === fit.tickLower && p.tickUpper === fit.tickUpper && p.liquidity > 0n,
+      );
+      const into = held.sort((a, b) => (a.liquidity > b.liquidity ? -1 : 1))[0];
       const deadline = s.timestamp + 1800n;
       const approvals = async (token: Address, symbol: string, n: bigint): Promise<Call[]> => {
         if (n === 0n) return [];
@@ -355,19 +374,26 @@ export function LpWindow({
       };
       const id = (await r.client.readContract({ ...PM, functionName: "nextTokenId" })) as bigint;
       await run([
-        ...(await approvals(IMDUSD, unit(), now.imdusdMax)),
-        ...(await approvals(USDC, "USDC", now.usdcMax)),
+        ...(await approvals(IMDUSD, unit(), fit.imdusdMax)),
+        ...(await approvals(USDC, "USDC", fit.usdcMax)),
         {
           target: PM,
           fn: "modifyLiquidities",
-          args: [encodeMint(now, me), deadline],
-          label: `Add ${fmt(now.imdusd, 18, 2)} ${unit()} + ${fmt(now.usdc, 6, 2)} USDC to the peg pool`,
+          args: [into ? encodeIncrease(fit, into.id) : encodeMint(fit, me), deadline],
+          label: `Add ${fmt(fit.imdusd, 18, 2)} ${unit()} + ${fmt(fit.usdc, 6, 2)} USDC ${into ? `to your position #${into.id}` : "to the peg pool"}`,
         },
       ]);
-      // The id read before sending is a guess when others mint in the same block: remember the ids around it,
-      // and the on-chain owner check keeps only this wallet's.
-      remember(me, [id, id + 1n, id + 2n]);
-      setFinished(`Added ${fmt(now.imdusd, 18, 2)} ${unit()} and ${fmt(now.usdc, 6, 2)} USDC. Your position is under "Your positions".`);
+      if (!into) {
+        // The id read before sending is a guess when others mint in the same block: remember the ids around it,
+        // and the on-chain owner check keeps only this wallet's.
+        remember(me, [id, id + 1n, id + 2n]);
+      }
+      setFinished(
+        into
+          ? `Added ${fmt(fit.imdusd, 18, 2)} ${unit()} and ${fmt(fit.usdc, 6, 2)} USDC to your position #${into.id}.`
+          : `Added ${fmt(fit.imdusd, 18, 2)} ${unit()} and ${fmt(fit.usdc, 6, 2)} USDC. Your position is under "Your positions".`,
+      );
+      void readPositions();
       setInputs({ imdusd: "", usdc: "" });
       void readPool();
     } catch (e) {
@@ -384,7 +410,10 @@ export function LpWindow({
       if (!sqrtP) throw Error("The peg pool could not be read. Try again.");
       const { sqrtA, sqrtB } = BAND({ lower: p.tickLower, upper: p.tickUpper });
       const all = percent === 100;
-      const liquidity = all ? p.liquidity : (p.liquidity * BigInt(percent)) / 100n;
+      // The position as it is now, not as last listed: right after a take, the list can still show the liquidity
+      // before it, and minimums from that make the close revert.
+      const held = (await r.client.readContract({ ...PM, functionName: "getPositionLiquidity", args: [p.id] })) as bigint;
+      const liquidity = all ? held : (held * BigInt(percent)) / 100n;
       const out = amountsForLiquidity(sqrtP, sqrtA, sqrtB, liquidity);
       const what =
         percent === 0
@@ -664,11 +693,23 @@ export function LpWindow({
           )}
           {plan && (
             <div className="loop-plan">
+              <Row label="Goes into" info="A deposit over a range you already hold adds to that position; otherwise it opens a new one (a Uniswap v4 NFT).">
+                {(() => {
+                  const into = positions
+                    ?.filter((p) => p.tickLower === plan.tickLower && p.tickUpper === plan.tickUpper && p.liquidity > 0n)
+                    .sort((a, b) => (a.liquidity > b.liquidity ? -1 : 1))[0];
+                  return into ? `Your position #${into.id}` : "A new position";
+                })()}
+              </Row>
               <Row label="Deposits">
                 {fmt(plan.imdusd, 18, 4)} {unit()} + {fmt(plan.usdc, 6, 4)} USDC
               </Row>
               <Row label="At most" info={`If the price moves before the deposit lands, it may take up to ${(Number(LP_SLIPPAGE_BPS) / 100).toFixed(1)}% more of either token; past that it refuses and nothing is spent.`}>
-                {fmt(plan.imdusdMax, 18, 4)} {unit()} + {fmt(plan.usdcMax, 6, 4)} USDC
+                {(() => {
+                  // Never more than the wallet holds: the maxima sent are capped at the balances.
+                  const cap = (wallet && fitToBalances(plan, wallet.imdusd, wallet.usdc)) || plan;
+                  return `${fmt(cap.imdusdMax, 18, 4)} ${unit()} + ${fmt(cap.usdcMax, 6, 4)} USDC`;
+                })()}
               </Row>
               <Row label="Share of the pool's active liquidity">
                 {share !== undefined ? sharePct(share) : "—"}

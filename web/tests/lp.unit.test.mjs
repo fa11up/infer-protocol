@@ -177,3 +177,31 @@ test("trade review: average price, minimum received and cost against $1", async 
   assert.equal(describeTrade("sell", E18, 990_000n, 99n * 10n ** 16n, undefined).underFloor, true);
   assert.equal(describeTrade("sell", 0n, 1n, E18, undefined), undefined);
 });
+
+test("using the whole balance is not refused for the slippage headroom (6.71 held, 6.74 max)", async () => {
+  const { fitToBalances } = await import("../src/lp.ts");
+  const E = 10n ** 16n; // 0.01 imdUSD
+  const plan = { liquidity: 1n, imdusd: 671n * E, usdc: 0n, imdusdMax: 674n * E, usdcMax: 0n, tickLower: -276424, tickUpper: -276224 };
+  const fit = fitToBalances(plan, 671n * E, 0n);
+  assert.ok(fit, "the deposit itself fits");
+  assert.equal(fit.imdusdMax, 671n * E, "the max is capped at the balance");
+  assert.equal(fit.imdusd, 671n * E);
+  assert.equal(fitToBalances(plan, 670n * E, 0n), undefined, "a deposit over the balance is still refused");
+  assert.equal(fitToBalances({ ...plan, imdusdMax: 660n * E }, 671n * E, 0n).imdusdMax, 660n * E, "a max under the balance is kept");
+});
+
+test("adding to an existing position: INCREASE_LIQUIDITY then CLOSE_CURRENCY for each token", async () => {
+  const { encodeIncrease } = await import("../src/lp.ts");
+  const { decodeAbiParameters } = await import("viem");
+  const plan = { liquidity: 12345n, imdusd: 5n, usdc: 6n, imdusdMax: 7n, usdcMax: 8n, tickLower: -276424, tickUpper: -276224 };
+  const data = encodeIncrease(plan, 451683n);
+  const [actions, params] = decodeAbiParameters([{ type: "bytes" }, { type: "bytes[]" }], data);
+  assert.equal(actions, "0x001212");
+  const [id, liq, max0, max1] = decodeAbiParameters(
+    [{ type: "uint256" }, { type: "uint256" }, { type: "uint128" }, { type: "uint128" }, { type: "bytes" }],
+    params[0],
+  );
+  assert.deepEqual([id, liq, max0, max1], [451683n, 12345n, 7n, 8n]);
+  assert.equal(decodeAbiParameters([{ type: "address" }], params[1])[0].toLowerCase(), "0x61aaf8a992a3143e2b0c9cb0030b9fe702854a25");
+  assert.equal(decodeAbiParameters([{ type: "address" }], params[2])[0].toLowerCase(), "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48");
+});

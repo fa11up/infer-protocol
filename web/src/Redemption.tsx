@@ -46,6 +46,18 @@ export function Redemption({
   const version = useRef(0);
   const [q, setQ] = useState<Quote>();
   const [error, setError] = useState("");
+  /** A collateral amount read as dollars at the vault's collateral price, and as the IMD it unstakes to. */
+  const worth = (raw: bigint, per?: bigint) => {
+    const price = s?.feeds.Collateral?.value;
+    if (!price) return null;
+    const usd = (raw * price) / WAD;
+    return (
+      <span className="micro">
+        {" "}· ≈ $&nbsp;{fmt(usd, 18, 2)}
+        {per ? ` ($\u00a0${fmt((usd * WAD) / per, 18, 3)} per ${unit()})` : ""}
+      </span>
+    );
+  };
   const [invalidField, setInvalidField] = useState("");
   const [loading, setLoading] = useState(false);
   const [curve, setCurve] = useState<
@@ -381,11 +393,13 @@ export function Redemption({
         </div>
         {q && (
           <div className="quote" aria-live="polite">
+            {/* sIMD is hard to weigh: every amount also reads as dollars at the vault's collateral price and as the IMD it unstakes to. */}
             <div className="section-label">
               Quote / block {q.block.toString()} · clears on any change
             </div>
             <Row label="You receive">
               {exactGem(q.out)} {gemUnit()}
+              {worth(q.out)}
             </Row>
             <Row label="Your fee">
               {percent(q.fee)} ·{" "}
@@ -415,6 +429,7 @@ export function Redemption({
             )}
             <Row label="Minimum received">
               {exactGem(q.minimum)} {gemUnit()}
+              {worth(q.minimum)}
             </Row>
             <Action
               id="cash"

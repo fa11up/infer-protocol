@@ -4,7 +4,7 @@
 // No pot amounts: they stay private (user, 2026-10-16).
 import { useEffect, useState } from "react";
 import { getAddress, type Address, type Hex } from "viem";
-import { Col, Row } from "./actions";
+import { Row } from "./actions";
 import { history } from "./history";
 import { readSeason, type SeasonInfo } from "./season";
 import type { Runtime } from "./config";
@@ -33,6 +33,7 @@ const whole = (amount: bigint, decimals: number) => (amount / 10n ** BigInt(deci
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
 
 export function GovActivity({ r, s }: { r: Runtime; s?: Snapshot }) {
+  // Rendered inside another desk column: the governance desk holds two, and a third wrapped and overflowed.
   const [act, setAct] = useState<Activity>({ loaded: false, payouts: [] });
   const block = s?.block;
   const treasury = s?.targets.treasury;
@@ -70,7 +71,10 @@ export function GovActivity({ r, s }: { r: Runtime; s?: Snapshot }) {
   const explorer = r.config.network.explorer;
   const season = act.season;
   return (
-    <Col label="Recent governance actions">
+    <>
+      <div className="section-label" title={act.error || undefined}>
+        Recent governance actions{act.error ? " · not read" : ""}
+      </div>
       <Row label="Season 1" info="Opened by the governance Safe on the SeasonVault: its start, its rules and its pot are fixed on chain and cannot be changed.">
         {!act.loaded
           ? "—"
@@ -83,15 +87,10 @@ export function GovActivity({ r, s }: { r: Runtime; s?: Snapshot }) {
               : `Ended ${utc(season.end!)}`}
       </Row>
       {season?.openedBlock !== undefined && (
-        <Row label="Opened at" info="The preseason ended at this block (rules/season-1.md section 3).">
+        <Row label="Opened at" info="The preseason ended at this block (rules/season-1.md section 3). The rules document's hash was committed in the same transaction; the document is published after the season ends.">
           <a href={`${explorer}/block/${season.openedBlock}`} target="_blank" rel="noreferrer">
             block {season.openedBlock.toLocaleString("en-US")} ↗
           </a>
-        </Row>
-      )}
-      {season?.phase && season.phase !== "preseason" && (
-        <Row label="Rules" info="The rules document's hash was committed when the season opened; the document is published after the season ends.">
-          Committed on chain
         </Row>
       )}
       {act.payouts.map((p) => {
@@ -105,7 +104,6 @@ export function GovActivity({ r, s }: { r: Runtime; s?: Snapshot }) {
           </Row>
         );
       })}
-      {act.error && <p className="micro muted">{act.error}</p>}
-    </Col>
+    </>
   );
 }

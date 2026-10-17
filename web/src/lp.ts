@@ -152,11 +152,13 @@ export function planMax(sqrtP: bigint, imdusdBalance: bigint, usdcBalance: bigin
 }
 
 // ---- PositionManager calldata -------------------------------------------------------------------------------
+const INCREASE_LIQUIDITY = 0x00;
 const MINT_POSITION = 0x02;
 const DECREASE_LIQUIDITY = 0x01;
 const BURN_POSITION = 0x03;
 const SETTLE_PAIR = 0x0d;
 const TAKE_PAIR = 0x11;
+const CLOSE_CURRENCY = 0x12;
 const U128 = Q128 - 1n;
 const KEY_ABI = {
   type: "tuple",
@@ -183,6 +185,29 @@ export function encodeMint(plan: AddPlan, owner: Address): Hex {
     [{ ...PEG_KEY }, plan.tickLower, plan.tickUpper, plan.liquidity, plan.imdusdMax, plan.usdcMax, owner, "0x"],
   );
   return unlock([MINT_POSITION, SETTLE_PAIR], [mint, pair]);
+}
+/**
+ * `modifyLiquidities` data adding the plan's liquidity to the wallet's existing position `id` over the same range,
+ * instead of minting a second one. Increasing a position also credits its unclaimed fees, so each currency is closed
+ * (CLOSE_CURRENCY: paid if owed, taken if the fees cover it) rather than settled.
+ */
+export function encodeIncrease(plan: AddPlan, id: bigint): Hex {
+  if (plan.imdusdMax > U128 || plan.usdcMax > U128) throw Error("Amount does not fit uint128.");
+  const inc = encodeAbiParameters(
+    [{ type: "uint256" }, { type: "uint256" }, { type: "uint128" }, { type: "uint128" }, { type: "bytes" }],
+    [id, plan.liquidity, plan.imdusdMax, plan.usdcMax, "0x"],
+  );
+  const one = (c: Address) => encodeAbiParameters([{ type: "address" }], [c]);
+  return unlock([INCREASE_LIQUIDITY, CLOSE_CURRENCY, CLOSE_CURRENCY], [inc, one(IMDUSD), one(USDC)]);
+}
+/**
+ * The plan with its maxima capped at the wallet's balances, when the deposit itself fits. Using the whole balance must
+ * not be refused because the slippage headroom (LP_SLIPPAGE_BPS) would go past it: the cap only narrows the headroom.
+ * Undefined when the deposit itself needs more than the wallet holds.
+ */
+export function fitToBalances(plan: AddPlan, imdusd: bigint, usdc: bigint): AddPlan | undefined {
+  if (plan.imdusd > imdusd || plan.usdc > usdc) return undefined;
+  return { ...plan, imdusdMax: plan.imdusdMax < imdusd ? plan.imdusdMax : imdusd, usdcMax: plan.usdcMax < usdc ? plan.usdcMax : usdc };
 }
 /**
  * `modifyLiquidities` data taking `liquidity` out of position `id` (with its fees) to `to`. All of it burns the

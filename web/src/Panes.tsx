@@ -971,7 +971,9 @@ export function Keeper({
             : position.mark[2]
               ? now < position.mark[0] + position.mark[1]
                 ? `Grace ${(position.mark[0] + position.mark[1] - now).toString()}s`
-                : "Active · liquidatable"
+                : now > position.mark[0] + position.mark[1] + (s?.v.tail ?? 0n)
+                  ? "Expired · mark again (starts a new grace period)"
+                  : "Active · liquidatable"
               : "None"}
         </Row>
       </div>
@@ -1089,7 +1091,15 @@ export function Keeper({
                   now < position.mark[0] + position.mark[1] ||
                   now > position.mark[0] + position.mark[1] + (s?.v.tail ?? 0n)
                 }
-                reason="An active mark, elapsed grace, open execution window and fresh feeds are required."
+                reason={
+                  !feedsReady(s)
+                    ? "Waiting for fresh, agreeing price feeds."
+                    : !position?.mark[2]
+                      ? "This position is not marked. Mark it first; it can be liquidated once the grace period ends."
+                      : now < position.mark[0] + position.mark[1]
+                        ? `Marked: the grace period ends ${new Date(Number(position.mark[0] + position.mark[1]) * 1000).toLocaleString()}.`
+                        : "The mark expired: nobody liquidated it within its window. Mark it again; that starts a new grace period."
+                }
               />
             </div>
             <div>
@@ -1397,10 +1407,14 @@ export function Governance({
           label="Parameters"
         />
       </Col>
-      <GovActivity r={r} s={s} />
       {/* Operator controls render only for the connected governor; everyone else sees what is
           pending and may apply it once the timelock ends. */}
-      {!isGov && <Col label="Pending">{pendingBlock}</Col>}
+      {!isGov && (
+        <Col label="Pending">
+          {pendingBlock}
+          <GovActivity r={r} s={s} />
+        </Col>
+      )}
       {isGov && (
         <Col label="Operator">
           <Select
@@ -1532,6 +1546,7 @@ export function Governance({
             />
           )}
           {op === "report" && <Reporter r={r} s={s} actions={actions} />}
+          <GovActivity r={r} s={s} />
         </Col>
       )}
     </>

@@ -293,18 +293,53 @@ try {
   assert.ok(s0 - s1 <= 50n * E18 + 1n && s0 - s1 >= 50n * E18 - 10n ** 12n, `took ${s0 - s1} imdUSD wei`);
   passed(`added 50 imdUSD + ${usdc} USDC in five signed steps (two approvals per token, then the mint)`);
 
+  // A second deposit over the same range goes into that position: still one NFT, more liquidity.
+  const liq = (id) => read(POSITION_MANAGER, parseAbi(["function getPositionLiquidity(uint256) view returns (uint128)"]), "getPositionLiquidity", [id]);
+  await dialog.locator("input[name=lp-imdusd]").fill("20");
+  const goes = await until("Goes into the existing position", async () => (await dialog.innerText()).match(/Goes into[^\n]*\n?\s*Your position #(\d+)/), 90_000);
+  const first = BigInt(goes[1]);
+  const l1 = await liq(first);
+  await dialog.getByRole("button", { name: /Add liquidity|Confirm deposit in wallet/ }).click();
+  await waitNote(page, dialog, new RegExp(`^Added .* to your position #${first}`), "lp-1b-increase");
+  assert.equal(await nfts(a), 1n, "the second deposit minted no new NFT");
+  assert.ok((await liq(first)) > l1, "the existing position's liquidity grew");
+  passed(`a second deposit over the same range went into position #${first} (one NFT, more liquidity)`);
+
+  // Max both, with the whole balance on the binding side: no "Needs up to" shortfall, and it goes through.
+  await until("Max both offered", async () => (await dialog.locator("button.lp-max").count()) === 1);
+  // Right after a deposit, Max may still use the balance from before it: the deposit re-reads the balances and
+  // asks for a lower amount instead of reverting. Max again then uses the fresh ones, as a person would.
+  for (let attempt = 0; ; attempt++) {
+    await dialog.locator("button.lp-max").click();
+    await until("the max plan shown", async () => /Deposits/.test(await dialog.innerText()));
+    assert.doesNotMatch(await dialog.innerText(), /Needs .* the wallet holds/, "Max both must fit the wallet");
+    await dialog.getByRole("button", { name: /Add liquidity|Confirm deposit in wallet/ }).click();
+    const said = await until("the deposit's answer", async () => {
+      const n = await note(dialog);
+      return (/^Added|lower the amount/.test(n) && n) || (/reverted|failed/i.test(n) && Promise.reject(fatal(n)));
+    }, 180_000);
+    if (/^Added/.test(said)) {
+      assert.match(said, new RegExp(`to your position #${first}`), said);
+      break;
+    }
+    assert.ok(attempt < 1, `still asked to lower the amount after fresh balances: ${said}`);
+  }
+  assert.equal(await nfts(a), 1n, "Max went into the same NFT");
+  passed("Max both shows no shortfall and adds into the same position");
+
   await dialog.getByRole("button", { name: "Your positions", exact: true }).click();
   const row = dialog.locator(".loop-plan").filter({ hasText: "Position #" });
   await until("the position listed", async () => (await row.count()) === 1);
   const listed = await row.innerText();
-  assert.match(listed, /49\.\d\d imdUSD|50\.00 imdUSD/, listed);
+  assert.match(listed, /[0-9]+\.\d\d imdUSD/, listed);
   passed("the new position is listed with the explorer unreachable (remembered id, checked on chain)");
 
+  const sMax = await read(IMDUSD, erc20, "balanceOf", [a]);
   await row.getByRole("button", { name: "Take 50%" }).click();
   await waitNote(page, dialog, /^Took 50%/, "lp-2-half");
   const s2 = await read(IMDUSD, erc20, "balanceOf", [a]);
-  assert.ok(s2 - s1 >= 24n * E18, `half returned ${s2 - s1}`);
-  await until("the position re-read", async () => /2[45]\.\d\d imdUSD/.test(await row.innerText()));
+  assert.ok(s2 - sMax >= 34n * E18, `half returned ${s2 - sMax}`);
+  await until("the position re-read", async () => (await row.innerText()) !== listed);
   await row.getByRole("button", { name: "Close" }).click();
   await waitNote(page, dialog, /closed/, "lp-3-close");
   assert.equal(await nfts(a), 0n, "closing burns the NFT");
