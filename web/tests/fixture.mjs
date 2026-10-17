@@ -107,6 +107,7 @@ export const fixture = () => ({
   ownerReadFail: false,
   extraPoint: false,
   logsRequested: [],
+  hostCalls: {},
   reserve: 100n * W,
   supply: 10000n * W,
   allowance: 0n,

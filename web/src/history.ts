@@ -104,14 +104,14 @@ async function deploymentBlock(
         hi = head;
       while (lo < hi) {
         const mid = (lo + hi) / 2n;
-        const code = await r.client.getCode({
+        const code = await archiveClient(r).getCode({
           address: t.address,
           blockNumber: mid,
         });
         if (code && code !== "0x") hi = mid;
         else lo = mid + 1n;
       }
-      const code = await r.client.getCode({
+      const code = await archiveClient(r).getCode({
         address: t.address,
         blockNumber: lo,
       });
@@ -208,7 +208,9 @@ const groupOf = (r: Runtime, address: Address) => {
   return g?.includes(address.toLowerCase()) ? g : [address.toLowerCase()];
 };
 /** The client eth_getLogs goes through (config.ts: /rpc, then providers that serve old ranges), else the main one. */
-export const logClient = (r: Runtime) => (r as Runtime & { logs?: Runtime["client"] }).logs ?? r.client;
+export const logClient = (r: Runtime) => (r as Partial<Pick<Runtime, "logs">>).logs ?? r.client;
+/** The client for state at a past block (config.ts: /rpc, the archive gateways, then the deployment's RPCs). */
+export const archiveClient = (r: Runtime) => (r as Partial<Pick<Runtime, "archive">>).archive ?? r.client;
 
 /** At most historyConfig.parallel log reads at once per runtime, whoever asks. */
 const slots = new WeakMap<Runtime, { busy: number; queue: (() => void)[] }>();

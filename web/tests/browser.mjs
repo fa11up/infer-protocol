@@ -21,6 +21,8 @@ import {
   fixtureDeploymentDir,
 } from "./fixture.mjs";
 const root = resolve(fileURLToPath(new URL("../..", import.meta.url)));
+const archiveRpcUrls = Object.values(JSON.parse(await readFile(new URL("../src/archive-rpc.json", import.meta.url), "utf8"))).flat();
+const REFUSING_RPC = "https://eth-mainnet.public.blastapi.io";
 const evidence = resolve(root, "docs/frontend");
 await mkdir(evidence, { recursive: true });
 // imd-deployment.json as scripts/manifest.mjs writes it (the source plus a sha256 inventory, which config.ts checks
@@ -133,6 +135,19 @@ async function setup({
       const body = request.postDataJSON();
       await route.fulfill({
         json: Array.isArray(body) ? body.map(ensRpc) : ensRpc(body),
+        headers: { "access-control-allow-origin": "*" },
+      });
+      return;
+    }
+    // The keyless archive gateways (src/archive-rpc.json) and a public RPC known to refuse old log ranges (config.ts
+    // historyConfig.noArchiveLogs), for the case that lists one in the deployment: answered by the fixture chain and
+    // recorded per host and method, so a test can see which reads went where.
+    const extra = [...archiveRpcUrls, REFUSING_RPC].find((u) => request.url().startsWith(u));
+    if (extra) {
+      const body = request.postDataJSON();
+      for (const b of [body].flat()) (s.hostCalls[new URL(extra).hostname] ??= []).push(b.method);
+      await route.fulfill({
+        json: Array.isArray(body) ? body.map((b) => rpc(s, b)) : rpc(s, body),
         headers: { "access-control-allow-origin": "*" },
       });
       return;
@@ -1779,6 +1794,29 @@ try {
     await expectText(page.locator(".pane-points"), "not the same as nobody holding imdUSD");
     assert.equal(await page.locator(".points-feed li").count(), 0);
     passed("With no board yet, unreadable points history is an error, never an empty board");
+  }
+  {
+    // A deployment RPC known to refuse old log ranges (Blast: 10 blocks) is listed first: the terminal's reads at the
+    // head use it, its history never does. The loan book comes from the other RPC, in one request per window naming
+    // the deployment's history contracts together.
+    const { page, s } = await setup({
+      state: { hostCalls: {} },
+      deployment: (d) => ({ ...d, network: { ...d.network, rpcUrls: [REFUSING_RPC, ...d.network.rpcUrls] } }),
+    });
+    await tab(page, "loans");
+    await page.locator(".loan-mark").first().waitFor();
+    await expectText(page.locator(".loan-coverage"), "RPC");
+    const blast = s.hostCalls["eth-mainnet.public.blastapi.io"] ?? [];
+    assert.ok(blast.length > 0, "reads at the head still use the deployment's first RPC");
+    assert.ok(!blast.includes("eth_getLogs"), "no history read goes to an RPC that refuses old ranges");
+    assert.ok(s.logsRequested.length > 0);
+    assert.ok(
+      s.logsRequested.some((f) => Array.isArray(f.address) && f.address.length > 1),
+      "history windows name several contracts at once",
+    );
+    for (const f of s.logsRequested.filter((f) => Array.isArray(f.address)))
+      assert.deepEqual(f.address, [...f.address].map((a) => a.toLowerCase()).sort(), "a sorted, lowercase address list");
+    passed("History skips RPCs that refuse old log ranges and reads the deployment's contracts together in sorted windows");
   }
   assert.deepEqual(errors, [], JSON.stringify(errors.slice(0, 10)));
   passed(

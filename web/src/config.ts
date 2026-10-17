@@ -1,5 +1,6 @@
 import { appRoot } from "./site";
 import { onChain, setInterface } from "./names";
+import archiveRpcs from "./archive-rpc.json";
 import {
   createPublicClient,
   createWalletClient,
@@ -155,17 +156,18 @@ export async function loadConfig() {
           }),
         ]
       : [];
-  // eth_getLogs has its own client: on imdusd.com /rpc (which walks its keyed providers, and caches closed windows),
-  // then only the deployment's RPCs that serve old log ranges; history.ts falls back to Blockscout after that. Off
-  // imdusd.com (local dev, previews) the same list without /rpc. If every RPC is on the refusing list, all are kept.
-  const archive = config.network.rpcUrls.filter((url) => !historyConfig.noArchiveLogs.includes(new URL(url).hostname));
-  const logs = createPublicClient({
-    chain,
-    transport: fallback([
-      ...(own.length ? [http(new URL("/rpc", location.origin).href, { timeout: 15000, retryCount: 0 })] : []),
-      ...(archive.length ? archive : config.network.rpcUrls).map((url) => http(url, { timeout: 15000, retryCount: 0 })),
-    ]),
-  });
+  // Old ranges have their own clients. eth_getLogs (every history window reaches 2,000+ blocks back, past what
+  // non-archive nodes serve): on imdusd.com /rpc first (its keyed providers, closed windows cached for everyone), then
+  // the keyless archive gateways (archive-rpc.json), then the deployment's RPCs that serve old log ranges, skipping
+  // the ones known to refuse them; history.ts falls back to Blockscout after that. State at a past block (`archive`):
+  // /rpc, the gateways, then every deployment RPC. Off imdusd.com (local dev, previews) the same without /rpc. Reads
+  // at the head keep `client` below.
+  const ownOld = own.length ? [new URL("/rpc", location.origin).href] : [];
+  const gateways: string[] = (archiveRpcs as Record<string, string[]>)[String(config.chainId)] ?? [];
+  const serveOld = config.network.rpcUrls.filter((url) => !historyConfig.noArchiveLogs.includes(new URL(url).hostname));
+  const old = (urls: string[]) => fallback([...new Set(urls)].map((url) => http(url, { timeout: 15000, retryCount: 0 })));
+  const logs = createPublicClient({ chain, transport: old([...ownOld, ...gateways, ...serveOld]) });
+  const archive = createPublicClient({ chain, transport: old([...ownOld, ...gateways, ...config.network.rpcUrls]) });
   const client = createPublicClient({
     chain,
     transport: fallback([
@@ -179,7 +181,7 @@ export async function loadConfig() {
     // those at the Worker's 64 calls (512 let 128 through once the snapshot read everything at once).
     batch: { multicall: { batchSize: 256, wait: 16 } },
   });
-  return { config, abis, targets, chain, client, logs };
+  return { config, abis, targets, chain, client, logs, archive };
 }
 export type Runtime = Awaited<ReturnType<typeof loadConfig>>;
 export function wallet(r: Runtime, p: EIP1193Provider) {

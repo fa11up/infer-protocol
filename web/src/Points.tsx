@@ -14,7 +14,7 @@ import { poolEvents, nftOwnerEvents, isWalletCode, isSafeProxy, S1_TOPICS } from
 import { pegPoolLogs, pegPoolScan } from "./peg-logs";
 import { computeSeason1, type S1Event } from "../../points/season1.ts";
 import { readSeason, firstBlockAtOrAfter, type SeasonInfo } from "./season";
-import { history } from "./history";
+import { archiveClient, history } from "./history";
 import { ours } from "./names";
 import { pointsConfig, type Runtime } from "./config";
 import type { Snapshot } from "./state";
@@ -53,10 +53,12 @@ async function contractsAmong(r: Runtime, addresses: Set<string>, head: bigint, 
   for (let i = 0; i < todo.length; i += 8)
     await Promise.all(
       todo.slice(i, i + 8).map(async (a) => {
-        const code = (await r.client.getCode({ address: a as `0x${string}`, blockNumber: head })) ?? "0x";
+        // At a pinned (past) block the state comes from the archive path; at the head, the usual one.
+        const c = pinned ? archiveClient(r) : r.client;
+        const code = (await c.getCode({ address: a as `0x${string}`, blockNumber: head })) ?? "0x";
         let wallet = isWalletCode(code);
         if (!wallet) {
-          const slot0 = await r.client.getStorageAt({ address: a as `0x${string}`, slot: "0x0", blockNumber: head });
+          const slot0 = await c.getStorageAt({ address: a as `0x${string}`, slot: "0x0", blockNumber: head });
           wallet = isSafeProxy(code, slot0 ?? "0x");
         }
         cache!.set(key(a), wallet);

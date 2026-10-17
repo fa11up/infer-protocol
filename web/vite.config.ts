@@ -33,11 +33,13 @@ const BLOCKSCOUT: Record<number, string> = {
 /** IdentityMD's public API, read by the analytics page for the swarm's size (src/analytics-data.ts). */
 const IMD_API = "https://api.imd.fun";
 /** Every origin the terminal connects to: the deployment's RPCs, the mainnet readers' RPCs (market price,
- * ENS) and the chain's Blockscout. Read from the same files the terminal reads, so they cannot disagree. */
+ * ENS), the archive gateways and the chain's Blockscout. Read from the same files the terminal reads, so they cannot disagree. */
 function launchConnect(): string[] {
   const deployment = JSON.parse(readFileSync(resolve(import.meta.dirname, "deployment-source.json"), "utf8"));
   const ens: string[] = JSON.parse(readFileSync(resolve(import.meta.dirname, "src/ens-rpc.json"), "utf8"));
-  const origins = [...deployment.network.rpcUrls, ...ens].map((u: string) => new URL(u).origin);
+  // Keyless archive gateways the terminal reads old log windows and past state from (src/archive-rpc.json).
+  const archive: string[] = JSON.parse(readFileSync(resolve(import.meta.dirname, "src/archive-rpc.json"), "utf8"))[deployment.chainId] ?? [];
+  const origins = [...deployment.network.rpcUrls, ...ens, ...archive].map((u: string) => new URL(u).origin);
   if (BLOCKSCOUT[deployment.chainId]) origins.push(BLOCKSCOUT[deployment.chainId]);
   // The analytics page's swarm strip reads IdentityMD's public /swarm (CORS-open).
   origins.push(IMD_API);
