@@ -203,6 +203,7 @@ export function Page({
       <footer className="site-footer">
         <nav aria-label="Footer">
           {TERMINAL && <a href={href("terminal/")}>Terminal</a>}
+          {TERMINAL && <a href={href("analytics/")}>Analytics</a>}
           <a href={href("docs/")}>Docs</a>
           <a href={INFER_SITE} target="_blank" rel="noreferrer">
             INFER ↗

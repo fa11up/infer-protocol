@@ -30,6 +30,8 @@ const BLOCKSCOUT: Record<number, string> = {
   1: "https://eth.blockscout.com",
   11155111: "https://eth-sepolia.blockscout.com",
 };
+/** IdentityMD's public API, read by the analytics page for the swarm's size (src/analytics-data.ts). */
+const IMD_API = "https://api.imd.fun";
 /** Every origin the terminal connects to: the deployment's RPCs, the mainnet readers' RPCs (market price,
  * ENS) and the chain's Blockscout. Read from the same files the terminal reads, so they cannot disagree. */
 function launchConnect(): string[] {
@@ -37,6 +39,8 @@ function launchConnect(): string[] {
   const ens: string[] = JSON.parse(readFileSync(resolve(import.meta.dirname, "src/ens-rpc.json"), "utf8"));
   const origins = [...deployment.network.rpcUrls, ...ens].map((u: string) => new URL(u).origin);
   if (BLOCKSCOUT[deployment.chainId]) origins.push(BLOCKSCOUT[deployment.chainId]);
+  // The analytics page's swarm strip reads IdentityMD's public /swarm (CORS-open).
+  origins.push(IMD_API);
   return [...new Set(origins)];
 }
 /**
@@ -166,6 +170,16 @@ function publicSite(): Plugin {
           `${socialTags(SITE, `${SITE}/`, "imdUSD", description, { type: "website" })}</head>`,
         ),
       );
+      // The analytics page's canonical URL and social card (launch build only: the public build has no such page).
+      if (LAUNCH) {
+        const analytics = resolve(dir, "analytics/index.html");
+        const page = readFileSync(analytics, "utf8");
+        const about = page.match(/<meta\s+name="description"\s+content="([^"]*)"/)?.[1] ?? "";
+        writeFileSync(
+          analytics,
+          page.replace("</head>", `${socialTags(SITE, `${SITE}/analytics/`, "imdUSD Analytics", about, { type: "website" })}</head>`),
+        );
+      }
       // The not-found page is served at whatever path was asked for, so its URLs must be absolute.
       const notFound = resolve(dir, "404.html");
       writeFileSync(
@@ -497,6 +511,9 @@ export default defineConfig(({ mode }) => {
           ...(site ? { notfound: resolve(import.meta.dirname, "404.html") } : {}),
           ...(!site || LAUNCH
             ? { terminal: resolve(import.meta.dirname, "terminal/index.html") }
+            : {}),
+          ...(!site || LAUNCH
+            ? { analytics: resolve(import.meta.dirname, "analytics/index.html") }
             : {}),
           docs: resolve(import.meta.dirname, "docs/index.html"),
         },

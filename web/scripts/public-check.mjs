@@ -25,7 +25,7 @@ const fail = (m) => {
   process.exit(1);
 };
 for (const need of [
-  ...(LAUNCH ? ["terminal/index.html", "imd-deployment.json"] : ["_redirects"]),
+  ...(LAUNCH ? ["terminal/index.html", "analytics/index.html", "imd-deployment.json"] : ["_redirects"]),
   "index.html",
   "docs/index.html",
   "docs/overview/what-is-imdusd/index.html",
@@ -58,7 +58,7 @@ if (LAUNCH) {
   const want = [
     "'self'",
     "https://cloudflareinsights.com",
-    ...new Set([...deployment.network.rpcUrls, ...ens].map((u) => new URL(u).origin).concat("https://eth.blockscout.com")),
+    ...new Set([...deployment.network.rpcUrls, ...ens].map((u) => new URL(u).origin).concat("https://eth.blockscout.com", "https://api.imd.fun")),
   ].join(" ");
   if (connect !== want) fail(`connect-src is "${connect}", expected "${want}"`);
   // imdusd.com/rpc (worker/rpc.js) serves only the contracts in rpc-allow.json: every contract the deployment

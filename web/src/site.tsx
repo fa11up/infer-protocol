@@ -69,7 +69,7 @@ export function NetworkChip({
   );
 }
 
-type Page = "home" | "terminal" | "docs";
+type Page = "home" | "terminal" | "analytics" | "docs";
 /** One header for every page: brand and navigation on the left; the network chip, theme, background and a
  * page-specific end on the right. */
 export function SiteHeader({
@@ -97,6 +97,7 @@ export function SiteHeader({
         </a>
         <nav className="site-nav" aria-label="Site">
           {TERMINAL && link("terminal", "terminal/", "Terminal")}
+          {TERMINAL && link("analytics", "analytics/", "Analytics")}
           {link("docs", "docs/", "Docs")}
           <a href={INFER_SITE} target="_blank" rel="noreferrer">
             INFER ↗
@@ -122,5 +123,27 @@ export function SiteHeader({
         {children}
       </div>
     </header>
+  );
+}
+
+/** The footer every React-rendered page shares (the docs pages render the same links in scripts/docs-pages.mjs). */
+export function SiteFooter() {
+  return (
+    <footer className="site-footer">
+      <nav aria-label="Footer">
+        {TERMINAL && <a href={href("terminal/")}>Terminal</a>}
+        {TERMINAL && <a href={href("analytics/")}>Analytics</a>}
+        <a href={href("docs/")}>Docs</a>
+        <a href={INFER_SITE} target="_blank" rel="noreferrer">
+          INFER ↗
+        </a>
+        <a href={WHITEPAPER} target="_blank" rel="noreferrer">
+          Whitepaper ↗
+        </a>
+        <XLink />
+        <DexLink />
+      </nav>
+      <span>imdUSD · built on IdentityMD</span>
+    </footer>
   );
 }
