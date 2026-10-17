@@ -4672,6 +4672,11 @@ dialog:focus-visible {
   .an-lead {
     min-height: calc(5 * 1.55em);
   }
+  /* "block … · … UTC" replaces "reading the chain…": on a phone it always takes its own row, so it does not move
+     from beside the title to under it (and everything below with it) when the chain is read. */
+  .an-asof {
+    flex-basis: 100%;
+  }
 }
 .an-vitals {
   display: grid;
