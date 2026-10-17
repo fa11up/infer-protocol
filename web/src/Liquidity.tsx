@@ -1,10 +1,11 @@
-// The imdUSD liquidity window: trade imdUSD <-> USDC on the peg pool, add imdUSD + USDC to it over a chosen range (Season 1's peg band $0.99-$1.01 by
+// The imdUSD liquidity window: a swap card (any pair through 0x, Matcha's engine, via imdusd.com/swap/*; imdUSD <-> USDC
+// also straight on the peg pool, whichever returns more), add imdUSD + USDC to it over a chosen range (Season 1's peg band $0.99-$1.01 by
 // default, or the wide $0.9524-$1.05), and see, collect from and
 // take out of the positions this wallet holds there. Everything goes from the viewer's wallet to Uniswap's
 // PositionManager; approvals ride in the same batch when the wallet can batch. The arithmetic and calldata live in
 // lp.ts (fork-tested: tests/lp.fork.test.mjs).
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Address } from "viem";
+import { createPublicClient, fallback, http, type Address, type Hex } from "viem";
 import type { Runtime } from "./config";
 import type { Snapshot } from "./state";
 import { BalanceHint, Choice, FadingError, Info, Row, type Actions, type Call, useBackdropClose } from "./actions";
@@ -24,6 +25,34 @@ import {
   pegQuoter,
   usdAtSqrt,
 } from "./leverage";
+import {
+  ALLOWANCE_HOLDER,
+  APPROVE_ABI,
+  DEFAULT_SLIPPAGE_BPS,
+  SLIPPAGES,
+  TOKENS,
+  TOKEN_META_ABI,
+  type SwapAnswer,
+  type Token,
+  type ZeroXAnswer,
+  approvalsFor,
+  bestRoute,
+  cleanText,
+  feeLine,
+  formatAmount,
+  isEth,
+  isPegPair,
+  minReceived,
+  parseAmount,
+  parseCustomTokens,
+  quoteStale,
+  readSwapAnswer,
+  routeName,
+  routeSummary,
+  same,
+  searchTokens,
+  swapQuery,
+} from "./swap0x";
 import {
   BAND,
   LP_SLIPPAGE_BPS,
@@ -47,7 +76,6 @@ import {
   type AddPlan,
   sharePct,
   describeTrade,
-  TRADE_SLIPPAGE_BPS,
   type TradeSide,
 } from "./lp";
 
@@ -122,6 +150,50 @@ async function explorerIds(me: Address): Promise<bigint[]> {
   return ids;
 }
 
+// ---- The swap card's plumbing ----------------------------------------------------------------------------
+/** One price check: 0x's answer (or why there is none) and, for imdUSD <-> USDC, the peg pool's. */
+type PriceView = {
+  key: string;
+  zeroX?: ZeroXAnswer;
+  zeroXError?: string;
+  unavailable?: boolean;
+  direct?: bigint;
+  directEnd?: bigint;
+  directError?: string;
+};
+/** A firm 0x quote for the connected wallet, and the least it promised. */
+type Review = { key: string; quote: ZeroXAnswer; at: number; min: bigint };
+const CUSTOM_KEY = "imdusd-swap-tokens";
+function loadCustoms(): Token[] {
+  try {
+    return parseCustomTokens(localStorage.getItem(CUSTOM_KEY));
+  } catch {
+    return [];
+  }
+}
+function saveCustoms(list: Token[]) {
+  try {
+    localStorage.setItem(CUSTOM_KEY, JSON.stringify(list.map(({ address, symbol, name, decimals }) => ({ address, symbol, name, decimals }))));
+  } catch {
+    /* Storage blocked: the token works for this visit only. */
+  }
+}
+/** imdusd.com/swap/price or /quote. Anything that is not the Worker's JSON (a network failure, a page) is "unavailable". */
+async function askSwap(kind: "price" | "quote", q: URLSearchParams): Promise<SwapAnswer> {
+  const down = { ok: false, unavailable: true, error: "Swaps are temporarily unavailable." } as const;
+  try {
+    const res = await fetch(`/swap/${kind}?${q}`, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(12_000) });
+    if (!/json/.test(res.headers.get("content-type") ?? "")) return down;
+    return readSwapAnswer(res.status, await res.json());
+  } catch {
+    return down;
+  }
+}
+const rateText = (amountIn: bigint, out: bigint, a: Token, b: Token) => {
+  const r = Number(out) / 10 ** b.decimals / (Number(amountIn) / 10 ** a.decimals);
+  return `1 ${a.symbol} = ${r.toLocaleString("en-US", { maximumSignificantDigits: 6 })} ${b.symbol}`;
+};
+
 export function LpWindow({
   r,
   s,
@@ -135,11 +207,21 @@ export function LpWindow({
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const [tab, setTab] = useState<"add" | "positions" | "trade">("add");
-  // Trade tab: exact input, quoted live from Uniswap's V4 Quoter on the peg pool alone.
-  const [tradeSide, setTradeSide] = useState<TradeSide>("buy");
-  const [tradeIn, setTradeIn] = useState("");
-  const [tradeQuote, setTradeQuote] = useState<{ key: string; out?: bigint; end?: bigint; error?: string }>();
+  // Trade tab: a swap card. Any pair through 0x (Matcha's engine, via imdusd.com/swap/*, which sets the fee);
+  // imdUSD <-> USDC also on the peg pool directly, and whichever returns more.
+  const [sellT, setSellT] = useState<Token>(() => TOKENS.find((t) => same(t.address, USDC))!);
+  const [buyT, setBuyT] = useState<Token>(() => TOKENS.find((t) => same(t.address, IMDUSD))!);
+  const [sellText, setSellText] = useState("");
+  const [slip, setSlip] = useState<number>(DEFAULT_SLIPPAGE_BPS);
+  const [picker, setPicker] = useState<"sell" | "buy">();
+  const [pickQuery, setPickQuery] = useState("");
+  const [pasted, setPasted] = useState<{ address: Address; token?: Token; held?: bigint; error?: string }>();
+  const [customs, setCustoms] = useState<Token[]>(loadCustoms);
+  const [balances, setBalances] = useState<Record<string, bigint>>({});
+  const [price, setPrice] = useState<PriceView>();
+  const [review, setReview] = useState<Review>();
   const [accepted, setAccepted] = useState(false);
+  const [finishedTx, setFinishedTx] = useState<Hex>();
   const [inputs, setInputs] = useState({ imdusd: "", usdc: "" });
   const [side, setSide] = useState<"imdusd" | "usdc">("imdusd");
   // Season 1's band by default: only liquidity between $0.99 and $1.01 earns points (points/season1.ts).
@@ -277,51 +359,175 @@ export function LpWindow({
   const share = plan && pool ? (plan.liquidity * 1_000_000n) / (pool.liquidity + plan.liquidity) : undefined;
   const max = pool && wallet ? planMax(pool.sqrtP, wallet.imdusd, wallet.usdc, RANGES[range]) : undefined;
 
-  // The trade's quote, a moment after typing stops: what it returns and the price its last unit gets.
-  const tradeAmount = useMemo(() => {
-    try {
-      const n = amount(tradeIn, tradeSide === "sell" ? 18 : 6);
-      return n > 0n ? n : undefined;
-    } catch {
-      return undefined;
-    }
-  }, [tradeIn, tradeSide]);
-  const tradeKey = `${tradeSide}:${tradeAmount ?? ""}`;
-  useEffect(() => {
-    if (tab !== "trade" || tradeAmount === undefined) return setTradeQuote(undefined);
-    let live = true;
-    const id = setTimeout(async () => {
+  // Public RPCs straight, for tokens pasted in: imdusd.com/rpc serves only the contracts the terminal names.
+  const open = useMemo(
+    () => createPublicClient({ chain: r.chain, transport: fallback(r.config.network.rpcUrls.map((u) => http(u, { timeout: 8000, retryCount: 0 }))) }),
+    [r],
+  );
+  const reader = (t: Token) => (t.custom ? open : r.client);
+  const sellAmount = useMemo(() => parseAmount(sellText, sellT.decimals), [sellText, sellT]);
+  const key = `${sellT.address}:${buyT.address}:${sellAmount ?? ""}:${slip}`;
+  const peg = isPegPair(sellT.address, buyT.address);
+  const pegSide: TradeSide = same(sellT.address, IMDUSD) ? "sell" : "buy";
+
+  // The two tokens' balances, with the pool's 15-second clock.
+  const readBalances = useCallback(async () => {
+    if (!me) return setBalances({});
+    const one = async (t: Token): Promise<[string, bigint] | undefined> => {
       try {
-        const quote = pegQuoter(r.client, tradeSide);
-        const [out, end] = await Promise.all([
-          quote(tradeAmount),
-          (tradeSide === "sell" ? pegMarginalSell : pegMarginalBuy)(quote, tradeAmount).catch(() => undefined),
-        ]);
-        if (live) setTradeQuote(out === undefined ? { key: tradeKey, error: "The peg pool cannot fill this amount." } : { key: tradeKey, out, end });
-      } catch (e) {
-        if (live) setTradeQuote({ key: tradeKey, error: `The quote could not be read: ${message(e)}` });
+        const b = isEth(t)
+          ? await r.client.getBalance({ address: me })
+          : ((await reader(t).readContract({ address: t.address, abi: TOKEN_META_ABI, functionName: "balanceOf", args: [me] })) as bigint);
+        return [t.address.toLowerCase(), b];
+      } catch {
+        return undefined;
       }
-    }, 350);
+    };
+    const got = await Promise.all([sellT, buyT].map(one));
+    // Merged, keyed by token: a slower read for the tokens picked before cannot blank the ones picked now.
+    setBalances((old) => ({ ...old, ...Object.fromEntries(got.filter((x): x is [string, bigint] => !!x)) }));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [r, me, sellT, buyT, open]);
+  useEffect(() => {
+    if (tab === "trade") void readBalances();
+  }, [tab, readBalances, pool?.at]);
+  useEffect(() => setBalances({}), [me]);
+
+  // The price, a moment after typing stops and again with the pool's clock: 0x's (no wallet needed) and, for
+  // imdUSD <-> USDC, the peg pool's from Uniswap's V4 Quoter.
+  // A refresh never cancels a check in flight (under load the peg pool's bisection can outlast the 15-second clock):
+  // an answer is kept while its key is still the card's, and a refresh waits for the one before it.
+  const priceKey = useRef(key);
+  priceKey.current = key;
+  const pricing = useRef("");
+  useEffect(() => {
+    if (tab !== "trade" || sellAmount === undefined) return setPrice(undefined);
+    const id = setTimeout(async () => {
+      if (pricing.current === key) return;
+      pricing.current = key;
+      const direct = async () => {
+        try {
+          const quote = pegQuoter(r.client, pegSide);
+          const [out, end] = await Promise.all([
+            quote(sellAmount),
+            (pegSide === "sell" ? pegMarginalSell : pegMarginalBuy)(quote, sellAmount).catch(() => undefined),
+          ]);
+          return out === undefined ? { error: "The peg pool cannot fill this amount." } : { out, end };
+        } catch (e) {
+          return { error: `The peg pool could not be read: ${message(e)}` };
+        }
+      };
+      const [zx, d] = await Promise.all([askSwap("price", swapQuery(sellT, buyT, sellAmount, slip)), peg ? direct() : undefined]);
+      if (pricing.current === key) pricing.current = "";
+      if (priceKey.current !== key) return;
+      setPrice({
+        key,
+        zeroX: zx.ok ? zx.body : undefined,
+        zeroXError: zx.ok ? undefined : zx.error,
+        unavailable: !zx.ok && zx.unavailable,
+        direct: d && "out" in d ? d.out : undefined,
+        directEnd: d && "out" in d ? d.end : undefined,
+        directError: d && "error" in d ? d.error : undefined,
+      });
+    }, 400);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [r, tab, key, pool?.at]);
+  const quoted = price?.key === key ? price : undefined;
+  const zeroOut = quoted?.zeroX ? BigInt(quoted.zeroX.buyAmount!) : undefined;
+  const route = quoted ? bestRoute(zeroOut, quoted.direct) : undefined;
+  const out = route === "0x" ? zeroOut : route === "direct" ? quoted?.direct : undefined;
+  const reviewed = route === "0x" && review?.key === key ? review : undefined;
+  // imdUSD <-> USDC by either route: the price against $1, and the under-$0.9975 check for sales.
+  const pegView =
+    peg && out !== undefined && sellAmount !== undefined && usd !== undefined
+      ? describeTrade(pegSide, sellAmount, out, usd, route === "direct" ? quoted?.directEnd : undefined, slip)
+      : undefined;
+  const minOut =
+    route === "0x" && zeroOut !== undefined ? (reviewed?.min ?? minReceived(zeroOut, slip, quoted?.zeroX?.minBuyAmount)) : pegView?.minOut;
+  const held = (t: Token) => balances[t.address.toLowerCase()];
+  const sellHeld = held(sellT);
+  const tradeShort =
+    me && sellAmount !== undefined && sellHeld !== undefined && sellAmount > sellHeld
+      ? `The wallet holds ${formatAmount(sellHeld, sellT.decimals)} ${sellT.symbol}.`
+      : "";
+  const quoteNote =
+    sellAmount === undefined || route
+      ? ""
+      : !quoted
+        ? "Quoting…"
+        : peg
+          ? (quoted.directError ?? "No route can fill this amount.")
+          : quoted.unavailable
+            ? "Swaps are temporarily unavailable."
+            : (quoted.zeroXError ?? "No route can fill this amount.");
+  const tokens = useMemo(() => [...TOKENS, ...customs], [customs]);
+  const found = searchTokens(tokens, pickQuery);
+  const unverified = [sellT, buyT].filter((t) => t.custom);
+
+  // A pasted address: read the token's own symbol, name and decimals (and this wallet's balance) from chain.
+  useEffect(() => {
+    const at = found.paste;
+    if (!picker || !at) return setPasted(undefined);
+    let live = true;
+    setPasted({ address: at });
+    (async () => {
+      try {
+        const read = (functionName: "symbol" | "name" | "decimals") => open.readContract({ address: at, abi: TOKEN_META_ABI, functionName });
+        const [symbol, name, decimals, bal] = await Promise.all([
+          read("symbol"),
+          read("name").catch(() => ""),
+          read("decimals"),
+          me ? open.readContract({ address: at, abi: TOKEN_META_ABI, functionName: "balanceOf", args: [me] }).catch(() => undefined) : undefined,
+        ]);
+        const d = Number(decimals);
+        if (!Number.isInteger(d) || d > 36) throw Error("bad decimals");
+        const token: Token = { address: at, symbol: cleanText(symbol, 16) || "???", name: cleanText(name, 40), decimals: d, custom: true };
+        if (live) setPasted({ address: at, token, held: bal as bigint | undefined });
+      } catch {
+        if (live) setPasted({ address: at, error: "No ERC-20 token at this address on Ethereum (it has no symbol or decimals)." });
+      }
+    })();
     return () => {
       live = false;
-      clearTimeout(id);
     };
-  }, [r, tab, tradeSide, tradeAmount, tradeKey, pool?.sqrtP]);
-  const quoted = tradeQuote?.key === tradeKey ? tradeQuote : undefined;
-  const trade =
-    quoted?.out !== undefined && tradeAmount !== undefined && usd !== undefined
-      ? describeTrade(tradeSide, tradeAmount, quoted.out, usd, quoted.end)
-      : undefined;
-  const tradeIsIn = tradeSide === "sell" ? { symbol: unit(), decimals: 18, held: wallet?.imdusd } : { symbol: "USDC", decimals: 6, held: wallet?.usdc };
-  const tradeOut = tradeSide === "sell" ? { symbol: "USDC", decimals: 6 } : { symbol: unit(), decimals: 18 };
-  const tradeShort =
-    tradeAmount !== undefined && tradeIsIn.held !== undefined && tradeAmount > tradeIsIn.held
-      ? `The wallet holds ${fmt(tradeIsIn.held, tradeIsIn.decimals, 2)} ${tradeIsIn.symbol}.`
-      : "";
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [picker, found.paste, open, me]);
+
+  const resetTrade = () => {
+    setAccepted(false);
+    setReview(undefined);
+    setError("");
+    setFinished("");
+    setFinishedTx(undefined);
+  };
+  function choose(t: Token) {
+    if (t.custom && !customs.some((c) => same(c.address, t.address))) {
+      const next = [...customs, t];
+      setCustoms(next);
+      saveCustoms(next);
+    }
+    const other = picker === "sell" ? buyT : sellT;
+    // Picking the other side's token swaps the two, as every DEX card does.
+    if (same(t.address, other.address)) {
+      setSellT(buyT);
+      setBuyT(sellT);
+    } else if (picker === "sell") setSellT(t);
+    else setBuyT(t);
+    setPicker(undefined);
+    setPickQuery("");
+    resetTrade();
+  }
+  function flip() {
+    setSellT(buyT);
+    setBuyT(sellT);
+    setSellText(out !== undefined ? formatAmount(out, buyT.decimals, 8).replace(/,/g, "") : sellText);
+    resetTrade();
+  }
 
   const run = async (calls: Call[]) => {
     setSteps({ labels: calls.map((c) => c.label), done: 0 });
-    await actions.sequence!("lp", { calls, batch: !!atomic, onStep: (done) => setSteps((x) => x && { ...x, done }) });
+    return actions.sequence!("lp", { calls, batch: !!atomic, onStep: (done) => setSteps((x) => x && { ...x, done }) });
   };
 
   async function add() {
@@ -434,48 +640,106 @@ export function LpWindow({
     }
   }
 
-  async function swap() {
+  /** A firm 0x quote for this wallet, checked: sent to AllowanceHolder, with the ETH this trade sells and no other. */
+  async function firmQuote(): Promise<Review> {
+    if (!me || sellAmount === undefined) throw Error("Not ready.");
+    const a = await askSwap("quote", swapQuery(sellT, buyT, sellAmount, slip, me));
+    if (!a.ok) throw Error(a.error);
+    const q = a.body;
+    const tx = q.transaction;
+    if (!tx || !same(tx.to, ALLOWANCE_HOLDER) || !/^0x[0-9a-fA-F]+$/.test(tx.data))
+      throw Error("0x returned a transaction for an unexpected contract. Nothing was sent.");
+    const value = BigInt(tx.value ?? "0");
+    if (isEth(sellT) ? value !== sellAmount : value !== 0n)
+      throw Error("0x's transaction would send a different amount of ETH than this trade. Nothing was sent.");
+    if (q.sellAmount !== undefined && BigInt(q.sellAmount) !== sellAmount) throw Error("0x quoted a different amount to sell. Review it again.");
+    return { key, quote: q, at: Date.now(), min: minReceived(BigInt(q.buyAmount!), slip, q.minBuyAmount) };
+  }
+
+  /** 0x route, first click: fetch the firm quote for this wallet and show what it promises. */
+  async function reviewSwap() {
     setError("");
     setFinished("");
     try {
-      if (!actions.sequence || !me || !s || !trade || tradeAmount === undefined) throw Error("Not ready.");
-      const tokenIn = tradeSide === "sell" ? IMDUSD : USDC;
-      const tokenOut = tradeSide === "sell" ? USDC : IMDUSD;
-      // Quote again: the swap must still return at least what the review promised.
-      const fresh = await pegQuoter(r.client, tradeSide)(tradeAmount);
-      if (fresh === undefined || fresh < trade.minOut)
-        throw Error("The pool's price moved since this was shown. The quote is updated: review it again.");
-      const deadline = s.timestamp + 1800n;
-      const [erc, [p2, expires], before] = await Promise.all([
-        r.client.readContract({ address: tokenIn, abi: ERC20, functionName: "allowance", args: [me, UNISWAP.permit2] }) as Promise<bigint>,
-        r.client.readContract({ address: UNISWAP.permit2, abi: PERMIT2, functionName: "allowance", args: [me, tokenIn, UNISWAP.universalRouter] }),
-        r.client.readContract({ address: tokenOut, abi: ERC20, functionName: "balanceOf", args: [me] }) as Promise<bigint>,
-      ]);
+      setReview(await firmQuote());
+    } catch (e) {
+      setError(message(e));
+    }
+  }
+
+  async function swap() {
+    setError("");
+    setFinished("");
+    setFinishedTx(undefined);
+    try {
+      if (!actions.sequence || !me || sellAmount === undefined || !route || minOut === undefined) throw Error("Not ready.");
+      const label = `Swap ${formatAmount(sellAmount, sellT.decimals)} ${sellT.symbol} for at least ${formatAmount(minOut, buyT.decimals)} ${buyT.symbol}`;
+      const balanceOf = (t: Token) =>
+        isEth(t)
+          ? r.client.getBalance({ address: me })
+          : (reader(t).readContract({ address: t.address, abi: TOKEN_META_ABI, functionName: "balanceOf", args: [me] }) as Promise<bigint>);
       const calls: Call[] = [];
-      if (erc < tradeAmount)
-        calls.push({ target: { address: tokenIn, abi: ERC20 }, fn: "approve", args: [UNISWAP.permit2, tradeAmount], label: `Approve ${tradeIsIn.symbol} for Permit2` });
-      if (p2 < tradeAmount || BigInt(expires) < s.timestamp + 300n)
+      if (route === "0x") {
+        if (!reviewed) throw Error("Review the swap first.");
+        // A quote over 20 seconds old is fetched again, and must still promise at least what was shown.
+        let firm = reviewed;
+        if (quoteStale(firm.at)) {
+          firm = await firmQuote();
+          if (firm.min < reviewed.min) {
+            setReview(firm);
+            throw Error(`The price moved since this was shown: it now returns at least ${formatAmount(firm.min, buyT.decimals)} ${buyT.symbol}. Review it again.`);
+          }
+        }
+        const tx = firm.quote.transaction!;
+        for (const a of approvalsFor(sellT, sellAmount, firm.quote.issues?.allowance))
+          calls.push({
+            target: { address: sellT.address, abi: APPROVE_ABI },
+            fn: "approve",
+            args: [a.spender, a.amount],
+            label: a.amount === 0n ? `Reset the ${sellT.symbol} allowance to 0 first (USDT requires it)` : `Approve exactly ${formatAmount(sellAmount, sellT.decimals)} ${sellT.symbol} for 0x's AllowanceHolder`,
+          });
+        calls.push({ target: { address: tx.to, abi: [] }, fn: "swap", args: [], data: tx.data, value: BigInt(tx.value ?? "0"), label: `${label} via Matcha/0x` });
+      } else {
+        if (!s || !pegView) throw Error("Not ready.");
+        const tokenIn = sellT.address;
+        // Quote again: the swap must still return at least what the review promised.
+        const fresh = await pegQuoter(r.client, pegSide)(sellAmount);
+        if (fresh === undefined || fresh < pegView.minOut)
+          throw Error("The pool's price moved since this was shown. The quote is updated: review it again.");
+        const deadline = s.timestamp + 1800n;
+        const [erc, [p2, expires]] = await Promise.all([
+          r.client.readContract({ address: tokenIn, abi: ERC20, functionName: "allowance", args: [me, UNISWAP.permit2] }) as Promise<bigint>,
+          r.client.readContract({ address: UNISWAP.permit2, abi: PERMIT2, functionName: "allowance", args: [me, tokenIn, UNISWAP.universalRouter] }),
+        ]);
+        if (erc < sellAmount)
+          calls.push({ target: { address: tokenIn, abi: ERC20 }, fn: "approve", args: [UNISWAP.permit2, sellAmount], label: `Approve ${sellT.symbol} for Permit2` });
+        if (p2 < sellAmount || BigInt(expires) < s.timestamp + 300n)
+          calls.push({
+            target: { address: UNISWAP.permit2, abi: PERMIT2 },
+            fn: "approve",
+            args: [tokenIn, UNISWAP.universalRouter, sellAmount, Number(deadline)],
+            label: `Let Uniswap's router take ${sellT.symbol} (30 min)`,
+          });
+        const call = encodeSwap({ key: PEG_KEY, tokenIn, amountIn: sellAmount, minOut: pegView.minOut });
         calls.push({
-          target: { address: UNISWAP.permit2, abi: PERMIT2 },
-          fn: "approve",
-          args: [tokenIn, UNISWAP.universalRouter, tradeAmount, Number(deadline)],
-          label: `Let Uniswap's router take ${tradeIsIn.symbol} (30 min)`,
+          target: { address: UNISWAP.universalRouter, abi: UNIVERSAL_ROUTER },
+          fn: "execute",
+          args: [call.commands, call.inputs, deadline],
+          label: `${label} on the peg pool`,
         });
-      const call = encodeSwap({ key: PEG_KEY, tokenIn, amountIn: tradeAmount, minOut: trade.minOut });
-      calls.push({
-        target: { address: UNISWAP.universalRouter, abi: UNIVERSAL_ROUTER },
-        fn: "execute",
-        args: [call.commands, call.inputs, deadline],
-        label: `Swap ${fmt(tradeAmount, tradeIsIn.decimals, 2)} ${tradeIsIn.symbol} for at least ${fmt(trade.minOut, tradeOut.decimals, 4)} ${tradeOut.symbol}`,
-      });
-      await run(calls);
-      const after = (await r.client.readContract({ address: tokenOut, abi: ERC20, functionName: "balanceOf", args: [me] })) as bigint;
+      }
+      const before = await balanceOf(buyT);
+      const hash = await run(calls);
+      const after = await balanceOf(buyT).catch(() => before);
       setFinished(
-        `Swapped ${fmt(tradeAmount, tradeIsIn.decimals, 2)} ${tradeIsIn.symbol} for ${fmt(after > before ? after - before : 0n, tradeOut.decimals, 4)} ${tradeOut.symbol}.`,
+        `Swapped ${formatAmount(sellAmount, sellT.decimals)} ${sellT.symbol} for ${formatAmount(after > before ? after - before : 0n, buyT.decimals)} ${buyT.symbol} (${routeName(route)}).`,
       );
-      setTradeIn("");
+      setFinishedTx(hash);
+      setSellText("");
       setAccepted(false);
+      setReview(undefined);
       void readPool();
+      void readBalances();
     } catch (e) {
       setError(message(e));
     }
@@ -511,6 +775,7 @@ export function LpWindow({
         onChange={(x) => {
           if (busy) return;
           setTab(x as "add" | "positions" | "trade");
+          setPicker(undefined);
           setError("");
           setFinished("");
           setSteps(undefined);
@@ -545,86 +810,202 @@ export function LpWindow({
         )}
       </div>
 
-      {tab === "trade" ? (
-        <>
-          <Choice
-            label="Trade direction"
-            value={tradeSide}
-            onChange={(x) => {
-              if (busy) return;
-              setTradeSide(x as TradeSide);
-              setTradeIn("");
-              setAccepted(false);
-              setError("");
-              setFinished("");
-            }}
-            options={[
-              ["buy", `Buy ${unit()} with USDC`],
-              ["sell", `Sell ${unit()} for USDC`],
-            ]}
-          />
+      {tab === "trade" && picker ? (
+        <div className="swap-picker">
           <div className="field">
             <label>
-              {tradeSide === "sell" ? `${unit()} to sell` : "USDC to pay"}
+              {picker === "sell" ? "Pay with" : "Receive"}: search, or paste a token address
               <input
-                name="lp-trade"
-                inputMode="decimal"
+                name="swap-search"
                 autoComplete="off"
                 spellCheck={false}
-                value={tradeIn}
-                disabled={busy}
-                onChange={(e) => {
-                  setTradeIn(e.target.value);
-                  setAccepted(false);
-                  setError("");
-                  setFinished("");
-                }}
+                autoFocus
+                placeholder="ETH, USDC, 0x…"
+                value={pickQuery}
+                onChange={(e) => setPickQuery(e.target.value)}
               />
             </label>
-            <BalanceHint
-              b={{ connected: !!me, amount: tradeIsIn.held, symbol: tradeIsIn.symbol, decimals: tradeIsIn.decimals }}
-              onUse={(text) => {
-                setTradeIn(text);
-                setAccepted(false);
-              }}
-            />
           </div>
-          {tradeAmount !== undefined && !trade && (
-            <p className="micro">{quoted?.error ?? "Quoting…"}</p>
+          <ul className="swap-tokens" aria-label="Tokens">
+            {found.matches.map((t) => (
+              <li key={t.address}>
+                <button type="button" aria-pressed={same(t.address, (picker === "sell" ? sellT : buyT).address)} onClick={() => choose(t)}>
+                  <b>{t.symbol}</b>
+                  <span>{t.custom ? `${t.name} · imported, unverified` : t.name}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+          {found.matches.length === 0 && !found.paste && <p className="micro">No listed token matches. Paste its address instead.</p>}
+          {found.paste &&
+            (pasted?.token ? (
+              <div className="loop-plan swap-paste">
+                <Row label="Token">
+                  {pasted.token.symbol}
+                  {pasted.token.name ? ` · ${pasted.token.name}` : ""}
+                </Row>
+                <Row label="Decimals">{pasted.token.decimals}</Row>
+                {me && <Row label="In your wallet">{formatAmount(pasted.held, pasted.token.decimals)}</Row>}
+                <p className="danger-text review-warning">
+                  Unverified token: check the address. Anyone can deploy a token with any name and symbol; this one is
+                  not on the terminal's list.
+                </p>
+                <button type="button" onClick={() => choose(pasted.token!)}>
+                  Use {pasted.token.symbol}
+                </button>
+              </div>
+            ) : (
+              <p className="micro">{pasted?.error ?? "Reading the token from chain…"}</p>
+            ))}
+        </div>
+      ) : tab === "trade" ? (
+        <>
+          <div className="swap-card">
+            <div className="swap-side">
+              <div className="swap-head">
+                <label htmlFor="swap-sell">You pay</label>
+                {me ? (
+                  <button
+                    type="button"
+                    className="swap-balance"
+                    disabled={busy || !sellHeld}
+                    title="Use the whole balance"
+                    onClick={() => {
+                      // Ether keeps a little back for gas.
+                      const keep = isEth(sellT) ? 3n * 10n ** 15n : 0n;
+                      const max = sellHeld && sellHeld > keep ? sellHeld - keep : 0n;
+                      setSellText(max > 0n ? exact(max, sellT.decimals) : "");
+                      resetTrade();
+                    }}
+                  >
+                    Balance {sellHeld === undefined ? "…" : formatAmount(sellHeld, sellT.decimals)} · Max
+                  </button>
+                ) : (
+                  <BalanceHint b={{ connected: false, amount: undefined, symbol: sellT.symbol, decimals: sellT.decimals }} onUse={() => {}} />
+                )}
+              </div>
+              <div className="swap-row">
+                <input
+                  id="swap-sell"
+                  name="swap-sell"
+                  inputMode="decimal"
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder="0"
+                  value={sellText}
+                  disabled={busy}
+                  onChange={(e) => {
+                    setSellText(e.target.value);
+                    resetTrade();
+                  }}
+                />
+                <button type="button" className="swap-token" disabled={busy} aria-label={`Pay with ${sellT.symbol}: change token`} onClick={() => setPicker("sell")}>
+                  {sellT.symbol} <span aria-hidden="true">▾</span>
+                </button>
+              </div>
+            </div>
+            <button type="button" className="swap-flip" disabled={busy} aria-label="Flip the two tokens" title="Flip" onClick={flip}>
+              ↓↑
+            </button>
+            <div className="swap-side">
+              <div className="swap-head">
+                <span>You receive</span>
+                {me && <span className="swap-held">Balance {held(buyT) === undefined ? "…" : formatAmount(held(buyT), buyT.decimals)}</span>}
+              </div>
+              <div className="swap-row">
+                <output className="swap-out" aria-label="You receive" data-route={route ?? ""}>
+                  {out !== undefined ? formatAmount(out, buyT.decimals) : sellAmount !== undefined && !quoteNote ? "…" : "0"}
+                </output>
+                <button type="button" className="swap-token" disabled={busy} aria-label={`Receive ${buyT.symbol}: change token`} onClick={() => setPicker("buy")}>
+                  {buyT.symbol} <span aria-hidden="true">▾</span>
+                </button>
+              </div>
+            </div>
+          </div>
+          {sellText.trim() !== "" && sellAmount === undefined && (
+            <p className="danger-text review-warning">Enter an amount with at most {sellT.decimals} decimal places.</p>
           )}
-          {trade && quoted?.out !== undefined && (
+          {quoteNote && <p className="micro swap-note">{quoteNote}</p>}
+          {unverified.map((t) => (
+            <p className="danger-text review-warning" key={t.address}>
+              {t.symbol} is an unverified token ({t.address}): check the address.
+            </p>
+          ))}
+          {route && out !== undefined && sellAmount !== undefined && minOut !== undefined && (
             <div className="loop-plan">
-              <Row label="You receive" info="Quoted by Uniswap's V4 Quoter on the peg pool: its 0.01% fee, price impact and any hook surcharge are included.">
-                {fmt(quoted.out, tradeOut.decimals, 4)} {tradeOut.symbol}
+              <Row label="Rate">{rateText(sellAmount, out, sellT, buyT)}</Row>
+              <Row
+                label="Route"
+                info={
+                  route === "0x"
+                    ? "0x's Swap API, the engine behind Matcha, splits the trade across the pools that return the most. The swap goes through 0x's AllowanceHolder contract, which takes only the approved amount."
+                    : "Straight on the imdUSD/USDC peg pool (Uniswap v4, PegFeeHook) through Uniswap's router: here it returns at least as much as 0x."
+                }
+              >
+                {routeName(route)}
+                {route === "0x" && quoted?.zeroX ? ` (${routeSummary(quoted.zeroX)})` : ""}
               </Row>
-              <Row label="At least" info={`If the price moves before the swap lands it may return up to ${(TRADE_SLIPPAGE_BPS / 100).toFixed(1)}% less; under that it refuses and nothing is spent.`}>
-                {fmt(trade.minOut, tradeOut.decimals, 4)} {tradeOut.symbol}
+              <Row
+                label="Minimum received"
+                info={`If the price moves before the swap lands it may return up to ${(slip / 100).toFixed(1)}% less; under that it refuses and nothing is spent.`}
+              >
+                {formatAmount(minOut, buyT.decimals)} {buyT.symbol}
               </Row>
-              <Row label="Average price">${fmt(trade.avg, 18, 4)} per {unit()}</Row>
-              <Row label="Against $1" info="The average price you get against $1 per imdUSD, with the pool fee, price impact and any surcharge included. Buying under $1 is a discount; selling under $1 is a loss.">
-                {trade.avg === 10n ** 18n
-                  ? "at $1"
-                  : `${(Math.abs(Number(trade.avg - 10n ** 18n)) / 1e16).toFixed(2)}% ${trade.avg < 10n ** 18n ? "under" : "over"} $1`}
+              <div className="row swap-slip">
+                <span>Slippage</span>
+                <Choice
+                  label="Slippage"
+                  value={String(slip)}
+                  onChange={(x) => {
+                    if (busy) return;
+                    setSlip(Number(x));
+                    resetTrade();
+                  }}
+                  options={SLIPPAGES.map((b) => [String(b), `${b / 100}%`] as const)}
+                />
+              </div>
+              <Row
+                label="Fee"
+                info="On swaps through the terminal where neither side is imdUSD, 0.1% of what you receive goes to the imdUSD Treasury (already in the amount shown). imdUSD trades carry none."
+              >
+                {feeLine(sellT.address, buyT.address)}
               </Row>
-              {quoted.end !== undefined && (
-                <Row label="Price after" info="What the last unit of this trade gets; the pool's price moves to about here.">
-                  ${fmt(quoted.end, 18, 4)}
+              {route === "0x" && quoted?.zeroX?.totalNetworkFee && (
+                <Row label="Network fee">≈ {formatAmount(BigInt(quoted.zeroX.totalNetworkFee), 18, 3)} ETH</Row>
+              )}
+              {route === "0x" && quoted?.zeroX?.estimatedPriceImpact && (
+                <Row label="Price impact">{Number(quoted.zeroX.estimatedPriceImpact).toFixed(2)}%</Row>
+              )}
+              {pegView && (
+                <Row label="Against $1" info={`The average price against $1 per ${unit()}, with fees, price impact and any peg-hook surcharge included.`}>
+                  {pegView.avg === 10n ** 18n
+                    ? "at $1"
+                    : `${(Math.abs(Number(pegView.avg - 10n ** 18n)) / 1e16).toFixed(2)}% ${pegView.avg < 10n ** 18n ? "under" : "over"} $1`}
                 </Row>
               )}
+              {route === "direct" && quoted?.directEnd !== undefined && (
+                <Row label="Price after" info="What the last unit of this trade gets; the pool's price moves to about here.">
+                  ${fmt(quoted.directEnd, 18, 4)}
+                </Row>
+              )}
+              {reviewed && <Row label="Quote">firm for this wallet; fetched again if over 20 s old when you confirm</Row>}
             </div>
           )}
-          {trade?.overCeiling && (
+          {peg && route === "direct" && quoted?.unavailable && (
+            <p className="micro">Matcha/0x is unavailable right now, so this trades on the peg pool directly.</p>
+          )}
+          {pegView?.overCeiling && (
             <p className="review-warning">
               This purchase takes the price past $1.0025, so the peg hook's surcharge applies to it (already in the
               quote). Buying less keeps it inside the fee-free band.
             </p>
           )}
-          {trade?.underFloor && (
+          {pegView?.underFloor && (
             <label className="loop-check danger-text">
               <input type="checkbox" checked={accepted} disabled={busy} onChange={(e) => setAccepted(e.target.checked)} />
               <span>
                 This sells {unit()} under $0.9975: it pays the peg hook's surcharge, costs about{" "}
-                {(trade.costBps / 100).toFixed(2)}% against $1, and pushes {unit()} further from $1. I accept.
+                {(pegView.costBps / 100).toFixed(2)}% against $1, and pushes {unit()} further from $1. I accept.
               </span>
             </label>
           )}
@@ -776,7 +1157,7 @@ export function LpWindow({
         </>
       )}
 
-      {atomic !== undefined && (tab === "add" || tab === "trade") && (
+      {atomic !== undefined && (tab === "add" || (tab === "trade" && !picker)) && (
         <p className="micro">
           {atomic
             ? `Approvals and the ${tab === "add" ? "deposit" : "swap"} go as one all-or-nothing batch: one signature.`
@@ -793,7 +1174,25 @@ export function LpWindow({
         </ol>
       )}
       <div role="status" className="action-note">
-        {error ? <FadingError text={error} onDone={() => setError("")} role="none" /> : finished || (!actions.ready ? actions.reason : "")}
+        {error ? (
+          <FadingError text={error} onDone={() => setError("")} role="none" />
+        ) : finished ? (
+          <>
+            {finished}
+            {finishedTx && (
+              <>
+                {" "}
+                <a href={`${r.config.network.explorer}/tx/${finishedTx}`} target="_blank" rel="noreferrer">
+                  View the transaction
+                </a>
+              </>
+            )}
+          </>
+        ) : !actions.ready ? (
+          actions.reason
+        ) : (
+          ""
+        )}
       </div>
       <div className="button-row">
         <button type="button" disabled={busy} onClick={close}>
@@ -804,14 +1203,21 @@ export function LpWindow({
             {working ? "Processing…" : atomic ? "Confirm deposit in wallet" : "Add liquidity"}
           </button>
         )}
-        {tab === "trade" && (
+        {tab === "trade" && !picker && (
           <button
             type="button"
             className="primary"
-            disabled={!ready || !trade || !!tradeShort || !s || (trade.underFloor && !accepted)}
-            onClick={() => void swap()}
+            disabled={
+              !ready || !route || sellAmount === undefined || !!tradeShort || (route === "direct" && !s) || (!!pegView?.underFloor && !accepted)
+            }
+            onClick={() => void (route === "0x" && !reviewed ? reviewSwap() : swap())}
           >
-            {working ? "Processing…" : atomic ? "Confirm swap in wallet" : "Swap"}
+            {working ? "Processing…" : route === "0x" && !reviewed ? "Review swap" : atomic ? "Confirm swap in wallet" : "Swap"}
+          </button>
+        )}
+        {tab === "trade" && picker && (
+          <button type="button" disabled={busy} onClick={() => (setPicker(undefined), setPickQuery(""))}>
+            Back
           </button>
         )}
       </div>

@@ -8,7 +8,7 @@ import {
   Children,
   type ReactNode,
 } from "react";
-import { type Address, formatUnits } from "viem";
+import { type Address, type Hex, formatUnits } from "viem";
 import type { Target } from "./config";
 import { Ticker } from "./motion";
 import { amount, address, uint, message, fmt } from "./math";
@@ -36,6 +36,10 @@ export type Call = {
   args: readonly unknown[];
   /** What the step does, in the progress list and the status line. */
   label: string;
+  /** Calldata built elsewhere (a 0x swap): sent to `target.address` as is, and `fn`/`args` only name it. */
+  data?: Hex;
+  /** Ether sent with the call (a swap that sells ETH). */
+  value?: bigint;
 };
 export type Sequence = {
   calls: Call[];
@@ -50,7 +54,7 @@ export type Actions = {
   reason: string;
   run: (id: string, request: Request) => Promise<void>;
   /** Simulates and sends `calls` in order from the connected wallet, then refreshes. The caller shows the review. */
-  sequence?: (id: string, seq: Sequence) => Promise<void>;
+  sequence?: (id: string, seq: Sequence) => Promise<Hex | undefined>;
   account?: Address;
   /** The wallet can send an atomic EIP-5792 batch (one signature, all or nothing). Undefined while unknown. */
   atomic?: boolean;

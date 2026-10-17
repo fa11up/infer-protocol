@@ -5,6 +5,7 @@ import {
   formatUnits,
   type Address,
   type Hash,
+  type Hex,
   type EIP1193Provider,
 } from "viem";
 import { loadConfig, switchChain, wallet, type Runtime } from "./config";
@@ -361,7 +362,7 @@ function Terminal({ r }: { r: Runtime }) {
       locked.current = true;
       setBusy(id);
       try {
-        await sendCalls(calls, batch, onStep);
+        return await sendCalls(calls, batch, onStep);
       } catch (e) {
         setTx((old) => ({ ...old, status: "Action stopped.", error: message(e) }));
         throw e;
@@ -377,17 +378,27 @@ function Terminal({ r }: { r: Runtime }) {
       .simulateContract({ ...c.target, functionName: onChain(c.fn), args: onChainArgs(c.args), account })
       .catch((e) => explained(e, { fn: c.fn, args: c.args, s, account }));
   }
+  /** A call with ready-made calldata (a 0x swap) is simulated as a plain eth_call from the wallet. */
+  async function simulateRaw(c: Call & { data: Hex }) {
+    try {
+      await r.client.call({ account, to: c.target.address, data: c.data, value: c.value });
+    } catch (e) {
+      throw Error(`${c.label}: the simulation failed, so nothing was sent. ${message(e)}`);
+    }
+  }
+  const simulateAny = (c: Call) => (c.data ? simulateRaw(c as Call & { data: Hex }) : simulateCall(c));
   /** Sends `calls` from the connected wallet, as one atomic batch or one by one, then refreshes. The caller holds
    * the lock. A wallet that refuses wallet_sendCalls is remembered as unable to batch. */
-  async function sendCalls(calls: Call[], batch: boolean, onStep?: (done: number) => void) {
+  async function sendCalls(calls: Call[], batch: boolean, onStep?: (done: number) => void): Promise<Hash | undefined> {
     const p = window.ethereum;
     if (!p) throw Error("Connect a browser wallet.");
     await guard(p);
     const w = wallet(r, p);
+    let last: Hash | undefined;
     if (batch) {
       // Later calls depend on earlier ones (the swap spends what the borrow mints, the deposit what the approval
       // allows), so only the first can be simulated alone; the wallet's own simulation of the batch covers the rest.
-      await simulateCall(calls[0]);
+      await simulateAny(calls[0]);
       setTx({ status: `Confirm ${calls.length} steps in your wallet: one signature, all or nothing.` });
       let batchId: string;
       try {
@@ -397,7 +408,8 @@ function Terminal({ r }: { r: Runtime }) {
           forceAtomic: true,
           calls: calls.map((c) => ({
             to: c.target.address,
-            data: encodeFunctionData({ abi: c.target.abi, functionName: onChain(c.fn), args: onChainArgs(c.args) }),
+            data: c.data ?? encodeFunctionData({ abi: c.target.abi, functionName: onChain(c.fn), args: onChainArgs(c.args) }),
+            ...(c.value ? { value: c.value } : {}),
           })),
         }));
       } catch (e) {
@@ -410,23 +422,29 @@ function Terminal({ r }: { r: Runtime }) {
       if (result.status !== "success")
         throw Error("The batch did not go through. It is all or nothing, so none of its steps were applied.");
       onStep?.(calls.length);
+      last = hash;
       setTx({ status: "Confirmed. Refreshing balances and state…", hash });
     } else {
       for (const [i, c] of calls.entries()) {
         await guard(p);
-        const simulation = await simulateCall(c);
+        const simulation = c.data ? undefined : await simulateCall(c);
+        if (c.data) await simulateRaw(c as Call & { data: Hex });
         await guard(p);
         setTx({ status: `Step ${i + 1} of ${calls.length}: ${c.label}. Confirm in your wallet.` });
-        const hash = await w.writeContract({ ...simulation.request, account: account!, chain: r.chain });
+        const hash = simulation
+          ? await w.writeContract({ ...simulation.request, account: account!, chain: r.chain })
+          : await w.sendTransaction({ account: account!, chain: r.chain, to: c.target.address, data: c.data, value: c.value });
         setTx({ status: `Step ${i + 1} of ${calls.length} submitted. Waiting for confirmation…`, hash });
         const receipt = await r.client.waitForTransactionReceipt({ hash, confirmations: 1, timeout: 120000 });
         if (receipt.status !== "success")
           throw Error(`Step ${i + 1} (${c.label}) reverted on chain. The steps before it stand.`);
+        last = hash;
         onStep?.(i + 1);
       }
     }
     await refresh();
     setTx((old) => ({ ...old, status: "Confirmed on chain." }));
+    return last;
   }
   function cancelReview() {
     setReview(undefined);

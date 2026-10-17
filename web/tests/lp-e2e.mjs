@@ -3,7 +3,8 @@
 // to the fork): add liquidity one step at a time, find the position, take half, close it; add again with a wallet
 // that answers EIP-5792 (one batch); deposit with the approval in the same batch; borrow and check that the ratio the
 // preview showed is the ratio the vault reports. Blockscout is unreachable here, so positions are found from the ids
-// this browser remembered (the explorer-down path).
+// this browser remembered (the explorer-down path). The Trade tab's swap card runs with imdusd.com/swap/* answering
+// 503 (no 0x key): imdUSD <-> USDC trades on the peg pool directly; the token picker reads a pasted token from chain.
 //
 //   anvil --fork-url <mainnet rpc> --port 8549
 //   node scripts/mainnet-deployment.mjs --record <release>/deploy/mainnet/out/deployment.json --commit b2c7afe --rpc http://127.0.0.1:8549
@@ -245,7 +246,7 @@ async function waitNote(page, dialog, pattern, shot) {
     `window says ${pattern}`,
     async () => {
       const n = await note(dialog);
-      if (/reverted|stopped|denied|failed|did not go through|Not ready/i.test(n)) throw fatal(n);
+      if (/reverted|stopped|denied|failed|did not go through|Not ready|moved|unexpected|Review/i.test(n)) throw fatal(n);
       return pattern.test(n) && n;
     },
     180_000,
@@ -391,45 +392,134 @@ try {
   assert.ok((await position(b)).collateral > held, "collateral grew");
   passed("Deposit IMD: approval and lockIMD as one batch from one review");
 
-  // ---- Trade: buy imdUSD with USDC, then sell imdUSD for USDC, on the peg pool ------------------------------
-  const trade = async (direction, amount, shot) => {
+  // ---- Trade: the swap card with 0x unavailable (/swap/* answers 503, as with no API key): imdUSD <-> USDC
+  // still trades on the peg pool directly, buy then sell ----------------------------------------------------
+  let zeroX = "down";
+  const swapCalls = [];
+  await batchPage.route(/\/swap\/(price|quote)\?/, async (route) => {
+    const q = new URL(route.request().url()).searchParams;
+    swapCalls.push(Object.fromEntries(q));
+    if (zeroX === "down")
+      return route.fulfill({ status: 503, contentType: "application/json", body: JSON.stringify({ error: "Swaps are temporarily unavailable." }) });
+    // Screenshot only: a 0x-shaped price for ETH -> USDC at a made-up 3,900 USDC per ETH, less the 0.1% fee.
+    const sell = BigInt(q.get("sellAmount"));
+    const buy = (sell * 3900n * 10n ** 6n * 999n) / (10n ** 18n * 1000n);
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        liquidityAvailable: true,
+        sellAmount: String(sell),
+        buyAmount: String(buy),
+        minBuyAmount: String((buy * (10_000n - BigInt(q.get("slippageBps")))) / 10_000n),
+        totalNetworkFee: "412000000000000",
+        fees: { integratorFee: { amount: String(buy / 999n), token: q.get("buyToken"), type: "volume" } },
+        issues: { allowance: null, balance: null },
+        route: {
+          fills: [
+            { from: q.get("sellToken"), to: q.get("buyToken"), source: "Uniswap_V4", proportionBps: "6500" },
+            { from: q.get("sellToken"), to: q.get("buyToken"), source: "Uniswap_V3", proportionBps: "3500" },
+          ],
+          tokens: [],
+        },
+      }),
+    });
+  });
+  const openTrade = async () => {
     await batchPage.getByRole("button", { name: "imdUSD liquidity ↗" }).click();
     const dlg = batchPage.locator("dialog.loop-dialog[open]");
     await dlg.waitFor();
     await dlg.getByRole("group", { name: "Liquidity view" }).getByRole("button", { name: "Trade", exact: true }).click();
-    await dlg.getByRole("group", { name: "Trade direction" }).getByRole("button", { name: direction }).click();
-    await dlg.locator("input[name=lp-trade]").fill(amount);
-    await until("the quote", async () => /You receive/.test(await dlg.innerText()), 60_000);
+    return dlg;
+  };
+  const figure = (text, label) => Number((new RegExp(`${label}\\s+([\\d,.]+)`).exec(text)?.[1] ?? "").replace(/,/g, ""));
+  const trade = async (flip, amount, shot) => {
+    const dlg = await openTrade();
+    if (flip) await dlg.getByRole("button", { name: "Flip the two tokens" }).click();
+    await dlg.locator("input[name=swap-sell]").fill(amount);
+    await until("the quote", async () => /Minimum received/.test(await dlg.innerText()), 60_000).catch(async (e) => {
+      throw Error(`${e.message}\nwindow: ${await dlg.innerText()}`);
+    });
     const text = await dlg.innerText();
-    const num = (label) => Number((new RegExp(`${label}\\s+([\\d,.]+)`).exec(text)?.[1] ?? "").replace(/,/g, ""));
-    const quotedOut = num("You receive");
-    const least = num("At least");
+    assert.match(text, /Direct: imdUSD peg pool/, "the peg pool route is used");
+    assert.match(text, /Matcha\/0x is unavailable/, "and the card says why");
+    assert.match(text, /No fee on imdUSD trades/);
+    const quotedOut = Number((await dlg.locator("output.swap-out").innerText()).replace(/,/g, ""));
+    const least = figure(text, "Minimum received");
     assert.ok(quotedOut > 0 && least > 0 && least <= quotedOut, text);
     if (SHOTS) await dlg.screenshot({ path: `${SHOTS}/${shot}.png` });
     const accept = dlg.locator(".loop-check input");
     if (await accept.count()) await accept.check();
     await dlg.getByRole("button", { name: /Confirm swap in wallet|^Swap$/ }).click();
     await waitNote(batchPage, dlg, /^Swapped/, shot);
-    const got = Number(/for ([\d,.]+) /.exec(await note(dlg))?.[1].replace(/,/g, ""));
+    const done = await note(dlg);
+    assert.match(done, /Direct: imdUSD peg pool/);
+    assert.equal(await dlg.getByRole("link", { name: "View the transaction" }).count(), 1, "the note links the transaction");
+    const got = Number(/for ([\d,.]+) /.exec(done)?.[1].replace(/,/g, ""));
     await dlg.getByRole("button", { name: "Close", exact: true }).last().click();
     return { quotedOut, least, got };
   };
   const u0 = await read(USDC, erc20, "balanceOf", [b]);
   const i0 = await read(IMDUSD, erc20, "balanceOf", [b]);
-  const buy = await trade("Buy imdUSD with USDC", "20", "lp-5-buy");
+  const buy = await trade(false, "20", "lp-5-buy");
   const u1 = await read(USDC, erc20, "balanceOf", [b]);
   const i1 = await read(IMDUSD, erc20, "balanceOf", [b]);
   assert.equal(u0 - u1, 20n * 10n ** 6n, "paid exactly 20 USDC");
   const bought = Number(i1 - i0) / 1e18;
   assert.ok(bought >= buy.least && Math.abs(bought - buy.quotedOut) / buy.quotedOut < 0.005, `bought ${bought}, quoted ${buy.quotedOut}, at least ${buy.least}`);
-  passed(`Trade: 20 USDC bought ${bought.toFixed(4)} imdUSD (quoted ${buy.quotedOut}, at least ${buy.least})`);
-  const sell = await trade("Sell imdUSD for USDC", "10", "lp-6-sell");
+  passed(`Trade, 0x down: 20 USDC bought ${bought.toFixed(4)} imdUSD on the peg pool (quoted ${buy.quotedOut}, at least ${buy.least})`);
+  const sell = await trade(true, "10", "lp-6-sell");
   const u2 = await read(USDC, erc20, "balanceOf", [b]);
   const i2 = await read(IMDUSD, erc20, "balanceOf", [b]);
   assert.equal(i1 - i2, 10n * E18, "sold exactly 10 imdUSD");
   const received = Number(u2 - u1) / 1e6;
   assert.ok(received >= sell.least && Math.abs(received - sell.quotedOut) / sell.quotedOut < 0.005, `received ${received}, quoted ${sell.quotedOut}, at least ${sell.least}`);
-  passed(`Trade: 10 imdUSD sold for ${received.toFixed(4)} USDC (quoted ${sell.quotedOut}, at least ${sell.least})`);
+  passed(`Trade, 0x down: 10 imdUSD sold for ${received.toFixed(4)} USDC on the peg pool (quoted ${sell.quotedOut}, at least ${sell.least})`);
+  assert.ok(swapCalls.length > 0 && swapCalls.every((c) => c.chainId === "1" && !("swapFeeBps" in c)), "the page asked /swap/price, never setting a fee");
+
+  // ---- The token picker: a pasted listed address finds the token; an unlisted one is read from chain --------
+  {
+    const dlg = await openTrade();
+    await dlg.getByRole("button", { name: /^Receive imdUSD/ }).click();
+    const search = dlg.locator("input[name=swap-search]");
+    await search.fill(IMD.toLowerCase());
+    const list = dlg.getByRole("list", { name: "Tokens" });
+    await until("IMD listed", async () => (await list.innerText()).trim().startsWith("IMD"));
+    assert.equal(await list.locator("li").count(), 1, "the pasted address matches one token");
+    const DAI = "0x6B175474E89094C44Da98b954EedeAC495271d0F";
+    await search.fill(DAI);
+    await until("DAI read from chain", async () => /DAI/.test(await dlg.locator(".swap-paste").innerText().catch(() => "")), 60_000);
+    assert.match(await dlg.locator(".swap-paste").innerText(), /Unverified token: check the address/);
+    await dlg.getByRole("button", { name: "Use DAI" }).click();
+    await until("DAI chosen", async () => (await dlg.getByRole("button", { name: /^Receive DAI/ }).count()) === 1);
+    assert.match(await dlg.innerText(), /DAI is an unverified token/);
+    const saved = await batchPage.evaluate(() => localStorage.getItem("imdusd-swap-tokens"));
+    assert.match(saved ?? "", /6b175474e89094c44da98b954eedeac495271d0f/i, "remembered in this browser");
+    passed("token picker: a pasted IMD address finds IMD; a pasted DAI address is read from chain, flagged and remembered");
+
+    // ---- Screenshots: ETH -> USDC with an amount (0x price MOCKED), and the picker open ---------------------
+    zeroX = "mock";
+    await dlg.getByRole("button", { name: /^Pay with USDC/ }).click();
+    await dlg.locator("input[name=swap-search]").fill("eth");
+    await dlg.getByRole("list", { name: "Tokens" }).getByRole("button", { name: /^ETH/ }).click();
+    await dlg.getByRole("button", { name: /^Receive DAI/ }).click();
+    await dlg.locator("input[name=swap-search]").fill("usdc");
+    await dlg.getByRole("list", { name: "Tokens" }).getByRole("button", { name: /^USDC/ }).click();
+    await dlg.locator("input[name=swap-sell]").fill("0.5");
+    await until("the mocked 0x price", async () => /Matcha\/0x/.test(await dlg.innerText()), 30_000);
+    await until("the ETH balance", async () => /Balance [1-9][\d.,]* · Max/.test(await dlg.innerText()), 30_000);
+    const text = await dlg.innerText();
+    assert.match(text, /0\.1% to the imdUSD Treasury/);
+    assert.match(text, /Uniswap V4 65% · Uniswap V3 35%/);
+    assert.equal(await dlg.getByRole("button", { name: "Review swap" }).count(), 1, "a 0x trade asks for a firm quote first");
+    if (SHOTS) await dlg.screenshot({ path: `${SHOTS}/swap-eth-usdc.png` });
+    await dlg.getByRole("button", { name: /^Receive USDC/ }).click();
+    await dlg.locator("input[name=swap-search]").fill("");
+    if (SHOTS) await dlg.screenshot({ path: `${SHOTS}/swap-picker.png` });
+    passed("ETH -> USDC through (mocked) 0x shows the Treasury fee, the split route and Review swap");
+    await dlg.getByRole("button", { name: "Back" }).click();
+    await dlg.getByRole("button", { name: "Close", exact: true }).last().click();
+  }
 
   assert.deepEqual(errors.filter((e) => !/blockscout/i.test(e)), [], `page errors: ${errors.join("; ")}`);
   console.log(`\n${results.length} passed`);

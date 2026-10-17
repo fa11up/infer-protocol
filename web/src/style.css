@@ -4428,6 +4428,140 @@ button.lp-max {
 button.lp-max:hover {
   color: var(--text);
 }
+/* The liquidity window's Trade tab: a swap card (src/Liquidity.tsx, src/swap0x.ts). Two boxes, pay over receive,
+ * each an amount and a token button, with the flip between them. */
+.swap-card {
+  display: grid;
+  margin-block: 10px 6px;
+}
+.swap-side {
+  border: 1px solid var(--rule);
+  background: var(--raised);
+  padding: 8px 10px 10px;
+}
+.swap-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  min-height: 24px;
+  font-size: 11px;
+  color: var(--muted);
+}
+.swap-head label {
+  margin: 0;
+}
+.swap-head .balance-hint {
+  position: static;
+}
+.swap-held,
+button.swap-balance {
+  font-size: 11px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+button.swap-balance {
+  min-height: 24px;
+  padding: 4px 0;
+  border: 0;
+  background: none;
+  text-decoration: underline;
+  text-decoration-color: var(--rule);
+  text-underline-offset: 2px;
+}
+button.swap-balance:hover:not(:disabled) {
+  color: var(--text);
+}
+.swap-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+.swap-row input,
+.swap-out {
+  flex: 1;
+  min-width: 0;
+  font-size: 20px;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+}
+.swap-row input {
+  border: 0;
+  background: none;
+  padding: 4px 0;
+}
+.swap-out {
+  padding: 4px 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+button.swap-token {
+  flex: none;
+  min-width: 96px;
+  font-weight: 600;
+  background: var(--surface);
+}
+button.swap-flip {
+  justify-self: center;
+  width: 36px;
+  min-height: 30px;
+  margin-block: -6px;
+  padding: 0;
+  position: relative;
+  z-index: 1;
+  background: var(--surface);
+}
+.swap-slip {
+  align-items: center;
+}
+.swap-slip .choice {
+  margin: 0;
+}
+.swap-slip .choice button {
+  min-height: 26px;
+  padding: 2px 8px;
+  font-size: 11px;
+}
+.swap-note {
+  margin-block: 4px;
+}
+/* The token picker: search box, then the list, one row per token. */
+.swap-tokens {
+  list-style: none;
+  margin: 6px 0;
+  padding: 0;
+  max-height: 300px;
+  overflow-y: auto;
+  border-top: 1px solid var(--rule);
+}
+.swap-tokens button {
+  display: flex;
+  width: 100%;
+  gap: 10px;
+  align-items: baseline;
+  border: 0;
+  border-bottom: 1px solid var(--rule);
+  text-align: left;
+}
+.swap-tokens button span {
+  color: var(--muted);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.swap-tokens button[aria-pressed="true"],
+.swap-tokens button:hover {
+  background: var(--raised);
+}
+.swap-paste > button {
+  margin-top: 6px;
+}
 /* The leverage window's targets: one row of equal chips. */
 .loop-targets {
   display: grid;
