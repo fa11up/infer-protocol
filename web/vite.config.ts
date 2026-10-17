@@ -73,6 +73,10 @@ function terminalRpcAllow(): string[] {
 const PUBLIC_REDIRECTS = `/terminal / 302
 /terminal/* / 302
 `;
+const LAUNCH_REDIRECTS = `/analytics /stats/ 301
+/analytics/ /stats/ 301
+/analytics/* /stats/ 301
+`;
 const ROBOTS = `User-agent: *
 Allow: /
 
@@ -131,12 +135,12 @@ function publicSite(): Plugin {
     apply: "build",
     generateBundle() {
       // The launch build serves the terminal, so old /terminal links are no longer sent home.
-      if (!LAUNCH)
-        this.emitFile({
-          type: "asset",
-          fileName: "_redirects",
-          source: PUBLIC_REDIRECTS,
-        });
+      // The launch build: the analytics page moved to /stats/, so old /analytics links follow it.
+      this.emitFile({
+        type: "asset",
+        fileName: "_redirects",
+        source: LAUNCH ? LAUNCH_REDIRECTS : PUBLIC_REDIRECTS,
+      });
       this.emitFile({ type: "asset", fileName: "robots.txt", source: ROBOTS });
       // The terminal's own RPC serves only these contracts; the public build has no terminal, so no /rpc.
       if (LAUNCH)
@@ -172,12 +176,12 @@ function publicSite(): Plugin {
       );
       // The analytics page's canonical URL and social card (launch build only: the public build has no such page).
       if (LAUNCH) {
-        const analytics = resolve(dir, "analytics/index.html");
+        const analytics = resolve(dir, "stats/index.html");
         const page = readFileSync(analytics, "utf8");
         const about = page.match(/<meta\s+name="description"\s+content="([^"]*)"/)?.[1] ?? "";
         writeFileSync(
           analytics,
-          page.replace("</head>", `${socialTags(SITE, `${SITE}/analytics/`, "imdUSD Stats", about, { type: "website" })}</head>`),
+          page.replace("</head>", `${socialTags(SITE, `${SITE}/stats/`, "imdUSD Analytics", about, { type: "website" })}</head>`),
         );
       }
       // The not-found page is served at whatever path was asked for, so its URLs must be absolute.
@@ -517,7 +521,7 @@ export default defineConfig(({ mode }) => {
             ? { terminal: resolve(import.meta.dirname, "terminal/index.html") }
             : {}),
           ...(!site || LAUNCH
-            ? { analytics: resolve(import.meta.dirname, "analytics/index.html") }
+            ? { stats: resolve(import.meta.dirname, "stats/index.html") }
             : {}),
           docs: resolve(import.meta.dirname, "docs/index.html"),
         },

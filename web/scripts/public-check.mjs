@@ -25,7 +25,7 @@ const fail = (m) => {
   process.exit(1);
 };
 for (const need of [
-  ...(LAUNCH ? ["terminal/index.html", "analytics/index.html", "imd-deployment.json"] : ["_redirects"]),
+  ...(LAUNCH ? ["terminal/index.html", "stats/index.html", "imd-deployment.json"] : ["_redirects"]),
   "index.html",
   "docs/index.html",
   "docs/overview/what-is-imdusd/index.html",

@@ -100,7 +100,7 @@ export function SiteHeader({
         </a>
         <nav className="site-nav" aria-label="Site">
           {TERMINAL && link("terminal", "terminal/", "Terminal")}
-          {TERMINAL && link("analytics", "analytics/", "Stats")}
+          {TERMINAL && link("analytics", "stats/", "Stats")}
           {link("docs", "docs/", "Docs")}
           <a href={INFER_SITE} target="_blank" rel="noreferrer">
             INFER ↗
@@ -135,7 +135,7 @@ export function SiteFooter() {
     <footer className="site-footer">
       <nav aria-label="Footer">
         {TERMINAL && <a href={href("terminal/")}>Terminal</a>}
-        {TERMINAL && <a href={href("analytics/")}>Stats</a>}
+        {TERMINAL && <a href={href("stats/")}>Stats</a>}
         <a href={href("docs/")}>Docs</a>
         <a href={INFER_SITE} target="_blank" rel="noreferrer">
           INFER ↗

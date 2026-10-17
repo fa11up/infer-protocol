@@ -4618,7 +4618,7 @@ dialog:focus-visible {
   max-width: 520px;
 }
 
-/* ---------- imdusd.com/analytics/ (Analytics.tsx, AnalyticsCharts.tsx) ---------- */
+/* ---------- imdusd.com/stats/ (Analytics.tsx, AnalyticsCharts.tsx) ---------- */
 .analytics {
   display: flex;
   flex-direction: column;

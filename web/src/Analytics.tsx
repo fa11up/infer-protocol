@@ -1,4 +1,4 @@
-// imdusd.com/analytics/: the protocol at a glance, every figure read live from the chain (and IdentityMD's public API
+// imdusd.com/stats/: the protocol at a glance, every figure read live from the chain (and IdentityMD's public API
 // for the swarm strip). Built only where the terminal is (site.tsx TERMINAL). A plain-language "right now" line and six
 // vital signs lead; each panel below is the evidence for one of them, and each loads and fails on its own.
 import { useEffect, useMemo, useState, type ReactNode } from "react";
@@ -298,7 +298,7 @@ function Shell({ children, asOf }: { children: ReactNode; asOf?: string }) {
         <header className="an-head">
           <div>
             <p className="micro">Ethereum mainnet · live</p>
-            <h1>imdUSD Stats</h1>
+            <h1>imdUSD Analytics</h1>
           </div>
           {asOf && <p className="an-asof">{asOf}</p>}
         </header>
