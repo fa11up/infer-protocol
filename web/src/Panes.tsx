@@ -478,16 +478,41 @@ export function Position({
             actions={actions}
             target={t?.ParameterizedVault}
             fn="wipe"
-            fields={[{ ...amt(`Repay ${unit()}`), balance: { ...stable, amount: v.compBalance } }]}
+            // At most what this position owes: more reverts on chain (ExcessRepayment), so the box refuses it first
+            // and the hint offers the smaller of the debt and the wallet.
+            fields={[
+              {
+                ...amt(`Repay ${unit()}`),
+                balance: {
+                  ...stable,
+                  amount:
+                    v.debtOf !== undefined && v.compBalance !== undefined
+                      ? (v.debtOf < v.compBalance ? v.debtOf : v.compBalance)
+                      : v.compBalance,
+                },
+                max:
+                  v.debtOf !== undefined
+                    ? { value: v.debtOf, message: `You owe ${exact(v.debtOf)} ${unit()}. You can repay at most that.` }
+                    : undefined,
+              },
+            ]}
             summary={`Burn ${unit()} to repay fees first, then principal. No approval required.`}
+            disabled={v.debtOf === 0n}
+            reason="This position owes nothing."
             after={([a]) => <PositionAfter s={s} dDebt={-(a as bigint)} />}
           />
         )}
         {act === "withdraw" && g.share && (
-          <label className="loop-check">
-            <input type="checkbox" checked={unwrap} onChange={(e) => setUnwrap(e.target.checked)} />
-            Also unstake to {g.underlyingSymbol} in the same transaction
-          </label>
+          // What the withdrawal pays: IMD (the vault's sIMD unstaked in the same transaction) or sIMD itself.
+          <Choice
+            label="Receive"
+            value={unwrap ? "imd" : "gem"}
+            onChange={(x) => setUnwrap(x === "imd")}
+            options={[
+              ["imd", `Receive ${g.underlyingSymbol}`],
+              ["gem", `Receive ${gemUnit()}`],
+            ]}
+          />
         )}
         {act === "withdraw" && (
           <ActionForm
@@ -540,13 +565,6 @@ export function Position({
             disabled={!fresh && v.debtOf !== 0n}
             reason="An indebted position needs fresh feeds to withdraw."
           />
-        )}
-        {act === "withdraw" && g.share && unwrap && (
-          <p className="micro">
-            {actions.atomic
-              ? "One signature: the withdrawal and the unstake go together, all or nothing."
-              : `Your wallet asks twice: the withdrawal, then the unstake. Untick to keep the ${gemUnit()}.`}
-          </p>
         )}
         {act === "faucet" && !g.share && (
           <ActionForm

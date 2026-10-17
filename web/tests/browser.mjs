@@ -606,6 +606,13 @@ try {
   passed(
     "Exact approval sent with the deposit from one confirm, rejected signing retry, receipt waits and refreshed allowance",
   );
+  // Repay is capped at the debt: more is refused in the box, before any review.
+  await pos.getByRole("button", { name: "Repay", exact: true }).click();
+  await pos.getByLabel("Repay COMP", { exact: true }).fill("1000000");
+  await pos.getByRole("button", { name: "Review repayment", exact: true }).click();
+  await expectText(pos, "You can repay at most that");
+  assert.equal(await page.locator("dialog[open]").count(), 0, "nothing reviewed");
+  passed("Repay refuses more than the position owes");
   // Walk all prior panes and prepare primary transactions with mock simulation.
   for (const [choice, label, input, value] of [
     ["Borrow", "Review borrow", "Borrow COMP", "1"],
@@ -1501,8 +1508,8 @@ try {
     passed("Depositing sIMD approves sIMD and locks it, at 24 decimals");
     // Withdrawals are sIMD; unstaking is the staking vault's redeem, to and from this wallet.
     await pos.getByRole("button", { name: "Withdraw", exact: true }).click();
-    // Unticked, a withdrawal pays sIMD.
-    await pos.getByLabel(/Also unstake to IMD/).uncheck();
+    // Receive sIMD: a withdrawal pays sIMD.
+    await pos.getByRole("group", { name: "Receive" }).getByRole("button", { name: "Receive sIMD", exact: true }).click();
     await pos.getByLabel("Withdraw sIMD", { exact: true }).fill("1");
     await review(page, "Review withdrawal");
     await page
@@ -1511,13 +1518,13 @@ try {
       .click();
     await expectText(page.locator("footer"), "Confirmed on chain.");
     assert.deepEqual(s.sent.at(-1).args, [10n ** 24n]);
-    // Ticked (the default), the same box withdraws and unstakes: free, then the staking vault's redeem.
+    // Receive IMD (the default), the same box withdraws and unstakes: free, then the staking vault's redeem.
     assert.equal(await pos.getByRole("button", { name: "Unstake", exact: true }).count(), 0, "no Unstake tab");
     assert.equal(
       await pos.getByRole("button", { name: "Test IMD", exact: true }).count(),
       0,
     );
-    await pos.getByLabel(/Also unstake to IMD/).check();
+    await pos.getByRole("group", { name: "Receive" }).getByRole("button", { name: "Receive IMD", exact: true }).click();
     await pos.getByLabel("Withdraw sIMD", { exact: true }).fill("1");
     await review(page, "Review withdrawal to IMD");
     await page
@@ -1529,7 +1536,7 @@ try {
     assert.equal(s.sent.at(-1).functionName, "redeem");
     assert.deepEqual(s.sent.at(-1).args, [10n ** 24n, account, account]);
     passed(
-      "Withdrawals parse sIMD at 24 decimals; with unstake ticked they redeem on the staking vault to this wallet; no test faucet",
+      "Withdrawals parse sIMD at 24 decimals; receiving IMD redeems on the staking vault to this wallet; no test faucet",
     );
     await tab(page, "redemption");
     await expectText(page.locator(".pane-redemption"), "sIMD");
