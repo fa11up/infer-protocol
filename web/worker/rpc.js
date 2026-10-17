@@ -2,7 +2,10 @@
 // Worker answers from Cloudflare's cache or forwards to a keyed provider, so:
 //
 // * reads every visitor shares (prices, pool state, supply, staking totals) cost one upstream call per block
-//   however many people have the page open: each answer is cached for one 12-second block;
+//   however many people have the page open: each answer is cached for one 12-second block. The key is the
+//   question in one canonical form (no JSON-RPC id, hex lowercased, equivalent filters folded), each call of a batch
+//   is its own entry, answers this isolate has seen are served from its memory before Cloudflare's cache, and an
+//   identical call already on its way upstream is waited for rather than sent again;
 // * the provider keys stay Worker secrets (RPC_UPSTREAMS), never in the page;
 // * it is not a free RPC for anyone else: only the methods the pages use, and every eth_call and gas estimate
 //   must target a contract the pages read (rpc-allow.json, written by the build from the launch config and the
@@ -14,7 +17,8 @@
 // RPC_REQUESTS caps requests to /rpc, and RPC_UPSTREAM caps the calls that miss the cache and reach a provider,
 // so a flood of distinct calls cannot drain the keyed providers' quotas. Cache hits never count against
 // RPC_UPSTREAM, so any number of visitors behind one address can share the cached reads. A visitor over a limit
-// is told so (HTTP 429, or JSON-RPC -32005 for the one call) and nothing goes upstream. Without the bindings
+// is told so (HTTP 429, or JSON-RPC -32005 for the one call) and nothing goes upstream. A call answered by waiting
+// for an identical one in flight is, like a cache hit, not counted either. Without the bindings
 // (tests, local dev) nothing is limited.
 //
 // Upstreams are tried in order: RPC_UPSTREAMS (comma- or newline-separated full URLs, e.g. Chainstack then
@@ -152,123 +156,331 @@ function shareable(call, head) {
   }
 }
 
-async function cacheKey(call, ttl, origin) {
-  const bytes = new TextEncoder().encode(JSON.stringify([call.method, call.params ?? []]));
-  const hash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))]
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
-  // One key per block window, so an answer is never served past its window even if a cache keeps it longer.
-  return new Request(`${origin}/__rpc/${hash}/${Math.floor(Date.now() / ttl)}`);
+// ----------------------------------------------------------------------------------------------- cache keys
+// One answer, one key, whoever asks: the JSON-RPC id never enters it, and params are put in one canonical form, so
+// two pages (or two clients) asking the same question in different spellings share the answer. Hex is
+// case-insensitive in JSON-RPC (addresses, calldata, topics, hashes), so it is lowercased; block numbers and other
+// quantities lose leading zeros (calldata never does: its zeros are bytes); a missing block tag is "latest"; object
+// keys are sorted. For a log filter, one address and a list of one are the same filter, the address list is a set,
+// an empty topic list is no topic list, trailing null topics match anything, and each OR position is a set.
+const HEX = /^0x[0-9a-f]*$/i;
+const lowerHex = (x) =>
+  typeof x === "string"
+    ? HEX.test(x)
+      ? x.toLowerCase()
+      : x
+    : Array.isArray(x)
+      ? x.map(lowerHex)
+      : x && typeof x === "object"
+        ? Object.fromEntries(
+            Object.keys(x)
+              .sort()
+              .filter((k) => x[k] !== undefined)
+              .map((k) => [k, lowerHex(x[k])]),
+          )
+        : x;
+const quantity = (x) => (typeof x === "string" && /^0x[0-9a-f]+$/i.test(x) ? `0x${BigInt(x).toString(16)}` : x);
+const tagOf = (t) => (t === undefined || t === null ? "latest" : quantity(t));
+const QUANTITIES = ["gas", "gasPrice", "maxFeePerGas", "maxPriorityFeePerGas", "nonce", "value"];
+
+function canonicalTx(tx) {
+  if (!tx || typeof tx !== "object") return tx;
+  const t = { ...tx };
+  // `input` is the newer name for `data`; nodes read either. Only one spelling (or both the same) is folded.
+  if (t.input !== undefined && (t.data === undefined || t.data === t.input)) {
+    t.data = t.input;
+    delete t.input;
+  }
+  for (const f of QUANTITIES) if (t[f] !== undefined) t[f] = quantity(t[f]);
+  return lowerHex(t);
 }
+
+function canonicalFilter(f) {
+  if (!f || typeof f !== "object") return f;
+  const { address, topics, fromBlock, toBlock, ...rest } = lowerHex(f);
+  const out = { ...rest };
+  if (address !== undefined) out.address = [...new Set([address].flat())].sort();
+  if (Array.isArray(topics)) {
+    const t = topics.map((x) => (Array.isArray(x) ? [...new Set(x)].sort() : x));
+    while (t.length && (t[t.length - 1] === null || t[t.length - 1] === undefined)) t.pop();
+    if (t.length) out.topics = t;
+  } else if (topics !== undefined && topics !== null) out.topics = topics;
+  if (fromBlock !== undefined) out.fromBlock = tagOf(fromBlock);
+  if (toBlock !== undefined) out.toBlock = tagOf(toBlock);
+  return lowerHex(out);
+}
+
+/** The params of `call` in the one form its cache key is made of (exported for the tests). */
+export function canonicalParams(call) {
+  const p = Array.isArray(call.params) ? call.params : call.params === undefined ? [] : [call.params];
+  switch (call.method) {
+    case "eth_call":
+    case "eth_estimateGas":
+      return [canonicalTx(p[0]), tagOf(p[1]), ...lowerHex(p.slice(2))];
+    case "eth_getBalance":
+    case "eth_getCode":
+      return [lowerHex(p[0]), tagOf(p[1])];
+    case "eth_getBlockByNumber":
+      return [tagOf(lowerHex(p[0])), p[1]];
+    case "eth_getLogs":
+      return [canonicalFilter(p[0]), ...lowerHex(p.slice(1))];
+    default:
+      return lowerHex(p);
+  }
+}
+
+const sha256 = async (text) =>
+  [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)))].map((b) => b.toString(16).padStart(2, "0")).join("");
+
+/** The cache key of `call` for answers kept `ttl` ms: a URL, and when an answer under it stops being served. */
+async function cacheKey(call, ttl, origin) {
+  const hash = await sha256(JSON.stringify([call.method, canonicalParams(call)]));
+  // One key per window, so an answer is never served past its window even if a cache keeps it longer.
+  const w = Math.floor(Date.now() / ttl);
+  const url = `${origin}/__rpc/${hash}/${w}`;
+  return { url, request: new Request(url), until: (w + 1) * ttl };
+}
+
+// --------------------------------------------------------------------------------------------- isolate memory
+// In front of Cloudflare's cache: answers this isolate has already seen, so a repeat costs no cache lookup (a
+// subrequest and a few ms). Least recently used out first, bounded in entries and bytes; a large answer (a busy log
+// window) is left to the Cloudflare cache alone. An entry is never served past its key's window.
+const MEM_ENTRIES = 4000;
+const MEM_BYTES = 8 * 1024 * 1024;
+const MEM_ENTRY_BYTES = 256 * 1024;
+const mem = new Map(); // url -> { text, until }
+let memBytes = 0;
+
+function memGet(url) {
+  const e = mem.get(url);
+  if (!e) return undefined;
+  mem.delete(url);
+  if (e.until <= Date.now()) {
+    memBytes -= e.text.length;
+    return undefined;
+  }
+  mem.set(url, e);
+  return e.text;
+}
+
+function memSet(url, text, until) {
+  const old = mem.get(url);
+  if (old) {
+    memBytes -= old.text.length;
+    mem.delete(url);
+  }
+  if (text.length > MEM_ENTRY_BYTES || until <= Date.now()) return;
+  mem.set(url, { text, until });
+  memBytes += text.length;
+  for (const [k, e] of mem) {
+    if (mem.size <= MEM_ENTRIES && memBytes <= MEM_BYTES) break;
+    mem.delete(k);
+    memBytes -= e.text.length;
+  }
+}
+
+/** The first of `keys` with an answer, from memory, else from the Cloudflare cache (then remembered): its JSON text. */
+async function lookup(keys, cache) {
+  for (const k of keys) {
+    const t = memGet(k.url);
+    if (t !== undefined) return t;
+  }
+  for (const k of keys) {
+    try {
+      const hit = await cache.match(k.request);
+      if (hit) {
+        const t = await hit.text();
+        memSet(k.url, t, k.until);
+        return t;
+      }
+    } catch {
+      /* a cache failure is a miss */
+    }
+  }
+  return undefined;
+}
+
+/** Keeps an answer under `key` for `ms`, in memory and in the Cloudflare cache. */
+async function store(key, ms, got, cache) {
+  const text = JSON.stringify({ result: got.result });
+  memSet(key.url, text, Math.min(key.until, Date.now() + ms));
+  try {
+    await cache.put(key.request, new Response(text, { headers: { "cache-control": `max-age=${Math.ceil(ms / 1000)}` } }));
+  } catch {
+    /* memory still has it */
+  }
+}
+
+// Identical calls in flight in this isolate (the same read from two visitors, or twice in one batch) share one
+// upstream call: the cache key -> the pending answer.
+const inflight = new Map();
 
 const providerTrouble = (e) =>
   e && (e.code === -32005 || e.code === 429 || /rate|limit|capacity|unavailable|timeout|too many|exceeded|unauthor|forbidden/i.test(e.message ?? ""));
 
-// The bench is kept in this isolate's memory and in Cloudflare's cache, so every isolate at a location shares what one
-// learned instead of each walking the refusing providers again. An isolate reads the shared entry at most every
-// BENCH_RECHECK_MS per provider and method. Keys are hashes: the upstream URLs carry API keys.
+// ------------------------------------------------------------------------------------------------- the bench
+// A provider that refused a kind of call is benched for it: tried last for BENCH_MS. The bench lives in this isolate's
+// memory and, so every isolate at a location shares what one learned, in Cloudflare's cache: ONE entry per kind holding
+// every provider's standing (keys are hashes: the upstream URLs carry API keys), read at most every BENCH_RECHECK_MS
+// per kind, and only when a call goes upstream. A provider likely to refuse (see `probe` in forward) is tried by one
+// call at a time, so a batch of twenty does not send twenty requests to a provider that is about to refuse the first.
 const BENCH_RECHECK_MS = 30_000;
-const benched = new Map(); // "method url" -> { until, checked }
-/** Tests reset the providers' standing between cases. */
-export const resetBench = () => benched.clear();
+const benched = new Map(); // "kind url" -> benched until
+const answered = new Map(); // "kind url" -> when it last answered
+const probes = new Map(); // "kind url" -> the first attempt in flight
+const benchRead = new Map(); // kind -> when the shared entry was last read
+const urlHashes = new Map();
+let headMemo = null; // { w, p }: the chain head for the current block window
 
-async function benchKey(method, url, origin) {
-  const bytes = new TextEncoder().encode(`${method} ${url}`);
-  const hash = [...new Uint8Array(await crypto.subtle.digest("SHA-256", bytes))].map((b) => b.toString(16).padStart(2, "0")).join("");
-  return new Request(`${origin}/__rpc-bench/${hash}`);
+/** Tests start a fresh isolate: no bench, no remembered answers, nothing in flight. */
+export function resetBench() {
+  benched.clear();
+  answered.clear();
+  probes.clear();
+  benchRead.clear();
+  mem.clear();
+  memBytes = 0;
+  inflight.clear();
+  headMemo = null;
 }
 
-/** Whether each upstream is benched for this method: memory first, the shared cache when memory is old. */
-async function benchedNow(method, upstreams, cache, origin) {
+const urlHash = async (url) => urlHashes.get(url) ?? urlHashes.set(url, await sha256(url)).get(url);
+const benchKey = async (kind, origin) => new Request(`${origin}/__rpc-bench/${await sha256(`bench ${kind}`)}`);
+
+async function readBench(kind, upstreams, cache, origin) {
   const now = Date.now();
-  return Promise.all(
-    upstreams.map(async (url) => {
-      const k = `${method} ${url}`;
-      const m = benched.get(k);
-      if (m && (m.until > now || now - m.checked < BENCH_RECHECK_MS)) return m.until > now;
-      let until = m?.until ?? 0;
-      if (cache && origin)
-        try {
-          const hit = await cache.match(await benchKey(method, url, origin));
-          if (hit) until = Math.max(until, Number(await hit.text()) || 0);
-        } catch {
-          /* the shared bench is an optimisation only */
-        }
-      benched.set(k, { until, checked: now });
-      return until > now;
-    }),
-  );
+  if (!cache || !origin || now - (benchRead.get(kind) ?? -Infinity) < BENCH_RECHECK_MS) return;
+  benchRead.set(kind, now);
+  try {
+    const hit = await cache.match(await benchKey(kind, origin));
+    if (!hit) return;
+    const shared = await hit.json();
+    for (const url of upstreams) {
+      const until = Number(shared[await urlHash(url)]) || 0;
+      const k = `${kind} ${url}`;
+      if (until > (benched.get(k) ?? 0)) benched.set(k, until);
+    }
+  } catch {
+    /* the shared bench is an optimisation only */
+  }
+}
+
+async function writeBench(kind, upstreams, cache, origin) {
+  if (!cache || !origin) return;
+  const now = Date.now();
+  const shared = {};
+  let last = 0;
+  for (const url of upstreams) {
+    const until = benched.get(`${kind} ${url}`) ?? 0;
+    if (until > now) {
+      shared[await urlHash(url)] = until;
+      last = Math.max(last, until);
+    }
+  }
+  try {
+    const key = await benchKey(kind, origin);
+    if (!last && cache.delete) await cache.delete(key);
+    else await cache.put(key, new Response(JSON.stringify(shared), { headers: { "cache-control": `max-age=${Math.max(1, Math.ceil((last - now) / 1000))}` } }));
+  } catch {
+    /* the shared bench is an optimisation only */
+  }
 }
 
 /** One call upstream: the first provider that answers, revert included. `kind` is what a provider is benched for:
  * the method, or "eth_getLogs:old" for a log range reaching back past what non-archive nodes serve. */
 async function forward(call, upstreams, fetcher, cache, origin, kind = call.method) {
   let last = "no upstream answered";
-  const isOut = await benchedNow(kind, upstreams, cache, origin);
-  const out = (url) => isOut[upstreams.indexOf(url)];
-  const bench = async (url) => {
-    const until = Date.now() + BENCH_MS;
-    benched.set(`${kind} ${url}`, { until, checked: Date.now() });
-    if (cache && origin)
-      await benchKey(kind, url, origin)
-        .then((k) => cache.put(k, new Response(String(until), { headers: { "cache-control": `max-age=${BENCH_MS / 1000}` } })))
-        .catch(() => undefined);
-  };
-  const clear = async (url) => {
+  await readBench(kind, upstreams, cache, origin);
+  const tried = new Set();
+  while (tried.size < upstreams.length) {
+    // Chosen afresh before every attempt, so a refusal another call just met counts at once.
+    const now = Date.now();
+    const left = upstreams.filter((u) => !tried.has(u));
+    const url = left.find((u) => (benched.get(`${kind} ${u}`) ?? 0) <= now) ?? left[0];
     const k = `${kind} ${url}`;
-    if ((benched.get(k)?.until ?? 0) === 0) return;
-    benched.set(k, { until: 0, checked: Date.now() });
-    if (cache && origin && cache.delete) await benchKey(kind, url, origin).then((key) => cache.delete(key)).catch(() => undefined);
-  };
-  for (const url of [...upstreams.filter((u) => !out(u)), ...upstreams.filter(out)]) {
+    // Probed one call at a time: a provider this isolate has seen refuse this kind (its bench may have run out), and
+    // for old log ranges (which most providers refuse) any provider it has not seen answer one lately. Other calls
+    // still go out together, so a cold isolate's first batch is not slowed.
+    const probe = now - (answered.get(k) ?? -Infinity) >= BENCH_MS && (benched.has(k) || kind.endsWith(":old"));
+    if (probe && probes.has(k)) {
+      await probes.get(k);
+      continue;
+    }
+    tried.add(url);
+    let done;
+    if (probe) probes.set(k, new Promise((r) => (done = r)));
     try {
-      const r = await fetcher(url, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: call.method, params: call.params ?? [] }),
-        signal: AbortSignal.timeout(6000),
-      });
-      if (!r.ok) {
-        last = `HTTP ${r.status}`;
-        await bench(url);
+      const got = await attempt(call, url, fetcher);
+      if (got.trouble) {
+        last = got.trouble;
+        const wasOut = (benched.get(k) ?? 0) > Date.now();
+        benched.set(k, Date.now() + BENCH_MS);
+        answered.delete(k);
+        if (!wasOut) await writeBench(kind, upstreams, cache, origin);
         continue;
       }
-      const d = await r.json();
-      if (d.error && providerTrouble(d.error)) {
-        last = d.error.message;
-        await bench(url);
-        continue;
+      answered.set(k, Date.now());
+      if ((benched.get(k) ?? 0) > 0) {
+        benched.delete(k);
+        await writeBench(kind, upstreams, cache, origin);
       }
-      if (!("result" in d) && !d.error) {
-        last = "empty answer";
-        await bench(url);
-        continue;
+      return got.answer;
+    } finally {
+      if (done) {
+        probes.delete(k);
+        done();
       }
-      await clear(url);
-      return { result: d.result, error: d.error };
-    } catch (e) {
-      last = e instanceof Error ? e.message : String(e);
-      await bench(url);
     }
   }
   return { error: { code: -32603, message: `upstream unavailable: ${last}` } };
 }
 
-/** The chain head for deciding what is final: from the cache within a block, else from a provider; undefined if
- * nobody answers (then nothing is treated as final). Not counted against the visitor's upstream limit. */
-async function latest(upstreams, fetcher, cache, origin) {
-  const call = { jsonrpc: "2.0", id: 0, method: "eth_blockNumber", params: [] };
-  const key = cache ? await cacheKey(call, BLOCK_MS, origin) : null;
+/** One provider, one call: `{ answer }`, or `{ trouble }` when the provider (not the chain) failed. */
+async function attempt(call, url, fetcher) {
   try {
-    const hit = key && (await cache.match(key));
-    if (hit) return BigInt((await hit.json()).result);
-  } catch {
-    /* fall through to a provider */
+    const r = await fetcher(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: call.method, params: call.params ?? [] }),
+      signal: AbortSignal.timeout(6000),
+    });
+    if (!r.ok) return { trouble: `HTTP ${r.status}` };
+    const d = await r.json();
+    if (d.error && providerTrouble(d.error)) return { trouble: d.error.message };
+    if (!("result" in d) && !d.error) return { trouble: "empty answer" };
+    return { answer: { result: d.result, error: d.error } };
+  } catch (e) {
+    return { trouble: e instanceof Error ? e.message : String(e) };
   }
-  const got = await forward(call, upstreams, fetcher, cache, origin);
-  if (got.error || typeof got.result !== "string") return undefined;
-  if (key) await cache.put(key, new Response(JSON.stringify({ result: got.result }), { headers: { "cache-control": `max-age=${BLOCK_MS / 1000}` } }));
-  return BigInt(got.result);
+}
+
+/** The chain head for deciding what is final: from memory or the cache within a block, else from a provider;
+ * undefined if nobody answers (then nothing is treated as final). Asked once per block window per isolate, however
+ * many calls in a batch need it. Not counted against the visitor's upstream limit. */
+function latest(upstreams, fetcher, cache, origin) {
+  const w = Math.floor(Date.now() / BLOCK_MS);
+  if (headMemo?.w === w) return headMemo.p;
+  const p = (async () => {
+    const call = { jsonrpc: "2.0", id: 0, method: "eth_blockNumber", params: [] };
+    const key = await cacheKey(call, BLOCK_MS, origin);
+    const hit = await lookup([key], cache);
+    if (hit !== undefined)
+      try {
+        return BigInt(JSON.parse(hit).result);
+      } catch {
+        /* fall through to a provider */
+      }
+    const got = await forward(call, upstreams, fetcher, cache, origin);
+    if (got.error || typeof got.result !== "string") return undefined;
+    await store(key, BLOCK_MS, got, cache);
+    return BigInt(got.result);
+  })();
+  const memo = { w, p };
+  headMemo = memo;
+  // A failed read is not remembered: the next call asks again.
+  const forget = () => headMemo === memo && (headMemo = null);
+  p.then((v) => v === undefined && forget(), forget);
+  return p;
 }
 
 /** Whether `binding` lets `key` through; a missing binding, or one that fails, never blocks. */
@@ -288,26 +500,43 @@ async function answer(call, env, allowed, upstreams, fetcher, cache, who, opts, 
     console.log(`rpc refused: ${no}`);
     return { body: fail(call?.id, -32601, no), source: "refused" };
   }
+  const limited = () => ({ body: fail(call.id, -32005, "rate limited: too many uncached calls from this address, retry in a minute"), source: "limited" });
   const head = call?.method === "eth_getLogs" && cache ? await latest(upstreams, fetcher, cache, origin) : undefined;
   const ttl = shareable(call, head);
   // Non-archive providers serve only the last ~100 blocks of logs: an older range is its own kind for the bench, so a
   // provider refusing it is not cleared by the recent ranges it does serve.
   const from = call?.params?.[0]?.fromBlock;
   const kind = head !== undefined && /^0x[0-9a-f]+$/i.test(from ?? "") && BigInt(from) + ARCHIVE_DEPTH < head ? "eth_getLogs:old" : call?.method;
-  const key = ttl && cache ? await cacheKey(call, ttl, origin) : null;
-  if (key) {
-    const hit = await cache.match(key);
-    if (hit) return { body: { jsonrpc: "2.0", id: call.id, ...(await hit.json()) }, source: "cache" };
+  if (!ttl || !cache) {
+    if (!(await under(env.RPC_UPSTREAM, who))) return limited();
+    const got = await forward(call, upstreams, fetcher, cache, origin, kind);
+    return { body: { jsonrpc: "2.0", id: call.id, ...got }, source: "upstream" };
   }
-  if (!(await under(env.RPC_UPSTREAM, who)))
-    return { body: fail(call.id, -32005, "rate limited: too many uncached calls from this address, retry in a minute"), source: "limited" };
-  const got = await forward(call, upstreams, fetcher, cache, origin, kind);
-  // An empty log list is never kept past one block: some providers answer [] for ranges they will not serve, and a
-  // month of that would hide real logs.
-  const keep = Array.isArray(got.result) && got.result.length === 0 ? Math.min(ttl, BLOCK_MS) : ttl;
-  const storeKey = key && keep !== ttl ? await cacheKey(call, keep, origin) : key;
-  if (storeKey && !got.error && got.result !== null && got.result !== undefined)
-    await cache.put(storeKey, new Response(JSON.stringify({ result: got.result }), { headers: { "cache-control": `max-age=${Math.ceil(keep / 1000)}` } }));
+  const key = await cacheKey(call, ttl, origin);
+  // An empty log list is never kept past one block (some providers answer [] for ranges they will not serve, and a
+  // month of that would hide real logs), so a final window's empty answer lives under its own one-block key.
+  const short = ttl > BLOCK_MS && call.method === "eth_getLogs" ? await cacheKey(call, BLOCK_MS, origin) : null;
+  const hit = await lookup(short ? [key, short] : [key], cache);
+  if (hit !== undefined) return { body: { jsonrpc: "2.0", id: call.id, ...JSON.parse(hit) }, source: "cache" };
+  // The same call already on its way upstream in this isolate: wait for that answer instead of asking again. Like a
+  // cache hit, it does not count against this visitor's upstream limit.
+  const pending = inflight.get(key.url);
+  if (pending) {
+    const got = await pending;
+    if (!got.limited) return { body: { jsonrpc: "2.0", id: call.id, ...got }, source: "coalesced" };
+  }
+  const mine = (async () => {
+    if (!(await under(env.RPC_UPSTREAM, who))) return { limited: true };
+    const got = await forward(call, upstreams, fetcher, cache, origin, kind);
+    if (!got.error && got.result !== null && got.result !== undefined) {
+      const empty = Array.isArray(got.result) && got.result.length === 0;
+      await store(empty && short ? short : key, empty ? Math.min(ttl, BLOCK_MS) : ttl, got, cache);
+    }
+    return got;
+  })();
+  inflight.set(key.url, mine);
+  const got = await mine.finally(() => inflight.get(key.url) === mine && inflight.delete(key.url));
+  if (got.limited) return limited();
   return { body: { jsonrpc: "2.0", id: call.id, ...got }, source: "upstream" };
 }
 
