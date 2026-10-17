@@ -487,9 +487,9 @@ export function LpWindow({
           setSteps(undefined);
         }}
         options={[
+          ["trade", "Trade"],
           ["add", "Add"],
           ["positions", "Your positions"],
-          ["trade", "Trade"],
         ]}
       />
       <div className="loop-now">
