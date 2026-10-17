@@ -5,6 +5,7 @@
 import { seeded, type Kit, type Score } from "./score";
 import { click, env, osc, pitch, place, squall, timbre, weather } from "./score-voices";
 import { IMDUSD_VIBES } from "./vibe-imdusd";
+import { IMDUSD_SOUND_KEY } from "./sound-key";
 
 const D = 73.42; // D2
 const PENT = [1, 9 / 8, 5 / 4, 3 / 2, 5 / 3];
@@ -219,7 +220,7 @@ const TRIM: Record<string, number> = {
 };
 
 export const IMDUSD_SCORE: Score = {
-  key: "imdusd-sound",
+  key: IMDUSD_SOUND_KEY,
   vibe: IMDUSD_VIBES,
   voicings: {
     rosette: { root: D, scale: PENT, weather: "wind" },

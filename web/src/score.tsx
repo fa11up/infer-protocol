@@ -237,7 +237,7 @@ type Player = {
 };
 const players = new Map<string, Player>();
 
-function player(score: Score): Player {
+export function player(score: Score): Player {
   const had = players.get(score.key);
   if (had) return had;
   let state: State = "off";

@@ -1,10 +1,66 @@
-import type { ReactNode } from "react";
+import { lazy, Suspense, useEffect, useState, type ReactNode } from "react";
 import { ThemeToggle } from "./theme";
 import { Vibe } from "./vibe";
 import { IMDUSD_VIBES } from "./vibe-imdusd";
-import { Sound } from "./score";
-import { IMDUSD_SCORE } from "./score-imdusd";
+import { IMDUSD_SOUND_KEY } from "./sound-key";
 import { PegTicker } from "./peg-price";
+
+// The sound button's score is loaded once the page is idle, or at once if the visitor left the sound on (so it
+// carries on from the last page). Until then the button is drawn as it is when off, and a press on it is kept.
+const SoundButton = lazy(() => import("./sound-imdusd"));
+let soundAsked = false;
+const takeAsked = () => {
+  const asked = soundAsked;
+  soundAsked = false;
+  return asked;
+};
+const soundWasOn = () => {
+  try {
+    return localStorage.getItem(IMDUSD_SOUND_KEY) === "1";
+  } catch {
+    return false;
+  }
+};
+function LazySound() {
+  const [load, setLoad] = useState(soundWasOn);
+  useEffect(() => {
+    if (load) return;
+    if (typeof requestIdleCallback === "function") {
+      const id = requestIdleCallback(() => setLoad(true), { timeout: 4000 });
+      return () => cancelIdleCallback(id);
+    }
+    const id = setTimeout(() => setLoad(true), 1500);
+    return () => clearTimeout(id);
+  }, [load]);
+  const placeholder = (
+    <button
+      type="button"
+      className="theme-toggle score-toggle"
+      aria-label="Sound off. Turn sound on."
+      aria-pressed={false}
+      title="Sound off. Turn sound on."
+      data-state="off"
+      onClick={() => {
+        soundAsked = true;
+        setLoad(true);
+      }}
+    >
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" focusable="false">
+        <g fill="none" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round">
+          <path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z" />
+          <path d="M15.5 10l4 4M19.5 10l-4 4" strokeLinecap="round" />
+        </g>
+      </svg>
+    </button>
+  );
+  return load ? (
+    <Suspense fallback={placeholder}>
+      <SoundButton takeAsked={takeAsked} />
+    </Suspense>
+  ) : (
+    placeholder
+  );
+}
 
 // The site is three static pages (/, /terminal/, /docs/), so any host serves it with no routing
 // rules. Each page names the site root relative to itself in <meta name="app-root">; every shared
@@ -122,7 +178,7 @@ export function SiteHeader({
         )}
         <ThemeToggle />
         <Vibe suite={IMDUSD_VIBES} />
-        <Sound score={IMDUSD_SCORE} />
+        <LazySound />
         {children}
       </div>
     </header>
