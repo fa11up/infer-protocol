@@ -39,10 +39,12 @@ function countingCache() {
 
 /** Upstream stub: records calls; `answer(url, body)` returns a Response or a JSON-RPC body; `delay` ms per call. */
 function upstream(answer = () => undefined, delay = 0) {
+  // The Worker's own head reads (eth_blockNumber, for finality and the archive lane) are kept apart from `calls`.
   const calls = [];
+  const heads = [];
   const fetch = async (url, init) => {
     const body = JSON.parse(init.body);
-    calls.push({ url, method: body.method, params: body.params });
+    (body.method === "eth_blockNumber" ? heads : calls).push({ url, method: body.method, params: body.params });
     if (delay) await new Promise((r) => setTimeout(r, delay));
     const a = answer(url, body);
     if (a instanceof Response) return a;
@@ -50,7 +52,7 @@ function upstream(answer = () => undefined, delay = 0) {
       JSON.stringify(a ?? { jsonrpc: "2.0", id: 1, result: body.method === "eth_blockNumber" ? `0x${HEAD.toString(16)}` : body.method === "eth_getLogs" ? [{ blockNumber: body.params[0].fromBlock }] : `0x${calls.length.toString(16).padStart(64, "0")}` }),
     );
   };
-  return { calls, fetch };
+  return { calls, heads, fetch };
 }
 
 const post = (body, deps, { ip = "198.51.100.1", e = env(), host = "imdusd.com" } = {}) =>
@@ -209,7 +211,7 @@ test("a batch of log reads asks for the chain head once", async () => {
   const deps = { fetch: up.fetch, cache };
   const recent = (i) => ({ jsonrpc: "2.0", id: i, method: "eth_getLogs", params: [{ address: OURS, fromBlock: `0x${(HEAD - 50 - i).toString(16)}`, toBlock: `0x${(HEAD - 1).toString(16)}` }] });
   await post(Array.from({ length: 10 }, (_, i) => recent(i)), deps);
-  assert.equal(up.calls.filter((c) => c.method === "eth_blockNumber").length, 1);
+  assert.equal(up.heads.length, 1);
   assert.equal(up.calls.filter((c) => c.method === "eth_getLogs").length, 10);
   // And a visitor's own eth_blockNumber in the same block shares that read.
   const r = await post({ jsonrpc: "2.0", id: 5, method: "eth_blockNumber" }, deps);
