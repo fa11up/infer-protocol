@@ -4616,6 +4616,7 @@ dialog:focus-visible {
 .keeper-act {
   margin-top: 12px;
   max-width: 520px;
+}
 
 /* ---------- imdusd.com/analytics/ (Analytics.tsx, AnalyticsCharts.tsx) ---------- */
 .analytics {
