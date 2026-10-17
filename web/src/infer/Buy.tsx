@@ -8,7 +8,7 @@
 // link opens a new tab rather than navigating X's iframe; the Worker (worker/infer.js) lets x.com frame
 // this one route and no other.
 import { useEffect, useRef, useState } from "react";
-import { everyVisible } from "./visible";
+import { everyVisible, REFRESH_MS } from "./visible";
 import { Trade } from "./App";
 import { LIVE } from "./config";
 import { useInferMarket, usdCompact, usdPrice } from "./price";
@@ -51,7 +51,7 @@ export function Buy() {
   // The trade pane's balances and quote follow the chain at its block time, as on the home page.
   useEffect(() => {
     if (!LIVE) return;
-    return everyVisible(refresh, 12_000);
+    return everyVisible(refresh, REFRESH_MS);
   }, []);
   const out = framed
     ? { target: "_blank", rel: "noopener noreferrer" }

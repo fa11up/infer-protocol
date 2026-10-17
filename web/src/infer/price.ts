@@ -15,8 +15,8 @@ const IMD_POOL_ID: Hex =
 const ETH_USD = "0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419";
 /** Chainlink's heartbeat for ETH/USD is an hour; a round older than two is not a price. */
 const ETH_USD_MAX_AGE_S = 2n * 3600n;
-const POLL_MS = 30_000;
-const KEEP_MS = 120_000;
+const POLL_MS = 60_000;
+const KEEP_MS = 180_000;
 
 const CHAINLINK = parseAbi([
   "function latestRoundData() view returns (uint80, int256, uint256, uint256, uint80)",
@@ -90,8 +90,8 @@ export async function readInferMarket(): Promise<InferMarket> {
   };
 }
 
-/** The market, refreshed every 30 s; undefined until read, before launch, or while unreadable. A
- * failed read keeps the last good figure for two minutes, then shows none rather than an old one. */
+/** The market, refreshed every 60 s; undefined until read, before launch, or while unreadable. A
+ * failed read keeps the last good figure for three minutes, then shows none rather than an old one. */
 export function useInferMarket(): InferMarket | undefined {
   const [m, setM] = useState<InferMarket>();
   useEffect(() => {

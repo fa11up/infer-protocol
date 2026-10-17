@@ -896,6 +896,20 @@ export function Line({
  * with no account, `null` when the token does not exist yet (its address is unset before launch).
  * `NATIVE` reads the account's ETH.
  */
+/**
+ * Whether a reader's subject changed since its last read (another account, token or side), as opposed to a timed
+ * refresh of the same thing. Readers clear what they show only on a change: a refresh keeps the last figures on
+ * screen until the new ones land, so nothing blinks to "…" every interval (it did, every 12 s, on every page).
+ */
+export function useSubjectChanged(subject: string): () => boolean {
+  const last = useRef<string | null>(null);
+  return () => {
+    const changed = last.current !== subject;
+    last.current = subject;
+    return changed;
+  };
+}
+
 export function useBalances(
   account: Address | null,
   list: (Address | null)[],
@@ -905,9 +919,10 @@ export function useBalances(
     list.map(() => undefined),
   );
   const key = list.join(",");
+  const changed = useSubjectChanged(`${account}|${key}`);
   useEffect(() => {
     let stale = false;
-    setOut(list.map((t) => (t === null ? null : undefined)));
+    if (changed()) setOut(list.map((t) => (t === null ? null : undefined)));
     if (!account) return;
     Promise.all(
       list.map((t) =>
@@ -921,10 +936,11 @@ export function useBalances(
                   functionName: "balanceOf",
                   args: [account],
                 })
-            ).catch(() => undefined),
+            ).catch(() => "failed" as const),
       ),
     ).then((v) => {
-      if (!stale) setOut(v);
+      // A read that failed keeps the figure it had: the next refresh tries again.
+      if (!stale) setOut((old) => v.map((x, i) => (x === "failed" ? old[i] : x)));
     });
     return () => {
       stale = true;

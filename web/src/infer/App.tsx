@@ -1,6 +1,6 @@
 // The INFER app: one screen, no scrolling. Trading on the left, staking on the right.
 import { useEffect, useState } from "react";
-import { everyVisible } from "./visible";
+import { everyVisible, REFRESH_MS } from "./visible";
 import { formatUnits, type Address } from "viem";
 import { LAUNCH, LIVE, pct, whole } from "./config";
 import { ERC20, STAKED_INFER, DRIPPER, client, wallet, message } from "./chain";
@@ -28,6 +28,7 @@ import {
   useBalance,
   useTx,
   useSiteWallet,
+  useSubjectChanged,
   type Notice,
   type Wallet,
 } from "./ui";
@@ -40,11 +41,12 @@ export function App() {
   const w = useSiteWallet();
   const [tick, setTick] = useState(0);
   const refresh = () => setTick((t) => t + 1);
-  // Live state is re-read every twelve seconds, Ethereum's block time, so a new block (the end of
-  // the one-block hold, a drip, a trade by someone else) shows without a reload.
+  // Live state is re-read every 30 seconds (and at once after each of the visitor's own transactions), so a drip,
+  // the end of the one-block hold or a trade by someone else shows without a reload. It was every 12 s (one block),
+  // which made every visitor's tab a steady stream of RPC calls for figures that rarely move that fast.
   useEffect(() => {
     if (!LIVE) return;
-    return everyVisible(refresh, 12_000);
+    return everyVisible(refresh, REFRESH_MS);
   }, []);
   return (
     <Shell page="app" depth={0} wallet={w} className="infer-screen">
@@ -126,16 +128,18 @@ export function Trade({
             : 0n,
         ),
       )
-      .catch(() => setPrice(0n));
+      // A failed read keeps the last price rather than showing zero.
+      .catch(() => undefined);
   }, [tick, key, c.infer, c.poolManager]);
 
-  // Balances and allowances of the connected account.
+  // Balances and allowances of the connected account; cleared only when what they describe changes.
+  const balSubject = useSubjectChanged(`${w.account}|${side}|${c.infer}|${pairToken}`);
   useEffect(() => {
     if (!LIVE || !c.infer || !w.account) return;
     const account = w.account,
       infer = c.infer;
     let stale = false;
-    setBal(null);
+    if (balSubject()) setBal(null);
     (async () => {
       const [pairBal, inferBal] = await Promise.all([
         pairToken === NATIVE
@@ -582,6 +586,7 @@ function Stake({
     maxRedeem: bigint;
   } | null>(null);
 
+  const stakeSubject = useSubjectChanged(`${w.account}|${c.infer}|${c.stakedInfer}`);
   useEffect(() => {
     if (!LIVE || !c.infer || !c.stakedInfer) return;
     const infer = c.infer,
@@ -589,7 +594,7 @@ function Stake({
       dripper = c.dripper;
     const account = w.account;
     let stale = false;
-    setSt(null);
+    if (stakeSubject()) setSt(null);
     (async () => {
       const [total, totalShares, rate, buffer, releasable] = await Promise.all([
         client.readContract({
