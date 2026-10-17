@@ -1,0 +1,31 @@
+{
+  "note": "The public history index (imdusd-public D1): which on-chain logs it holds. A byte-identical copy lives in fa11up/infer-protocol web/public-logs.json (the imdusd.com Worker's allowlist); both repos test their copy against their own config, and infer-ops tests the two are identical when both are checked out.",
+  "version": 1,
+  "chainId": 1,
+  "launchId": "imdusd-mainnet-26166417",
+  "floor": 26165887,
+  "finality": 12,
+  "window": 5000,
+  "history": {
+    "vault": "0x0b69f8da8d8ce521d74ea69a7a3475b77302ef82",
+    "priceFeed": "0x070e0603737242b01abc1d223f7c92d63e86ec97",
+    "spotFeed": "0x77e1684402869bf2b7c70b8bf21e1c7ca7104951",
+    "nhiFeed": "0x014dabf6f940c9c383d9ef48636f70d842f65d7a",
+    "stablecoin": "0x61aaf8a992a3143e2b0c9cb0030b9fe702854a25",
+    "parameters": "0x3d96a6ffada9c2e5b8ff8eb3f8afb360116da881",
+    "treasury": "0x6ac8ff96fb8dcf5d79a8ef1e59d9ac23f2bd27bc",
+    "workOracle": "0xc7335a836ad85a6ac0830c6cef602d735b9d8a8a"
+  },
+  "pegPool": {
+    "poolManager": "0x000000000004444c5dc75cb358380d2e3de08a90",
+    "poolId": "0x3cb8cc9c22f7da5c3169d4059131ddba9e61f68230977797c03a2f1214992035",
+    "fromBlock": 26167383,
+    "topics": {
+      "initialize": "0xdd466e674ea557f56295e2d0218a125ea4b4f0f6f3307b95f85e6110838d6438",
+      "swap": "0x40e9cecb9f5f1f1c5b9c97dec2917b7ee92e57ba5563708daca94dd84ad7112f",
+      "modifyLiquidity": "0xf208f4912782fd25c7f114ca3723a2d5dd6f3bcc3ac8db5af63baa85f711d5ec"
+    },
+    "positionManager": "0xbd216513d74c8cf14cf4747e6aaa6420ff64ee9e",
+    "transfer": "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"
+  }
+}

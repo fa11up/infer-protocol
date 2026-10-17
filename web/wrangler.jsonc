@@ -1,5 +1,5 @@
 // imdusd.com: the public site (homepage + docs), served as static assets by Cloudflare Workers.
-// worker/index.js runs only for /rpc (the terminal's own RPC, worker/rpc.js); every other request goes to the
+// worker/index.js runs only for /rpc (the terminal's own RPC, worker/rpc.js), /swap/* and /api/v1/* (the public history index); every other request goes to the
 // assets, where `_headers` and `_redirects` in dist-public/ apply as written.
 // Build first with `npm run build:public`; deploy with `npm run deploy:public`.
 {
@@ -9,9 +9,9 @@
   "assets": {
     "directory": "../dist-public",
     "binding": "ASSETS",
-    // Only /rpc runs the Worker; every page and file is served straight from Cloudflare's cache. HTTP -> HTTPS and www -> imdusd.com are the zone's "Always Use HTTPS" setting and a
+    // Only /rpc, /swap/* and /api/v1/* run the Worker; every page and file is served straight from Cloudflare's cache. HTTP -> HTTPS and www -> imdusd.com are the zone's "Always Use HTTPS" setting and a
     // Redirect Rule (set in the dashboard, 2026-10-08).
-    "run_worker_first": ["/rpc", "/swap/*"],
+    "run_worker_first": ["/rpc", "/swap/*", "/api/v1/*"],
     // /docs serves /docs/ and the site's relative links keep working.
     "html_handling": "auto-trailing-slash",
     // An unknown path is a 404 with the site's own not-found page (404.html, built from
@@ -31,7 +31,17 @@
     { "name": "RPC_REQUESTS", "namespace_id": "1003", "simple": { "limit": 300, "period": 60 } },
     { "name": "RPC_UPSTREAM", "namespace_id": "1004", "simple": { "limit": 240, "period": 60 } },
     // The Trade tab's 0x quotes (worker/swap.js): the API key is a secret, ZEROX_API_KEY.
-    { "name": "SWAP_REQUESTS", "namespace_id": "1005", "simple": { "limit": 60, "period": 60 } }
+    { "name": "SWAP_REQUESTS", "namespace_id": "1005", "simple": { "limit": 60, "period": 60 } },
+    // /api/v1 (worker/history-api.js), counted on cache misses only: a page load is ~3 requests, most served from cache.
+    { "name": "HISTORY_REQUESTS", "namespace_id": "1006", "simple": { "limit": 120, "period": 60 } }
+  ],
+  // The PUBLIC history index, written by infer-ops' cron (fa11up/infer-ops worker/public/, migrations-public/) and read
+  // here by /api/v1. It holds raw public chain logs only, and it is the ONLY database this Worker is bound to: never
+  // bind infer-ops' private database here (tests/history-api.test.mjs refuses it). database_id: the id printed by
+  // `npx wrangler d1 create imdusd-public`, the same as in infer-ops' wrangler.jsonc (local dev shares one local
+  // database through it).
+  "d1_databases": [
+    { "binding": "PUBLIC_DB", "database_name": "imdusd-public", "database_id": "00000000-0000-4000-8000-000000000001" }
   ],
   "limits": { "cpu_ms": 100 },
   "routes": [
