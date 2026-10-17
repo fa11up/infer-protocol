@@ -58,10 +58,10 @@ export function PegTicker() {
   return (
     <a
       className="chip peg-ticker"
-      href="https://app.uniswap.org/explore/pools/ethereum/0x3cb8cc9c22f7da5c3169d4059131ddba9e61f68230977797c03a2f1214992035"
+      href="https://matcha.xyz/tokens/ethereum/0x61aaf8a992a3143e2b0c9cb0030b9fe702854a25"
       target="_blank"
       rel="noreferrer"
-      title="imdUSD's price in its imdUSD/USDC pool on Uniswap"
+      title="imdUSD's price in its imdUSD/USDC pool; trade it on Matcha"
     >
       imdUSD <b className={level}>$&nbsp;{v.toFixed(4)}</b>
     </a>

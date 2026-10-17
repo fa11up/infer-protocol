@@ -572,8 +572,10 @@ export function LpWindow({
                 {fmt(trade.minOut, tradeOut.decimals, 4)} {tradeOut.symbol}
               </Row>
               <Row label="Average price">${fmt(trade.avg, 18, 4)} per {unit()}</Row>
-              <Row label="Cost against $1" info="What the trade gives up against $1 per imdUSD: the pool fee, price impact and any surcharge. Negative is a gain.">
-                {`${(trade.costBps / 100).toFixed(2)}%`}
+              <Row label="Against $1" info="The average price you get against $1 per imdUSD, with the pool fee, price impact and any surcharge included. Buying under $1 is a discount; selling under $1 is a loss.">
+                {trade.avg === 10n ** 18n
+                  ? "at $1"
+                  : `${(Math.abs(Number(trade.avg - 10n ** 18n)) / 1e16).toFixed(2)}% ${trade.avg < 10n ** 18n ? "under" : "over"} $1`}
               </Row>
               {quoted.end !== undefined && (
                 <Row label="Price after" info="What the last unit of this trade gets; the pool's price moves to about here.">
