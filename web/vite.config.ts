@@ -495,6 +495,10 @@ export default defineConfig(({ mode }) => {
                 "src/landing-live.public.tsx",
               ),
             },
+            {
+              find: /^\.\/analytics-route$/,
+              replacement: resolve(import.meta.dirname, "src/analytics-route.public.ts"),
+            },
           ],
         }
       : {},
