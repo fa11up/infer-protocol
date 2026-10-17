@@ -824,7 +824,7 @@ export function Oracle({
                         "—"
                       ) : (
                         <span
-                          className={f[n].stale ? "danger-text" : undefined}
+                          className={f[n].stale ? "muted" : undefined}
                         >
                           {f[n].stale ? "Stale · " : ""}
                           {age(f[n].updated, now)} / {lifetime(f[n].maxAge)}

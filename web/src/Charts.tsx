@@ -751,7 +751,7 @@ export function SupplyChart({ s }: { s?: Snapshot }) {
         </span>
         <strong>
           <Ticker text={supply ? `${(ratio * 100).toFixed(1)}%` : "—"} />
-          {usd.stale && <span className="danger-text"> · USD stale</span>}
+          {usd.stale && <span className="muted"> · USD stale</span>}
         </strong>
       </div>
     </figure>
