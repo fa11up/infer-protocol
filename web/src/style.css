@@ -2118,6 +2118,11 @@ html.app-page body {
   font-size: 11px;
   color: var(--muted);
   overflow-x: auto;
+  /* One line, scrolled if need be, so the figure arriving never changes the panel's height. */
+  white-space: nowrap;
+}
+.live-cap.live-note {
+  white-space: normal;
 }
 .live-wait {
   padding: 22px 14px;
@@ -3871,6 +3876,9 @@ html.app-terminal body:has(> .vibe-canvas:not([hidden])) :is(input, textarea) {
 .chip.peg-ticker {
   text-decoration: none;
 }
+.chip.peg-ticker.peg-waiting {
+  visibility: hidden;
+}
 .chip.peg-ticker b,
 .infer-ticker b {
   color: var(--text);
@@ -4655,6 +4663,14 @@ dialog:focus-visible {
   max-width: 76ch;
   font-size: 15px;
   line-height: 1.55;
+  /* The lead grows from "Reading…" to two sentences when the chain is read: its usual size is kept from the
+     start so the figures under it do not jump down (three lines here, five on a phone: a price below the band takes them all). */
+  min-height: calc(3 * 1.55em);
+}
+@media (max-width: 760px) {
+  .an-lead {
+    min-height: calc(5 * 1.55em);
+  }
 }
 .an-vitals {
   display: grid;
@@ -4944,5 +4960,32 @@ dialog:focus-visible {
   }
   .site-nav a {
     padding-inline: 0 14px;
+  }
+}
+
+/* A docs page is static HTML; React adds only its header, into #root, after the page's code loads. Until then #root
+   holds the header's height, so the article does not jump down when the header arrives (the docs pages' layout
+   shift). The heights are the header's own at each layout (style.css above; tests/soft.mjs checks they match):
+   one row from 1001px, two short rows 761-1000px, the phone header up to 760px, and below 345px the phone header
+   with its chips on two rows (the peg ticker and the network chip no longer fit one). */
+.docs-site > #root:empty {
+  display: block;
+  min-height: 60px;
+  border-bottom: 1px solid var(--rule);
+  box-sizing: border-box;
+}
+@media (max-width: 1000px) {
+  .docs-site > #root:empty {
+    min-height: 71px;
+  }
+}
+@media (max-width: 760px) {
+  .docs-site > #root:empty {
+    min-height: 131px;
+  }
+}
+@media (max-width: 344px) {
+  .docs-site > #root:empty {
+    min-height: 160px;
   }
 }

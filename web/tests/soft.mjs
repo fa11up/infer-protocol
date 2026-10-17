@@ -130,6 +130,32 @@ const PLANS = [
     links: [[".site-nav a[href*=docs]", "/docs/", "imdUSD docs"], ["main a[href*=glossary]", "/docs/overview/glossary/", "Glossary"], ['main a[href*="relay-oracle-updates"]', "/docs/keepers/relay-oracle-updates/", "Relay"], ["header a:first-child", "/", "imdUSD"]],
   }],
 ];
+// A docs page reserves its header's height until the header renders (style.css `.docs-site > #root:empty`), so the
+// article never jumps down when it arrives. The reserved height must be the header's own at every layout. (Below
+// 345px the reservation is the imdusd.com header's, whose peg ticker wraps the chips; this server has no /rpc, so
+// no ticker, and 320px is not compared.)
+async function docsHeaderReserved(dir, port) {
+  const server = await serve(dir, port);
+  const b = await chromium.launch();
+  for (const width of [360, 390, 761, 900, 1001, 1440]) {
+    const viewport = { width, height: 800 };
+    const still = await b.newContext({ viewport, javaScriptEnabled: false });
+    const sp = await still.newPage();
+    await sp.goto(`http://127.0.0.1:${port}/docs/overview/glossary/`);
+    const reserved = await sp.evaluate(() => document.getElementById("root").getBoundingClientRect().height);
+    await still.close();
+    const live = await b.newContext({ viewport });
+    const lp = await live.newPage();
+    await lp.goto(`http://127.0.0.1:${port}/docs/overview/glossary/`);
+    await lp.locator(".topbar").waitFor();
+    const header = await lp.evaluate(() => document.querySelector(".topbar").getBoundingClientRect().height);
+    await live.close();
+    ok(Math.abs(reserved - header) < 1, `docs at ${width}px: header space reserved ${reserved}px, header ${header}px`);
+  }
+  await b.close();
+  server.close();
+}
+await docsHeaderReserved("../../dist-public", 5303);
 for (const [dir, port, plan] of PLANS) {
   const server = await serve(dir, port);
   console.log(`== ${dir}`);

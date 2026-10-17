@@ -10,13 +10,15 @@ const POOL_MANAGER = "0x000000000004444c5dc75cB358380D2e3dE08A90";
 const SLOT0_CALL =
   "0x1e2eaeaf1dbccba4aec74400b6ea5e6bb1c3e931232ad7d9664e083f9178059dfc726192";
 const POLL_MS = 30_000;
+/** Only imdusd.com's Workers serve /rpc (worker/index.js, worker/infer.js). */
+const HAS_RPC = typeof location !== "undefined" && /(^|\.)imdusd\.com$/.test(location.hostname);
 const KEEP_MS = 120_000;
 
 /** USDC per imdUSD. currency0 is imdUSD (18 decimals), currency1 USDC (6): price = sqrtP² / 2^192 × 10^12. */
 export async function readPeg(): Promise<number> {
   // Only imdusd.com's Workers serve /rpc (worker/index.js, worker/infer.js); elsewhere (staging, local dev, the test
   // server) the request would only 404 into the console every poll, so it is not sent.
-  if (!/(^|\.)imdusd\.com$/.test(location.hostname)) throw Error("no /rpc on this host");
+  if (!HAS_RPC) throw Error("no /rpc on this host");
   const r = await fetch("/rpc", {
     method: "POST",
     headers: { "content-type": "application/json" },
@@ -52,7 +54,14 @@ export function usePegPrice(): number | undefined {
  * yellow out to 1%, red beyond 1%. */
 export function PegTicker() {
   const v = usePegPrice();
-  if (v === undefined) return null;
+  // On imdusd.com the chip's place is kept, empty, until the first read: it arriving used to push the chips beside
+  // it along (and on a narrow phone wrap them onto a second row). Elsewhere there is no /rpc, so no chip at all.
+  if (v === undefined)
+    return HAS_RPC ? (
+      <span className="chip peg-ticker peg-waiting" aria-hidden="true">
+        imdUSD <b>$&nbsp;1.0000</b>
+      </span>
+    ) : null;
   const off = Math.abs(v - 1);
   const level = off <= 0.0025 ? "peg-ok" : off <= 0.01 ? "peg-warn" : "peg-bad";
   return (
