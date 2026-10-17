@@ -227,9 +227,12 @@ export const pointsConfig = {
   startBlock: undefined as number | undefined,
   /** Points stop accruing at this block (none while preseason runs; set when Season 1 opens). A freeze at
    * 26206625 (16 Oct 2026 17:34 UTC) was lifted the same day: preseason resumed with no gap. */
-  endBlock: undefined as number | undefined,
+  // The preseason's last block: Season 1 was opened here (Safe tx 0x3267a5ad…4664, 2026-10-17 00:03:11 UTC), and
+  // rules/season-1.md section 3 ends the preseason at the block openSeason executed in. Pinned so the pane needs no
+  // explorer to find it.
+  endBlock: 26_208_562 as number | undefined,
   /** When endBlock was mined, for the pane. */
-  endedAt: undefined as string | undefined,
+  endedAt: "17 Oct 2026 00:03 UTC" as string | undefined,
   /** Season 1 has not opened: the pane says points so far count towards a capped preseason distribution. */
   preseason: true,
   /**
