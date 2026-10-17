@@ -68,7 +68,7 @@ for (const path of paths.length ? paths : ["/terminal/", "/stats/"]) {
     for (const c of calls)
       if (c?.method === "eth_getLogs") {
         const f = c.params?.[0] ?? {};
-        logs.push({ host, span: Number(BigInt(f.toBlock) - BigInt(f.fromBlock) + 1n), addresses: [f.address].flat().length, topics: Array.isArray(f.topics) && f.topics.length > 0, key: JSON.stringify([f.address, f.topics ?? null, f.fromBlock, f.toBlock]) });
+        logs.push({ target: Array.isArray(f.address) && f.address.length > 1 ? `group of ${f.address.length}` : `${[f.address].flat()[0]}${f.topics?.length ? " (topics)" : ""}`, host, span: Number(BigInt(f.toBlock) - BigInt(f.fromBlock) + 1n), addresses: [f.address].flat().length, topics: Array.isArray(f.topics) && f.topics.length > 0, key: JSON.stringify([f.address, f.topics ?? null, f.fromBlock, f.toBlock]) });
         last = Date.now();
       }
   };
@@ -114,6 +114,7 @@ for (const path of paths.length ? paths : ["/terminal/", "/stats/"]) {
       getLogs: logs.length,
       distinct: new Set(logs.map((l) => l.key)).size,
       byHost,
+      byTarget: Object.fromEntries(Object.entries(Object.groupBy(logs, (l) => l.target)).map(([k, v]) => [k, v.length])),
       multiAddress: logs.filter((l) => l.addresses > 1).length,
       topicFiltered: logs.filter((l) => l.topics).length,
       maxSpan: Math.max(0, ...logs.map((l) => l.span)),
