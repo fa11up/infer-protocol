@@ -22,7 +22,7 @@ import { DayBars, HBars, PegChart, ShareBar, Spark, StressPlot, utcShort, type D
 import { loadConfig, pointsConfig, type Runtime } from "./config";
 import { ensName, useEns } from "./ens";
 import { describePending } from "./governance";
-import { loanBook } from "./history";
+import { loanBook, type History } from "./history";
 import { everyVisible } from "./infer/visible";
 import { useMarket } from "./market";
 import { message } from "./math";
@@ -243,6 +243,7 @@ export function Analytics() {
           )}
           <p className="an-src">
             {loans.length} loans with debt · {whole(totalDebt)} imdUSD
+            {book.data && <> · {historyNote(book.data.history)}</>}
           </p>
         </Panel>
         <Panel title="Where imdUSD sits" sub={ledger.data ? `${ledger.data.holders.length} holders` : "Holders"} load={ledger}>
@@ -286,6 +287,11 @@ export function Analytics() {
       <SwarmPanel swarm={swarm} imdUsd={market ? Number(market.imdUsd) / 1e18 : undefined} />
     </Shell>
   );
+}
+
+/** Where the loan book's history came from: the public index (imdusd.com/api/v1) up to a block, or the chain. */
+export function historyNote(h: History): string {
+  return h.source === "Index" && h.index !== undefined ? `history via index, through block ${h.index.toLocaleString("en-US")}` : "history via chain";
 }
 
 /* ---------- page parts ---------- */

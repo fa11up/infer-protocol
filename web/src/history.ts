@@ -8,6 +8,7 @@ import {
 import { ours } from "./names";
 import { historyConfig, type Runtime, type Target } from "./config";
 import { read, type Snapshot } from "./state";
+import { indexView, tailFrom } from "./history-index";
 
 export type ChainLog = {
   address: Address;
@@ -21,7 +22,9 @@ export type History = {
   logs: ChainLog[];
   from: bigint;
   through: bigint;
-  source: "RPC" | "Blockscout";
+  source: "RPC" | "Blockscout" | "Index";
+  /** When the public index (history-index.ts) served the history up to here: its `through`. */
+  index?: bigint;
 };
 export type Loan = {
   owner: Address;
@@ -310,6 +313,31 @@ async function rpcRange(
   if (!logs.length && addresses.length === 1) throw Error("No verifiable logs");
   return { logs, source: "RPC" };
 }
+/**
+ * The range from the public history index up to its `through` − 12 and the chain after that, or undefined when the
+ * index is not usable here (history-index.ts) or would add nothing (a refresh inside the chain's tail). Only for the
+ * deployment's history group, and only when the index holds every contract in it.
+ */
+async function fromIndex(
+  r: Runtime,
+  t: Target,
+  from: bigint,
+  to: bigint,
+): Promise<{ logs: ChainLog[]; source: History["source"]; index: bigint } | undefined> {
+  const addresses = groupOf(r, t.address);
+  if (addresses.length < 2) return undefined;
+  const view = await indexView(r, to);
+  if (!view || !addresses.every((a) => view.addresses.has(a))) return undefined;
+  const tail = tailFrom(view);
+  if (from >= tail) return undefined;
+  const own = t.address.toLowerCase();
+  const indexed = view.logs
+    .filter((l) => l.address === own)
+    .map((l) => normalize(l, t.address))
+    .filter((l) => l.blockNumber >= from && l.blockNumber < tail);
+  const recent = to >= tail ? (await rpcRange(r, t, tail, to)).logs : [];
+  return { logs: [...indexed, ...recent], source: "Index", index: view.through };
+}
 async function fromExplorer(r: Runtime, t: Target, from: bigint, to: bigint): Promise<{ logs: ChainLog[]; source: History["source"] }> {
   const logs = await explorerLogs(r, t, from, to);
   if (!logs.length)
@@ -330,6 +358,7 @@ function load(r: Runtime, address: Address): History | undefined {
       from: BigInt(h.from),
       through: BigInt(h.through),
       source: h.source,
+      ...(h.index !== undefined ? { index: BigInt(h.index) } : {}),
       logs: h.logs.map((l: any) => normalize({ ...l, blockNumber: BigInt(l.blockNumber) }, address)),
     };
   } catch {
@@ -340,7 +369,7 @@ function save(r: Runtime, address: Address, h: History) {
   try {
     localStorage.setItem(
       stored(r, address),
-      JSON.stringify({ ...h, from: h.from.toString(), through: h.through.toString(), logs: h.logs.map((l) => ({ ...l, blockNumber: l.blockNumber.toString() })) }),
+      JSON.stringify({ ...h, from: h.from.toString(), through: h.through.toString(), index: h.index?.toString(), logs: h.logs.map((l) => ({ ...l, blockNumber: l.blockNumber.toString() })) }),
     );
   } catch {
     /* No storage: the next visit reads from the start again. */
@@ -386,12 +415,18 @@ async function readHistory(
     anchor > historyConfig.overlap ? anchor - historyConfig.overlap : from;
   const start =
     old && head >= old.through ? (overlap > from ? overlap : from) : from;
-  let next: Awaited<ReturnType<typeof rangeLogs>>;
+  let next: Awaited<ReturnType<typeof rangeLogs>> & { index?: bigint };
   let kept = old?.logs.filter((l) => l.blockNumber < start) ?? [];
   try {
-    next = await rpcRange(r, t, start, head);
-    // No log in the contract's whole history is unknown, not empty: Blockscout must confirm it (below).
-    if (!kept.length && !next.logs.length) throw Error("No verifiable logs");
+    // The public index first (verified by infer-ops against the chain; an empty contract there is believed), then the
+    // chain as before: any failure of the index path is silent and the chain path runs whole.
+    const viaIndex = await fromIndex(r, t, start, head).catch(() => undefined);
+    if (viaIndex) next = viaIndex;
+    else {
+      next = await rpcRange(r, t, start, head);
+      // No log in the contract's whole history is unknown, not empty: Blockscout must confirm it (below).
+      if (!kept.length && !next.logs.length) throw Error("No verifiable logs");
+    }
   } catch {
     // Blockscout pages the contract's whole history whatever the range, so the fallback takes all of it: a refresh
     // range with no log of this contract (normal in a group) is then not mistaken for a refused read, and an empty
@@ -408,7 +443,11 @@ async function readHistory(
           ? -1
           : 1,
   );
-  const result = { logs, from, through: head, source: next.source };
+  // A refresh that read only the chain's tail on top of indexed history still says where its history came from.
+  const viaIndex = next.source === "Index" || (next.source === "RPC" && old?.source === "Index");
+  const result: History = viaIndex
+    ? { logs, from, through: head, source: "Index", index: next.index ?? old?.index }
+    : { logs, from, through: head, source: next.source };
   map.set(t.address, result);
   save(r, t.address, result);
   return result;
