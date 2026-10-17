@@ -24,6 +24,15 @@
 // Upstreams are tried in order: RPC_UPSTREAMS (comma- or newline-separated full URLs, e.g. Chainstack then
 // Blockscout PRO), then the public RPCs below. A revert is an answer and is returned as is; only a provider
 // failure (network, HTTP error, rate limit) moves on to the next upstream.
+//
+// ARCHIVE LANE. A call reaching back past what non-archive nodes keep (a log range starting more than ARCHIVE_DEPTH
+// blocks below the head, or an eth_call / eth_estimateGas / eth_getBalance / eth_getCode at such a numbered block) goes
+// instead to: INFURA_RPC_URL, NODEREAL_RPC_URL (optional Worker secrets on both Workers: keyed free archive plans,
+// e.g. https://mainnet.infura.io/v3/<key> and https://eth-mainnet.nodereal.io/v1/<key>), then RPC_UPSTREAMS, then
+// the keyless archive gateways in ARCHIVE_PUBLIC. Recent calls never use the archive secrets (their quotas are small:
+// Infura 3M credits/day at 255 per getLogs, NodeReal 10M CU/month at 50). Without the secrets the lane is
+// RPC_UPSTREAMS then the keyless gateways. Every secret URL holds a key: it is never logged, returned or stored in
+// the cache in clear (the bench stores hashes; provider error text is scrubbed of the URLs).
 import { decodeFunctionData, parseAbi } from "viem";
 
 export const MULTICALL3 = "0xca11bde05977b3631167028862be2a173976ca11";
@@ -33,6 +42,11 @@ const PUBLIC = [
   "https://rpc.mevblocker.io",
   "https://eth-mainnet.public.blastapi.io",
 ];
+// Keyless archive gateways, last in the archive lane. Pocket refuses getLogs spans over POCKET_MAX_SPAN, so a longer
+// range skips it (the provider is fine; the call is too wide for it, so it is not benched).
+const ARCHIVE_PUBLIC = ["https://gateway.tenderly.co/public/mainnet", "https://eth.api.pocket.network"];
+const POCKET = "https://eth.api.pocket.network";
+const POCKET_MAX_SPAN = 5_000n;
 const ALLOWED = new Set([
   "eth_chainId",
   "eth_blockNumber",
@@ -315,8 +329,18 @@ async function store(key, ms, got, cache) {
 // upstream call: the cache key -> the pending answer.
 const inflight = new Map();
 
+// A revert is the chain's answer, whatever its message says.
+const reverted = (e) => e.code === 3 || /^execution reverted/i.test(e.message ?? "");
+// Too wide for this provider (too many results, range or span caps): the next provider is asked, nothing is benched.
+const tooWide = (e) => /more than|too many results|results? (limit|cap)|response size|block range|range (is )?too|span|max(imum)? range|10000 results|limit the query/i.test(e?.message ?? "");
+// Provider trouble: rate limits, plans, missing archive state, outages. The next provider is asked and this one benched.
 const providerTrouble = (e) =>
-  e && (e.code === -32005 || e.code === 429 || /rate|limit|capacity|unavailable|timeout|too many|exceeded|unauthor|forbidden/i.test(e.message ?? ""));
+  e &&
+  !reverted(e) &&
+  (e.code === -32005 ||
+    e.code === 429 ||
+    /rate|limit|capacity|unavailable|timeout|too many|exceeded|unauthor|forbidden|archive|missing trie|pruned|header not found|not supported|credits|compute units/i.test(e.message ?? ""));
+const RATE_BENCH_MS = 30_000;
 
 // ------------------------------------------------------------------------------------------------- the bench
 // A provider that refused a kind of call is benched for it: tried last for BENCH_MS. The bench lives in this isolate's
@@ -411,10 +435,15 @@ async function forward(call, upstreams, fetcher, cache, origin, kind = call.meth
     if (probe) probes.set(k, new Promise((r) => (done = r)));
     try {
       const got = await attempt(call, url, fetcher);
+      if (got.wide) {
+        last = got.wide;
+        continue;
+      }
       if (got.trouble) {
         last = got.trouble;
         const wasOut = (benched.get(k) ?? 0) > Date.now();
-        benched.set(k, Date.now() + BENCH_MS);
+        // A per-second rate limit passes quickly: benched briefly, not for BENCH_MS.
+        benched.set(k, Date.now() + (got.rate ? RATE_BENCH_MS : BENCH_MS));
         answered.delete(k);
         if (!wasOut) await writeBench(kind, upstreams, cache, origin);
         continue;
@@ -432,11 +461,25 @@ async function forward(call, upstreams, fetcher, cache, origin, kind = call.meth
       }
     }
   }
-  return { error: { code: -32603, message: `upstream unavailable: ${last}` } };
+  return { error: { code: -32603, message: `upstream unavailable: ${scrub(last, upstreams)}` } };
+}
+
+/** `text` without any upstream URL or the key in its path (provider and network errors may quote them). */
+function scrub(text, upstreams) {
+  let out = String(text);
+  for (const url of upstreams) {
+    out = out.split(url).join("<provider>");
+    for (const part of new URL(url).pathname.split("/")) if (part.length >= 12) out = out.split(part).join("<key>");
+  }
+  return out;
 }
 
 /** One provider, one call: `{ answer }`, or `{ trouble }` when the provider (not the chain) failed. */
 async function attempt(call, url, fetcher) {
+  if (url === POCKET && call.method === "eth_getLogs") {
+    const f = call.params?.[0];
+    if (BigInt(f.toBlock) - BigInt(f.fromBlock) >= POCKET_MAX_SPAN) return { wide: `span over ${POCKET_MAX_SPAN} blocks` };
+  }
   try {
     const r = await fetcher(url, {
       method: "POST",
@@ -444,9 +487,10 @@ async function attempt(call, url, fetcher) {
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: call.method, params: call.params ?? [] }),
       signal: AbortSignal.timeout(6000),
     });
-    if (!r.ok) return { trouble: `HTTP ${r.status}` };
+    if (!r.ok) return { trouble: `HTTP ${r.status}`, rate: r.status === 429 };
     const d = await r.json();
-    if (d.error && providerTrouble(d.error)) return { trouble: d.error.message };
+    if (d.error && !reverted(d.error) && tooWide(d.error)) return { wide: d.error.message };
+    if (d.error && providerTrouble(d.error)) return { trouble: d.error.message, rate: d.error.code === 429 || /rate|too many requests|per second/i.test(d.error.message ?? "") };
     if (!("result" in d) && !d.error) return { trouble: "empty answer" };
     return { answer: { result: d.result, error: d.error } };
   } catch (e) {
@@ -493,7 +537,19 @@ async function under(binding, key) {
   }
 }
 
-async function answer(call, env, allowed, upstreams, fetcher, cache, who, opts, origin) {
+// The state reads whose second param is a block tag: at an old number, they need an archive node.
+const AT_BLOCK = new Set(["eth_call", "eth_estimateGas", "eth_getBalance", "eth_getCode"]);
+const NUMBER = /^0x[0-9a-f]+$/i;
+
+/** What the bench and the lane see a call as: the method, or "<method>:old" when it reaches past ARCHIVE_DEPTH. */
+function kindOf(call, head) {
+  if (head === undefined) return call.method;
+  const at = call.method === "eth_getLogs" ? call.params?.[0]?.fromBlock : AT_BLOCK.has(call.method) ? call.params?.[1] : undefined;
+  return typeof at === "string" && NUMBER.test(at) && BigInt(at) + ARCHIVE_DEPTH < head ? `${call.method}:old` : call.method;
+}
+
+async function answer(call, env, allowed, lanes, fetcher, cache, who, opts, origin) {
+  const upstreams = lanes.recent;
   const no = refusal(call, allowed, opts);
   if (no) {
     // Logged so a contract the page reads but the allowlist lacks shows up in the Worker's logs.
@@ -501,15 +557,16 @@ async function answer(call, env, allowed, upstreams, fetcher, cache, who, opts, 
     return { body: fail(call?.id, -32601, no), source: "refused" };
   }
   const limited = () => ({ body: fail(call.id, -32005, "rate limited: too many uncached calls from this address, retry in a minute"), source: "limited" });
-  const head = call?.method === "eth_getLogs" && cache ? await latest(upstreams, fetcher, cache, origin) : undefined;
+  const numbered = call.method === "eth_getLogs" || (AT_BLOCK.has(call.method) && typeof call.params?.[1] === "string" && NUMBER.test(call.params[1]));
+  const head = numbered && cache ? await latest(upstreams, fetcher, cache, origin) : undefined;
   const ttl = shareable(call, head);
-  // Non-archive providers serve only the last ~100 blocks of logs: an older range is its own kind for the bench, so a
-  // provider refusing it is not cleared by the recent ranges it does serve.
-  const from = call?.params?.[0]?.fromBlock;
-  const kind = head !== undefined && /^0x[0-9a-f]+$/i.test(from ?? "") && BigInt(from) + ARCHIVE_DEPTH < head ? "eth_getLogs:old" : call?.method;
+  // Non-archive providers serve only the last ~100 blocks: an older call is its own kind for the bench (a provider
+  // refusing it is not cleared by the recent calls it does serve) and goes down the archive lane.
+  const kind = kindOf(call, head);
+  const lane = kind.endsWith(":old") ? lanes.archive : lanes.recent;
   if (!ttl || !cache) {
     if (!(await under(env.RPC_UPSTREAM, who))) return limited();
-    const got = await forward(call, upstreams, fetcher, cache, origin, kind);
+    const got = await forward(call, lane, fetcher, cache, origin, kind);
     return { body: { jsonrpc: "2.0", id: call.id, ...got }, source: "upstream" };
   }
   const key = await cacheKey(call, ttl, origin);
@@ -527,7 +584,7 @@ async function answer(call, env, allowed, upstreams, fetcher, cache, who, opts, 
   }
   const mine = (async () => {
     if (!(await under(env.RPC_UPSTREAM, who))) return { limited: true };
-    const got = await forward(call, upstreams, fetcher, cache, origin, kind);
+    const got = await forward(call, lane, fetcher, cache, origin, kind);
     if (!got.error && got.result !== null && got.result !== undefined) {
       const empty = Array.isArray(got.result) && got.result.length === 0;
       await store(empty && short ? short : key, empty ? Math.min(ttl, BLOCK_MS) : ttl, got, cache);
@@ -570,17 +627,17 @@ export async function handleRpc(request, env, deps = {}, opts = {}) {
   } catch {
     return json(fail(null, -32700, "not JSON"), 400);
   }
-  const upstreams = [
-    ...String(env.RPC_UPSTREAMS ?? "")
-      .split(/[\s,]+/)
-      .filter((u) => u.startsWith("https://")),
-    ...PUBLIC,
-  ];
+  const https = (u) => typeof u === "string" && u.startsWith("https://");
+  const keyed = String(env.RPC_UPSTREAMS ?? "")
+    .split(/[\s,]+/)
+    .filter(https);
+  const archive = [env.INFURA_RPC_URL, env.NODEREAL_RPC_URL].map((u) => (typeof u === "string" ? u.trim() : u)).filter(https);
+  const lanes = { recent: [...new Set([...keyed, ...PUBLIC])], archive: [...new Set([...archive, ...keyed, ...ARCHIVE_PUBLIC])] };
   if (Array.isArray(body)) {
     if (body.length === 0 || body.length > MAX_BATCH) return json(fail(null, -32600, `send 1 to ${MAX_BATCH} calls`), 400);
-    const out = await Promise.all(body.map((c) => answer(c, env, allowed, upstreams, fetcher, cache, who, opts, origin)));
+    const out = await Promise.all(body.map((c) => answer(c, env, allowed, lanes, fetcher, cache, who, opts, origin)));
     return json(out.map((o) => o.body), 200, out.map((o) => o.source).join(","));
   }
-  const o = await answer(body, env, allowed, upstreams, fetcher, cache, who, opts, origin);
+  const o = await answer(body, env, allowed, lanes, fetcher, cache, who, opts, origin);
   return json(o.body, 200, o.source);
 }

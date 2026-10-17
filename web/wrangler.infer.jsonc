@@ -18,6 +18,9 @@
   },
   // No *.workers.dev copy: the site answers only on its own hostname, where the zone's HTTPS and redirect rules apply.
   "workers_dev": false,
+  // Secrets (wrangler secret put, never in this file; worker/rpc.js): RPC_UPSTREAMS (keyed providers for every call,
+  // comma-separated), and the optional ARCHIVE LANE keys INFURA_RPC_URL (https://mainnet.infura.io/v3/<key>) and
+  // NODEREAL_RPC_URL (https://eth-mainnet.nodereal.io/v1/<key>), used only for calls older than ~100 blocks.
   // Per-visitor limits on /rpc (worker/rpc.js), keyed by the connecting IP. A page polls every block and bundles its
   // reads, so a visitor with a few tabs open sends well under 100 requests a minute and far fewer cache misses.
   "ratelimits": [

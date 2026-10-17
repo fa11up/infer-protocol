@@ -20,6 +20,9 @@
   },
   // No *.workers.dev copy: the site answers only on its own hostname, where the zone's HTTPS and redirect rules apply.
   "workers_dev": false,
+  // Secrets (wrangler secret put, never in this file; worker/rpc.js): RPC_UPSTREAMS (keyed providers for every call,
+  // comma-separated), and the optional ARCHIVE LANE keys INFURA_RPC_URL (https://mainnet.infura.io/v3/<key>) and
+  // NODEREAL_RPC_URL (https://eth-mainnet.nodereal.io/v1/<key>), used only for calls older than ~100 blocks.
   // Cloudflare creates the DNS records and certificates for custom domains itself.
   // /rpc per visitor (keyed by IP): requests, and calls that miss the cache. The terminal makes ~22 uncached calls
   // per 15-second refresh (~90/min) and more on first load and around actions, so twice infer.imdusd.com's 120.
