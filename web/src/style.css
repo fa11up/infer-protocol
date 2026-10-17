@@ -2118,11 +2118,12 @@ html.app-page body {
   font-size: 11px;
   color: var(--muted);
   overflow-x: auto;
-  /* One line, scrolled if need be, so the figure arriving never changes the panel's height. */
-  white-space: nowrap;
 }
-.live-cap.live-note {
-  white-space: normal;
+/* The figure keeps the width of a real one ("$ 56.63K") while it is a dash, so the line wraps the same way before
+   and after the first read and the panel keeps its height. */
+.live-cap .market-cap b {
+  display: inline-block;
+  min-width: 9ch;
 }
 .live-wait {
   padding: 22px 14px;

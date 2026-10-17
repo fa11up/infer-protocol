@@ -124,7 +124,7 @@ export function LivePanel({
           );
         })}
       </dl>
-      <p className={note && !lines ? "live-cap live-note" : "live-cap"} role={lines ? undefined : "status"}>
+      <p className="live-cap" role={lines ? undefined : "status"}>
         {note && !lines ? note : <MarketCap supply={supply} />}
       </p>
     </section>
