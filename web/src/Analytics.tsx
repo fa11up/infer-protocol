@@ -293,11 +293,7 @@ export function Analytics() {
 function Shell({ children, asOf }: { children: ReactNode; asOf?: string }) {
   return (
     <div className="site">
-      <SiteHeader page="analytics">
-        <a className="button primary" href={href("terminal/")}>
-          Open terminal
-        </a>
-      </SiteHeader>
+      <SiteHeader page="analytics" />
       <main className="analytics">
         <header className="an-head">
           <div>

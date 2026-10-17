@@ -100,13 +100,7 @@ export function Page({
 }) {
   return (
     <div className="site">
-      <SiteHeader page="home" network={network} mainnet={mainnet}>
-        {TERMINAL && (
-          <a className="button primary" href={href("terminal/")}>
-            Open terminal
-          </a>
-        )}
-      </SiteHeader>
+      <SiteHeader page="home" network={network} mainnet={mainnet} />
       <main className="home">
         <section className="hero">
           <div className="hero-copy">
@@ -223,12 +217,6 @@ export function Page({
 /** The docs pages are static HTML built from web/content/docs; React adds only the shared header. */
 export function Docs() {
   return (
-    <SiteHeader page="docs">
-      {TERMINAL && (
-        <a className="button primary" href={href("terminal/")}>
-          Open terminal
-        </a>
-      )}
-    </SiteHeader>
+    <SiteHeader page="docs" />
   );
 }

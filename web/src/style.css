@@ -4879,3 +4879,63 @@ dialog:focus-visible {
   .an-stress-ctl label { grid-column: 1 / -1; }
   .an-head h1 { font-size: 22px; }
 }
+
+/* ---------- Site header: one clean row wherever it fits ---------- */
+/* Link labels never break inside themselves ("INFER" over its arrow). */
+.site-nav a {
+  white-space: nowrap;
+}
+/* Chips sit over the animated background: give them the page's ground so their borders and text stay legible. */
+.topbar .chip {
+  background: var(--bg);
+}
+/* Below 1180px the full set no longer fits one row: tighten the links and drop the optional (Robinhood) chip. */
+@media (max-width: 1180px) {
+  .site-nav {
+    gap: 0;
+    margin-inline-start: 4px;
+  }
+  .site-nav a {
+    padding-inline: 8px;
+    letter-spacing: 0.03em;
+  }
+  .chip.chip-optional {
+    display: none;
+  }
+}
+/* Tablet widths: wordmark, chips and buttons on the first row; the links on a full-width row beneath. */
+@media (min-width: 761px) and (max-width: 1000px) {
+  .topbar {
+    flex-wrap: wrap;
+    row-gap: 0;
+    padding-bottom: 4px;
+  }
+  .topbar .brand {
+    display: contents;
+  }
+  .topbar .wordmark {
+    order: 1;
+  }
+  .topbar .wallet-bar {
+    order: 2;
+    margin-inline-start: auto;
+  }
+  .topbar .site-nav {
+    order: 3;
+    flex-basis: 100%;
+    margin: 0 0 0 -8px;
+  }
+}
+/* Phones: the links stay on one row and scroll sideways rather than wrapping a lone link onto a row of its own. */
+@media (max-width: 760px) {
+  .site-nav,
+  .topbar .brand .site-nav {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    scrollbar-width: none;
+    max-width: calc(100vw - 40px);
+  }
+  .site-nav::-webkit-scrollbar {
+    display: none;
+  }
+}

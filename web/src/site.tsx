@@ -58,12 +58,15 @@ export function DexLink() {
 export function NetworkChip({
   network,
   state,
+  optional = false,
 }: {
   network: string;
   state: "live" | "staging";
+  /** The first chip to give up its place when the header is short of room (style.css, below 1180px). */
+  optional?: boolean;
 }) {
   return (
-    <span className="chip">
+    <span className={optional ? "chip chip-optional" : "chip"}>
       {network} · <span className={`chip-pulse chip-${state}`}>{state}</span>
     </span>
   );
@@ -114,7 +117,7 @@ export function SiteHeader({
           <span className="chips">
             <PegTicker />
             <NetworkChip network="Mainnet" state="live" />
-            <NetworkChip network="Robinhood" state="staging" />
+            <NetworkChip network="Robinhood" state="staging" optional />
           </span>
         )}
         <ThemeToggle />
