@@ -1,10 +1,8 @@
 import { appRoot } from "./site";
+import { createReadClient } from "./read-client";
 import { onChain, setInterface } from "./names";
 import archiveRpcs from "./archive-rpc.json";
 import {
-  createPublicClient,
-  createWalletClient,
-  custom,
   defineChain,
   fallback,
   http,
@@ -166,9 +164,9 @@ export async function loadConfig() {
   const gateways: string[] = (archiveRpcs as Record<string, string[]>)[String(config.chainId)] ?? [];
   const serveOld = config.network.rpcUrls.filter((url) => !historyConfig.noArchiveLogs.includes(new URL(url).hostname));
   const old = (urls: string[]) => fallback([...new Set(urls)].map((url) => http(url, { timeout: 15000, retryCount: 0 })));
-  const logs = createPublicClient({ chain, transport: old([...ownOld, ...gateways, ...serveOld]) });
-  const archive = createPublicClient({ chain, transport: old([...ownOld, ...gateways, ...config.network.rpcUrls]) });
-  const client = createPublicClient({
+  const logs = createReadClient({ chain, transport: old([...ownOld, ...gateways, ...serveOld]) });
+  const archive = createReadClient({ chain, transport: old([...ownOld, ...gateways, ...config.network.rpcUrls]) });
+  const client = createReadClient({
     chain,
     transport: fallback([
       ...own,
@@ -184,8 +182,11 @@ export async function loadConfig() {
   return { config, abis, targets, chain, client, logs, archive };
 }
 export type Runtime = Awaited<ReturnType<typeof loadConfig>>;
-export function wallet(r: Runtime, p: EIP1193Provider) {
-  return createWalletClient({ chain: r.chain, transport: custom(p) });
+/** The connected wallet's client. Its code (viem's wallet actions) loads the first time a wallet is used, not
+ *  with the terminal: reading the chain needs none of it. */
+export async function wallet(r: Runtime, p: EIP1193Provider) {
+  const { walletClient } = await import("./wallet-client");
+  return walletClient(r.chain, p);
 }
 export async function switchChain(r: Runtime, p: EIP1193Provider) {
   const chainId = `0x${r.config.chainId.toString(16)}`;

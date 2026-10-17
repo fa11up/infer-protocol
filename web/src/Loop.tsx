@@ -23,7 +23,6 @@ import {
   ERC20,
   IMD,
   IMDUSD,
-  LOOP_CHAIN_ID,
   PEG_FLOOR_USD,
   PEG_POOL_ID,
   QUOTER_PATH,
@@ -51,16 +50,6 @@ const MAX_ROUNDS = 12;
 /** The cost rounds are planned at: the quoted cost (never a gain) plus the slippage minimum. */
 const planCost = (bps: bigint) => (bps > 0n ? bps : 0n) + SLIPPAGE_BPS;
 
-/** The loop exists only where its pools do: mainnet, sIMD collateral over IMD, the imdUSD the peg pool trades. */
-export function loopAvailable(r: Runtime, s?: Snapshot) {
-  const t = s?.targets;
-  return (
-    r.config.chainId === LOOP_CHAIN_ID &&
-    collateral().share &&
-    t?.stablecoin?.address.toLowerCase() === IMDUSD.toLowerCase() &&
-    t?.underlying?.address.toLowerCase() === IMD.toLowerCase()
-  );
-}
 
 /** Debt under a cent is the fee of the seconds between reading it and repaying it: shown as no debt. */
 const DUST_DEBT = 10n ** 16n;

@@ -133,7 +133,7 @@ function Terminal({ r }: { r: Runtime }) {
     if (!p || !account || chainId !== r.config.chainId) return;
     let live = true;
     wallet(r, p)
-      .getCapabilities({ account, chainId: r.config.chainId })
+      .then((w) => w.getCapabilities({ account, chainId: r.config.chainId }))
       .then((c: any) => live && setAtomic(c?.atomic?.status === "supported" || c?.atomic?.status === "ready"))
       .catch(() => live && setAtomic(false));
     return () => {
@@ -394,7 +394,7 @@ function Terminal({ r }: { r: Runtime }) {
     const p = window.ethereum;
     if (!p) throw Error("Connect a browser wallet.");
     await guard(p);
-    const w = wallet(r, p);
+    const w = await wallet(r, p);
     let last: Hash | undefined;
     if (batch) {
       // Later calls depend on earlier ones (the swap spends what the borrow mints, the deposit what the approval
@@ -489,7 +489,7 @@ function Terminal({ r }: { r: Runtime }) {
         );
       await guard(p);
       setTx({ status: "Confirm this action in your wallet." });
-      const hash = await wallet(r, p).writeContract({
+      const hash = await (await wallet(r, p)).writeContract({
         ...simulation.request,
         account: account!,
         chain: r.chain,

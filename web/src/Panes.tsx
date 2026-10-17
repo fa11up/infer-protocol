@@ -10,7 +10,7 @@ import {
   shareAbi,
   vaultShareAbi,
 } from "./collateral";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from "react";
 import { isAddress } from "viem";
 import { WorkChart, SupplyChart, Sparkline, type ChartData } from "./Charts";
 import { Ticker } from "./motion";
@@ -56,8 +56,10 @@ import { useEns, ensName, displayName } from "./ens";
 import { PriceStatus } from "./PriceStatus";
 import { OracleTopUp } from "./BuyUpdate";
 import { describePending, utc, countdown, CHANGE_KINDS } from "./governance";
-import { LoopWindow, loopAvailable } from "./Loop";
-import { LpWindow } from "./Liquidity";
+import { loopAvailable } from "./loop-where";
+// The two windows load when opened: neither is needed to draw the terminal.
+const LoopWindow = lazy(() => import("./Loop").then((m) => ({ default: m.LoopWindow })));
+const LpWindow = lazy(() => import("./Liquidity").then((m) => ({ default: m.LpWindow })));
 const amt = (name: string) => ({ name, kind: "amount" as const });
 const addr = (name: string) => ({ name, kind: "address" as const });
 const num = (name: string) => ({ name, kind: "uint" as const });
@@ -357,8 +359,10 @@ export function Position({
             ...(g.share ? [] : [["faucet", "Test IMD"] as [string, string]]),
           ]}
         />
-        {looping && <LoopWindow r={r} s={s} actions={actions} onClose={() => setLooping(false)} />}
-        {providing && <LpWindow r={r} s={s} actions={actions} onClose={() => setProviding(false)} />}
+        <Suspense fallback={null}>
+          {looping && <LoopWindow r={r} s={s} actions={actions} onClose={() => setLooping(false)} />}
+          {providing && <LpWindow r={r} s={s} actions={actions} onClose={() => setProviding(false)} />}
+        </Suspense>
         {act === "deposit" && (
           <>
             {g.share && (

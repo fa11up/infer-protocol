@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
-import { createPublicClient, encodeAbiParameters, fallback, http, keccak256, parseAbi } from "viem";
+import { encodeAbiParameters, fallback, http, keccak256, parseAbi } from "viem";
+import { createReadClient } from "./read-client";
 import { mainnet } from "viem/chains";
 import rpcUrls from "./ens-rpc.json";
 
@@ -13,7 +14,7 @@ const IMD_POOL_ID = "0xb07d640fd9e2eb9dc81b953c8e4fd006bdfeaf276010fb5418eb763ca
 const ETH_USD = "0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419";
 const POLL_MS = 30_000;
 
-const client = createPublicClient({
+const client = createReadClient({
   chain: mainnet,
   transport: fallback(rpcUrls.map((url: string) => http(url, { timeout: 6000, retryCount: 0 }))),
   batch: { multicall: false },
@@ -67,7 +68,7 @@ export function useMarket(): Market | undefined {
 // fast move that median lags the live pool, and a purchase can land still too far from the spot for the vault
 // to act. Reading the same samples tells a buyer before paying. Past blocks need archive state: drpc serves
 // it, publicnode does not.
-const archive = createPublicClient({
+const archive = createReadClient({
   chain: mainnet,
   transport: http("https://eth.drpc.org", { timeout: 8000, retryCount: 1 }),
   batch: { multicall: false },

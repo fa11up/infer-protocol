@@ -1,5 +1,6 @@
 import { useEffect, useSyncExternalStore } from "react";
-import { createPublicClient, fallback, http, getAddress } from "viem";
+import { fallback, http, getAddress } from "viem";
+import { createReadClient } from "./read-client";
 import { mainnet } from "viem/chains";
 import rpcUrls from "./ens-rpc.json";
 import { positionName } from "./history";
@@ -7,7 +8,7 @@ import { positionName } from "./history";
 // ENS names live on Ethereum mainnet whatever chain the protocol runs on, so reverse lookups use
 // their own client. The universal resolver only returns a name whose forward record points back
 // at the address, so a name shown here is one the address owner set and controls.
-const client = createPublicClient({
+const client = createReadClient({
   chain: mainnet,
   transport: fallback(
     rpcUrls.map((url: string) => http(url, { timeout: 6000, retryCount: 0 })),

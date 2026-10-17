@@ -15,9 +15,9 @@ import {
 } from "viem";
 import { NATIVE, QUOTER, poolId, type PoolKey } from "./infer/swap.ts";
 
-export const LOOP_CHAIN_ID = 1;
-export const IMDUSD: Address = "0x61aAF8a992A3143e2B0C9cB0030b9fE702854a25";
-export const IMD: Address = "0xD34a99Bc0f67aE1bbd63C660e6d0b0dd03E263B7";
+// Where the loop runs (chain, imdUSD, IMD): in loop-where.ts, so the terminal can tell without loading this file.
+import { IMD, IMDUSD, LOOP_CHAIN_ID } from "./loop-where.ts";
+export { IMD, IMDUSD, LOOP_CHAIN_ID };
 export const USDC: Address = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 export const PEG_HOOK: Address = "0x33cA5c16208EC08aC97d4f6315aaFA792A916044";
 /** Uniswap's mainnet contracts: Universal Router, V4 Quoter, Permit2 and the v4 StateView. */
