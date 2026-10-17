@@ -4938,4 +4938,11 @@ dialog:focus-visible {
   .site-nav::-webkit-scrollbar {
     display: none;
   }
+  /* Flush with the wordmark: the tighter padding above is for the one-row header, not this row. */
+  .site-nav {
+    margin-inline-start: 0;
+  }
+  .site-nav a {
+    padding-inline: 0 14px;
+  }
 }
