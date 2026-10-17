@@ -7,7 +7,7 @@ import { ANALYTICS_ROUTES } from "./analytics-route";
 export const IMDUSD_ROUTES: Route[] = [
   { path: "", load: () => import("./Landing").then((m) => m.Landing) },
   // /docs/, /docs/<section>/ and /docs/<section>/<page>/; an address with no page behind it 404s and loads.
-  { path: /^docs\/(?:[a-z0-9-]+\/){0,2}$/, load: () => import("./Landing").then((m) => m.Docs) },
+  { path: /^docs\/(?:[a-z0-9-]+\/){0,2}$/, load: () => import("./Docs").then((m) => m.Docs) },
   // The analytics page reads the chain, so it exists only where the terminal does (the launch build and dev).
   ...ANALYTICS_ROUTES,
 ];

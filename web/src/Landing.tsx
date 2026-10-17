@@ -1,8 +1,10 @@
-import type { ReactNode } from "react";
+import { lazy, Suspense, type ReactNode } from "react";
 import { SiteHeader, href, WHITEPAPER, INFER_SITE, TERMINAL, XLink, DexLink } from "./site";
-// The live homepage (chain reads, viem, the deployment file) lives in its own module. The public
-// build aliases it to an empty stub (vite.config.ts), so no chain code ships on imdusd.com.
-import { LiveLanding } from "./landing-live";
+import { MarketCap } from "./MarketCap";
+// The live homepage (chain reads, viem, the deployment file) lives in its own module, loaded after the page
+// is drawn: the page paints with the live panel's frame (LivePanel below) and the figures fill it in. The
+// public build aliases it to an empty stub (vite.config.ts), so no chain code ships on imdusd.com.
+const LiveLanding = lazy(() => import("./landing-live").then((m) => ({ default: m.LiveLanding })));
 
 /**
  * The launch parameters, as set in the contracts (CDPVault mat/lull/CHOP_PERCENT/REDEMPTION_FEE_*,
@@ -68,7 +70,74 @@ function Figure({ value }: { value: string }) {
 }
 
 export function Landing() {
-  return TERMINAL ? <LiveLanding /> : <PublicLanding />;
+  return TERMINAL ? (
+    <Suspense fallback={<Page panel={<LivePanel />} contracts={<LiveContracts />} />}>
+      <LiveLanding />
+    </Suspense>
+  ) : (
+    <PublicLanding />
+  );
+}
+
+/** The live panel's rows, in order. Drawn as dashes until the first read, so the panel has its full size from
+ *  the first paint and nothing below it moves when the figures arrive. */
+export const LIVE_ROWS = [
+  "Backing per imdUSD",
+  "Reserves",
+  "IMD / USD",
+  "Minimum collateral ratio",
+  "Price actions",
+] as const;
+export type LiveLine = { value: string; tone?: string };
+
+/** The homepage's live panel: the figures once read, dashes before. `note` replaces the market cap line while
+ *  there are no figures (a failed read says so there). */
+export function LivePanel({
+  block,
+  state = "wait",
+  lines,
+  supply,
+  note,
+}: {
+  block?: bigint;
+  state?: "live" | "down" | "wait";
+  lines?: LiveLine[];
+  supply?: bigint;
+  note?: string;
+}) {
+  return (
+    <section className="live-panel" aria-labelledby="live-heading" aria-busy={lines ? undefined : true}>
+      <div className="live-head">
+        <h2 id="live-heading">
+          Live · {block !== undefined ? `block ${block}` : state === "down" ? "unavailable" : "reading the chain"}
+        </h2>
+        <span className="live-dot" data-state={state} aria-hidden="true" />
+      </div>
+      <dl className="live-lines">
+        {LIVE_ROWS.map((k, i) => {
+          const line = lines?.[i];
+          return (
+            <div key={k}>
+              <dt>{k}</dt>
+              <dd className={line?.tone ? `${line.tone}-text` : undefined}>{line?.value ?? "—"}</dd>
+            </div>
+          );
+        })}
+      </dl>
+      <p className="live-cap" role={lines ? undefined : "status"}>
+        {note && !lines ? note : <MarketCap supply={supply} />}
+      </p>
+    </section>
+  );
+}
+
+/** The contracts list before the deployment file is read: one line, as the live page's own placeholder. */
+export function LiveContracts({ note = "Loading…" }: { note?: string }) {
+  return (
+    <div className="contract-list">
+      <p className="note">{note}</p>
+    </div>
+  );
 }
 
 /** imdusd.com: no chain connection at all, so nothing on the page can show a testnet value. */
@@ -211,12 +280,5 @@ export function Page({
         <span>imdUSD · built on IdentityMD</span>
       </footer>
     </div>
-  );
-}
-
-/** The docs pages are static HTML built from web/content/docs; React adds only the shared header. */
-export function Docs() {
-  return (
-    <SiteHeader page="docs" />
   );
 }
