@@ -255,12 +255,22 @@ async function waitNote(page, dialog, pattern, shot) {
   });
 }
 async function addLiquidity(page, imdusd, shot) {
-  await page.getByRole("button", { name: "Pool liquidity ↗" }).click();
+  await page.getByRole("button", { name: "imdUSD liquidity ↗" }).click();
   const dialog = page.locator("dialog.loop-dialog[open]");
   await dialog.waitFor();
   await until("the pool read", async () => /\$[0-9]/.test(await dialog.locator(".loop-now").innerText()));
   await dialog.locator("input[name=lp-imdusd]").fill(imdusd);
-  await until("USDC filled in", async () => Number(await dialog.locator("input[name=lp-usdc]").inputValue()) > 0);
+  // The default range is the peg band ($0.99-$1.01). If the fork's pool sits outside it, a band position takes one
+  // token only (the USDC box stays empty): this flow needs both, so it uses the wide range then.
+  const usdcIn = async () => Number(await dialog.locator("input[name=lp-usdc]").inputValue()) > 0;
+  try {
+    await until("USDC filled in (peg band)", usdcIn, 6_000);
+  } catch {
+    await dialog.getByRole("group", { name: "Range for a new position" }).getByRole("button", { name: /^Wide/ }).click();
+    await dialog.locator("input[name=lp-imdusd]").fill(imdusd);
+    // Under $0.9522 even the wide range takes imdUSD only: the position is one-sided, and that is still a deposit.
+    await until("USDC filled in (wide)", usdcIn, 6_000).catch(() => console.log(`  (the pool is under the wide range: a one-sided ${imdusd} imdUSD position)`));
+  }
   const usdc = Number(await dialog.locator("input[name=lp-usdc]").inputValue());
   if (SHOTS) await page.screenshot({ path: `${SHOTS}/${shot}.png` });
   await dialog.getByRole("button", { name: /Add liquidity|Confirm deposit in wallet/ }).click();
@@ -345,6 +355,46 @@ try {
   assert.equal(await batchPage.evaluate(() => window.__batches), 2, "the deposit was the second batch");
   assert.ok((await position(b)).collateral > held, "collateral grew");
   passed("Deposit IMD: approval and lockIMD as one batch from one review");
+
+  // ---- Trade: buy imdUSD with USDC, then sell imdUSD for USDC, on the peg pool ------------------------------
+  const trade = async (direction, amount, shot) => {
+    await batchPage.getByRole("button", { name: "imdUSD liquidity ↗" }).click();
+    const dlg = batchPage.locator("dialog.loop-dialog[open]");
+    await dlg.waitFor();
+    await dlg.getByRole("group", { name: "Liquidity view" }).getByRole("button", { name: "Trade", exact: true }).click();
+    await dlg.getByRole("group", { name: "Trade direction" }).getByRole("button", { name: direction }).click();
+    await dlg.locator("input[name=lp-trade]").fill(amount);
+    await until("the quote", async () => /You receive/.test(await dlg.innerText()), 60_000);
+    const text = await dlg.innerText();
+    const num = (label) => Number((new RegExp(`${label}\\s+([\\d,.]+)`).exec(text)?.[1] ?? "").replace(/,/g, ""));
+    const quotedOut = num("You receive");
+    const least = num("At least");
+    assert.ok(quotedOut > 0 && least > 0 && least <= quotedOut, text);
+    if (SHOTS) await dlg.screenshot({ path: `${SHOTS}/${shot}.png` });
+    const accept = dlg.locator(".loop-check input");
+    if (await accept.count()) await accept.check();
+    await dlg.getByRole("button", { name: /Confirm swap in wallet|^Swap$/ }).click();
+    await waitNote(batchPage, dlg, /^Swapped/, shot);
+    const got = Number(/for ([\d,.]+) /.exec(await note(dlg))?.[1].replace(/,/g, ""));
+    await dlg.getByRole("button", { name: "Close", exact: true }).last().click();
+    return { quotedOut, least, got };
+  };
+  const u0 = await read(USDC, erc20, "balanceOf", [b]);
+  const i0 = await read(IMDUSD, erc20, "balanceOf", [b]);
+  const buy = await trade("Buy imdUSD with USDC", "20", "lp-5-buy");
+  const u1 = await read(USDC, erc20, "balanceOf", [b]);
+  const i1 = await read(IMDUSD, erc20, "balanceOf", [b]);
+  assert.equal(u0 - u1, 20n * 10n ** 6n, "paid exactly 20 USDC");
+  const bought = Number(i1 - i0) / 1e18;
+  assert.ok(bought >= buy.least && Math.abs(bought - buy.quotedOut) / buy.quotedOut < 0.005, `bought ${bought}, quoted ${buy.quotedOut}, at least ${buy.least}`);
+  passed(`Trade: 20 USDC bought ${bought.toFixed(4)} imdUSD (quoted ${buy.quotedOut}, at least ${buy.least})`);
+  const sell = await trade("Sell imdUSD for USDC", "10", "lp-6-sell");
+  const u2 = await read(USDC, erc20, "balanceOf", [b]);
+  const i2 = await read(IMDUSD, erc20, "balanceOf", [b]);
+  assert.equal(i1 - i2, 10n * E18, "sold exactly 10 imdUSD");
+  const received = Number(u2 - u1) / 1e6;
+  assert.ok(received >= sell.least && Math.abs(received - sell.quotedOut) / sell.quotedOut < 0.005, `received ${received}, quoted ${sell.quotedOut}, at least ${sell.least}`);
+  passed(`Trade: 10 imdUSD sold for ${received.toFixed(4)} USDC (quoted ${sell.quotedOut}, at least ${sell.least})`);
 
   assert.deepEqual(errors.filter((e) => !/blockscout/i.test(e)), [], `page errors: ${errors.join("; ")}`);
   console.log(`\n${results.length} passed`);

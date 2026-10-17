@@ -294,8 +294,8 @@ try {
   await shot(loop, "3-loop-leverage-plan");
   await loop.getByRole("button", { name: "Close", exact: true }).click();
 
-  // 3. Pool liquidity: add, then the position under "Your positions".
-  await page.getByRole("button", { name: "Pool liquidity ↗" }).click();
+  // 3. imdUSD liquidity: add, then the position under "Your positions".
+  await page.getByRole("button", { name: "imdUSD liquidity ↗" }).click();
   const lp = page.locator("dialog.loop-dialog[open]");
   await until("the pool read", async () => /\$[0-9]/.test(await lp.locator(".loop-now").innerText()));
   await lp.locator("input[name=lp-imdusd]").fill("100");

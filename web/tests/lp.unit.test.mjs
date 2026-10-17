@@ -154,3 +154,26 @@ test("ranges: at the peg the band gives about 5x the liquidity per dollar of the
   const ratio = (Number(peg.liquidity) / dollars(peg)) / (Number(wide.liquidity) / dollars(wide));
   assert.ok(ratio > 4.5 && ratio < 5.5, `ratio ${ratio}`);
 });
+
+test("trade review: average price, minimum received and cost against $1", async () => {
+  const { describeTrade, TRADE_SLIPPAGE_BPS } = await import("../src/lp.ts");
+  const E18 = 10n ** 18n;
+  // Sell 100 imdUSD for 99.5 USDC at a $1.00 pool: averages $0.995, costs 50 bps, min is 0.5% under the quote.
+  const sell = describeTrade("sell", 100n * E18, 99_500_000n, E18, 994n * 10n ** 15n);
+  assert.equal(sell.avg, 995n * 10n ** 15n);
+  assert.equal(sell.costBps, 50);
+  assert.equal(sell.minOut, (99_500_000n * BigInt(10_000 - TRADE_SLIPPAGE_BPS)) / 10_000n);
+  assert.equal(sell.underFloor, true, "the last unit sold at $0.994, under the hook's $0.9975 floor");
+  assert.equal(sell.overCeiling, false);
+  // Buy with 100 USDC, receiving 99.9 imdUSD: averages ~$1.001, last unit at $1.002: inside the band.
+  const buy = describeTrade("buy", 100_000_000n, 999n * 10n ** 17n, E18, 1002n * 10n ** 15n);
+  assert.equal(buy.avg, (100_000_000n * 10n ** 12n * E18) / (999n * 10n ** 17n));
+  assert.equal(buy.costBps, 10);
+  assert.equal(buy.underFloor, false);
+  assert.equal(buy.overCeiling, false);
+  // Past $1.0025 the hook's surcharge applies.
+  assert.equal(describeTrade("buy", 100_000_000n, 99n * E18, E18, 1003n * 10n ** 15n).overCeiling, true);
+  // A sale from a pool already under the floor is under the floor whatever its size.
+  assert.equal(describeTrade("sell", E18, 990_000n, 99n * 10n ** 16n, undefined).underFloor, true);
+  assert.equal(describeTrade("sell", 0n, 1n, E18, undefined), undefined);
+});

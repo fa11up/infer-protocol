@@ -240,3 +240,44 @@ export function sharePct(millionths: bigint): string {
   const hundredths = (millionths + 99n) / 100n; // round up to the next 0.01%
   return `${(Number(hundredths) / 100).toFixed(2)}%`;
 }
+
+// ---- Trading on the peg pool (the window's Trade tab) -------------------------------------------------------
+/** A swap may return at most this far under its quote (0.5%) before it refuses and nothing is spent. */
+export const TRADE_SLIPPAGE_BPS = 50;
+/** The hook's fee-free band, $0.9975 to $1.0025 (PEG_FLOOR_USD / PEG_CEILING_USD in leverage.ts): beyond it, in the
+ * direction a trade pushes, the PegFeeHook charges a surcharge (already inside any quote). */
+export const TRADE_BAND = { floor: 9975n * 10n ** 14n, ceiling: 10025n * 10n ** 14n };
+export type TradeSide = "sell" | "buy";
+export type TradeView = {
+  /** USD per imdUSD the whole trade averages, 1e18. */
+  avg: bigint;
+  /** The least the swap may return. */
+  minOut: bigint;
+  /** What the trade costs against $1, in basis points (pool fee, price impact and any surcharge); negative is a gain. */
+  costBps: number;
+  /** A sale whose start or last unit is under $0.9975: it sells imdUSD under the peg (and pays the surcharge). */
+  underFloor: boolean;
+  /** A purchase whose last unit is over $1.0025: it pays the surcharge. */
+  overCeiling: boolean;
+};
+/**
+ * The review of an exact-input peg-pool trade. `side` "sell" pays `amountIn` imdUSD (18 decimals) for `out` USDC
+ * (6); "buy" pays `amountIn` USDC for `out` imdUSD. `now` is the pool's price before, `end` the price the last unit
+ * gets (pegMarginalSell / pegMarginalBuy), both USD per imdUSD 1e18. Pure.
+ */
+export function describeTrade(side: TradeSide, amountIn: bigint, out: bigint, now: bigint, end: bigint | undefined, slippageBps = TRADE_SLIPPAGE_BPS): TradeView | undefined {
+  if (amountIn <= 0n || out <= 0n) return undefined;
+  const E12 = 10n ** 12n;
+  const E18 = 10n ** 18n;
+  const avg = side === "sell" ? (out * E12 * E18) / amountIn : (amountIn * E12 * E18) / out;
+  const minOut = (out * BigInt(10_000 - slippageBps)) / 10_000n;
+  const costBps = Number(side === "sell" ? ((E18 - avg) * 10_000n) / E18 : ((avg - E18) * 10_000n) / E18);
+  const last = end ?? avg;
+  return {
+    avg,
+    minOut,
+    costBps,
+    underFloor: side === "sell" && (now < TRADE_BAND.floor || last < TRADE_BAND.floor),
+    overCeiling: side === "buy" && last > TRADE_BAND.ceiling,
+  };
+}

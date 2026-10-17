@@ -335,7 +335,7 @@ export function Position({
               Loop leverage ↗
             </button>
             <button type="button" className="loop-open" onClick={() => setProviding(true)}>
-              Pool liquidity ↗
+              imdUSD liquidity ↗
             </button>
           </div>
         )}

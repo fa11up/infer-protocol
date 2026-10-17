@@ -2834,7 +2834,7 @@ html.app-page body {
   position: relative;
 }
 /* Inside the box: the global ring (3px outside) reached the balance link on the label line above and cut
-   through it (Pool liquidity, 2026-10-16). */
+   through it (imdUSD liquidity, 2026-10-16). */
 .field input:focus-visible {
   outline-offset: -2px;
 }
