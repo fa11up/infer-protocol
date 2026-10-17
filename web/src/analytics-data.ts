@@ -264,9 +264,20 @@ export async function treasuryHoldings(r: Runtime, s: Snapshot, marketImdUsd?: b
   if (!t) throw Error("This deployment has no Treasury.");
   const gemDecimals = Number(s.v.gemDecimals ?? 18);
   const bal = (token: Address) => r.client.readContract({ address: token, abi: ERC20, functionName: "balanceOf", args: [t.address], blockNumber: s.block }) as Promise<bigint>;
-  const [simd, imd, imdusd, usdc, infer] = await Promise.all([bal(s.targets.gem.address), bal(IMD_TOKEN), bal(s.targets.stablecoin.address), bal(USDC_TOKEN), bal(INFER_TOKEN)]);
+  // IMD, USDC and INFER are mainnet addresses: on any other chain the Treasury's own sIMD and imdUSD are all there is.
+  const mainnet = r.config.chainId === 1;
+  const [simd, imdusd, imd, usdc, infer] = await Promise.all([
+    bal(s.targets.gem.address),
+    bal(s.targets.stablecoin.address),
+    ...(mainnet ? [bal(IMD_TOKEN), bal(USDC_TOKEN), bal(INFER_TOKEN)] : []),
+  ]);
   const col = s.feeds.Collateral?.value;
   const imdUsd = marketImdUsd ? Number(marketImdUsd) / 1e18 : undefined;
+  if (!mainnet)
+    return [
+      { symbol: "sIMD, the redemption reserve", amount: Number(simd) / 10 ** gemDecimals, usd: col !== undefined ? Number((simd * col) / 10n ** 18n) / 1e18 : undefined },
+      { symbol: "imdUSD, from stability fees", amount: Number(imdusd) / 1e18, usd: Number(imdusd) / 1e18 },
+    ];
   return [
     { symbol: "sIMD, the redemption reserve", amount: Number(simd) / 10 ** gemDecimals, usd: col !== undefined ? Number((simd * col) / 10n ** 18n) / 1e18 : undefined },
     { symbol: "IMD", amount: Number(imd) / 1e18, usd: imdUsd !== undefined ? (Number(imd) / 1e18) * imdUsd : undefined },
@@ -305,6 +316,12 @@ export async function readSwarm(r: Runtime, s: Snapshot): Promise<Swarm> {
     row.imd += imd;
     row.requests += Math.max(1, Math.round(imd / REQUEST_IMD));
   };
+  // IdentityMD takes payment on Ethereum mainnet: elsewhere only the swarm's size is shown.
+  if (r.config.chainId !== 1) {
+    const h0 = await health;
+    if (!h0) throw Error("IdentityMD's /swarm did not answer.");
+    return { online: h0.agentsOnline, enrolled: h0.seatsEnrolled, days: [] };
+  }
   const topic = "0x" + SWARM_PAY_TO.slice(2).toLowerCase().padStart(64, "0");
   const viaRpc = await Promise.all(
     windows.map(

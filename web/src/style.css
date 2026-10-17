@@ -3860,8 +3860,10 @@ html.app-terminal body:has(> .vibe-canvas:not([hidden])) :is(input, textarea) {
     /* The full header width on a row of its own under the wordmark, beneath the buttons. */
     width: calc(100% + 140px);
     margin-inline-end: -140px;
-    /* Four links do not fit a 320px phone on one line: let them wrap rather than push the page wide. */
+    /* Five links do not fit a 320px phone on one line: let them wrap rather than push the page wide, starting below
+       the buttons (whose 40px targets reach 53px down) so no link sits under one. */
     flex-wrap: wrap;
+    margin-top: 8px;
   }
 }
 /* Market prices in the headers: imdUSD's peg on imdusd.com (a chip beside the network chips), INFER's price and
@@ -4819,8 +4821,10 @@ dialog:focus-visible {
 }
 .an-swarm { grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); }
 .an-figure { display: grid; gap: 2px; align-content: start; }
-.an-figure dt { color: var(--muted); font-size: 11px; }
+.an-figure dt,
+.an-k { color: var(--muted); font-size: 11px; }
 .an-figure dd { margin: 0; font-size: 17px; }
+.an-v { font-size: 17px; }
 .an-seg {
   display: inline-flex;
   flex-wrap: wrap;

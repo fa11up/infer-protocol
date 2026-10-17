@@ -121,6 +121,14 @@ async function setup({
       });
       return;
     }
+    // IdentityMD's public /swarm, read by the analytics page's swarm strip.
+    if (request.url().startsWith("https://api.imd.fun/swarm")) {
+      await route.fulfill({
+        json: { health: { agentsOnline: 900, seatsEnrolled: 920 } },
+        headers: { "access-control-allow-origin": "*" },
+      });
+      return;
+    }
     if (ensRpcUrls.some((u) => request.url().startsWith(u))) {
       const body = request.postDataJSON();
       await route.fulfill({
@@ -341,6 +349,44 @@ try {
   passed(
     "Landing reads live figures and links to the terminal and docs; both pages pass axe and never scroll sideways",
   );
+  // The analytics page: reached from the header, every panel either reads or says what failed, and it passes axe
+  // and never scrolls sideways (its wide charts scroll inside their own panels).
+  await page.locator(".site-nav").getByRole("link", { name: "Analytics" }).click();
+  await page.getByRole("heading", { level: 1, name: "imdUSD Analytics" }).waitFor();
+  assert.equal(await page.locator('.site-nav a[aria-current="page"]').textContent(), "Analytics");
+  await page.locator(".an-asof", { hasText: "block" }).waitFor();
+  await expectText(page.locator(".an-vitals"), "System collateral ratio");
+  await page.waitForFunction(() => ![...document.querySelectorAll(".an-quiet")].some((n) => /^Reading/.test(n.textContent ?? "")), null, { timeout: 30000 });
+  await expectText(page.locator('[aria-label="The economy it serves"]'), "900");
+  for (const [width, height] of [
+    [1440, 900],
+    [390, 844],
+    [320, 740],
+  ]) {
+    await page.setViewportSize({ width, height });
+    await page.waitForTimeout(100);
+    assert.equal(
+      await page.evaluate(() => document.documentElement.scrollWidth),
+      width,
+      `analytics scrolls sideways at ${width}px`,
+    );
+    await page.screenshot({ path: `${evidence}/analytics-${width}.png`, fullPage: true });
+    const axe = await new AxeBuilder({ page })
+      .withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"])
+      .analyze();
+    assert.deepEqual(
+      axe.violations.map((v) => v.id),
+      [],
+      `analytics at ${width}px: ` + axe.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).slice(0, 5).join(", ")}`).join("; "),
+    );
+  }
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.getByRole("button", { name: "Since launch" }).click();
+  assert.equal(await page.getByRole("button", { name: "Since launch" }).getAttribute("aria-pressed"), "true");
+  await page.getByRole("button", { name: "Liquidations" }).click();
+  await page.locator("#an-fall").fill("60");
+  await expectText(page.locator(".an-stress-ctl output"), "60%");
+  passed("Analytics is reached from the header, reads every panel or names what failed, passes axe and never scrolls sideways");
   ({ page, s } = await setup());
   await page.evaluate(() => (window.__wallet.reject = true));
   await (await connectButton(page)).click();

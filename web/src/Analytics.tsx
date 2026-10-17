@@ -416,7 +416,7 @@ function PegPanel({ peg, feeds, now, pegNow }: { peg: Load<Awaited<ReturnType<ty
         <p className="an-quiet">{peg.error ? `Could not read the peg pool: ${peg.error}` : "Reading the peg pool…"}</p>
       ) : (
         <>
-          <div className="an-chart">
+          <div className="an-chart" tabIndex={0} role="region" aria-label="Peg chart, scrolls sideways on small screens">
             <PegChart points={points} feeds={feeds ?? []} t0={t0} t1={now} now={pegNow ?? st.now} />
           </div>
           <ul className="an-legend">
@@ -556,7 +556,7 @@ function StressPanel({ loans, mat, redeemable, load }: { loans: { owner: string;
         <input id="an-fall" type="range" min={0} max={70} step={1} value={fall} onChange={(e) => setFall(Number(e.target.value))} />
         <output htmlFor="an-fall">{fall}%</output>
       </div>
-      <div className="an-chart">
+      <div className="an-chart" tabIndex={0} role="region" aria-label="Stress chart, scrolls sideways on small screens">
         <StressPlot loans={real.map((l) => ({ name: nameOf(l.owner), debt: l.debt, cr: l.cr }))} fall={fall} mat={mat} redeemable={redeemable} />
       </div>
       <dl className="an-figs">
@@ -647,7 +647,7 @@ function EventsPanel({ events, settings, peg }: { events: Load<Awaited<ReturnTyp
       {events.data === undefined ? (
         <p className="an-quiet">{events.error ? `Could not read vault history: ${events.error}` : "Reading vault history…"}</p>
       ) : (
-        <div className="table-scroll an-log">
+        <div className="table-scroll an-log" tabIndex={0} role="region" aria-label="Event log">
           <table className="an-table">
             <thead>
               <tr>
@@ -732,31 +732,31 @@ function SwarmPanel({ swarm, imdUsd }: { swarm: Load<Awaited<ReturnType<typeof r
   const avgImd = days.length ? days.reduce((a, x) => a + x.imd, 0) / days.length : undefined;
   return (
     <Panel title="The economy it serves" sub="IdentityMD's AI-agent swarm: paid work, last 7 full days" load={swarm}>
-      <dl className="an-swarm">
+      <div className="an-swarm">
         <div className="an-figure">
-          <dt>Agents online</dt>
-          <dd>{d?.online !== undefined ? whole(d.online) : "—"}</dd>
+          <span className="an-k">Agents online</span>
+          <span className="an-v">{d?.online !== undefined ? whole(d.online) : "—"}</span>
           {d?.enrolled !== undefined && <span className="an-quiet">{whole(d.enrolled)} enrolled</span>}
         </div>
         <div className="an-figure">
-          <dt>Paid requests per day</dt>
-          <dd>{avgReq !== undefined ? whole(avgReq) : "—"}</dd>
+          <span className="an-k">Paid requests per day</span>
+          <span className="an-v">{avgReq !== undefined ? whole(avgReq) : "—"}</span>
           <Spark label="Paid requests per day, last 7 days" values={days.map((x) => x.requests)} titles={days.map((x) => `${x.day}: ${whole(x.requests)} paid requests`)} />
         </div>
         <div className="an-figure">
-          <dt>Request revenue per day</dt>
-          <dd>
+          <span className="an-k">Request revenue per day</span>
+          <span className="an-v">
             {avgImd !== undefined ? `${whole(avgImd)} IMD` : "—"}
             {avgImd !== undefined && imdUsd !== undefined ? ` · ${usd(avgImd * imdUsd, 0)}` : ""}
-          </dd>
+          </span>
           <Spark label="Request revenue per day in IMD, last 7 days" values={days.map((x) => x.imd)} titles={days.map((x) => `${x.day}: ${whole(x.imd)} IMD`)} />
         </div>
         <div className="an-figure">
-          <dt>Price of one request</dt>
-          <dd>{imdUsd !== undefined ? usd(REQUEST_IMD * imdUsd) : "—"}</dd>
+          <span className="an-k">Price of one request</span>
+          <span className="an-v">{imdUsd !== undefined ? usd(REQUEST_IMD * imdUsd) : "—"}</span>
           <span className="an-quiet">{REQUEST_IMD} IMD at today's market</span>
         </div>
-      </dl>
+      </div>
       <p className="an-quiet">Every request costs {REQUEST_IMD} IMD, so its dollar price moves with IMD. A dollar-denominated unit would hold it still.</p>
       <p className="an-src">api.imd.fun/swarm · IMD transfers to IdentityMD's payment address {short("0x4e0fa57bde726079356537e2f34d671e9f41adbc")} · IMD market from the IMD/ETH pool and Chainlink</p>
     </Panel>
