@@ -14,6 +14,8 @@ const here = fileURLToPath(new URL(".", import.meta.url));
 let failed = 0;
 const ok = (c, m) => { if (!c) { console.log("FAIL:", m); failed++; } else console.log("ok:", m); };
 
+const RPC_UPSTREAM = process.env.RPC_UPSTREAM ?? "https://ethereum-rpc.publicnode.com";
+
 async function serve(dir, port) {
   dir = resolve(here, dir);
 
@@ -24,6 +26,21 @@ async function serve(dir, port) {
   return createServer(async (req, res) => {
     const u = new URL(req.url, "http://x");
     if (u.pathname === "/__mode") { mode = u.searchParams.get("x"); res.end(mode); return; }
+    // The sites read the chain through their Worker's same-origin /rpc (worker/rpc.js); a plain file server has none,
+    // so every read 404ed and the console-error check failed on reads, not on navigation. Forward it as the Worker does.
+    if (u.pathname === "/rpc") {
+      const chunks = [];
+      for await (const c of req) chunks.push(c);
+      try {
+        const up = await fetch(RPC_UPSTREAM, { method: "POST", headers: { "content-type": "application/json" }, body: Buffer.concat(chunks) });
+        res.writeHead(up.status, { "content-type": "application/json" });
+        res.end(Buffer.from(await up.arrayBuffer()));
+      } catch {
+        res.writeHead(502, { "content-type": "application/json" });
+        res.end('{"jsonrpc":"2.0","id":null,"error":{"code":-32000,"message":"upstream unreachable"}}');
+      }
+      return;
+    }
     let p = u.pathname.endsWith("/") ? u.pathname + "index.html" : u.pathname;
     if (mode === "nochunk" && /\/assets\/(Claim|Tokenomics|App|Docs|docs)[^/]*\.js$/.test(p)) { res.writeHead(404); res.end(); return; }
     let body, status = 200;

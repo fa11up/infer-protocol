@@ -49,7 +49,8 @@ test(
         kb = Object.keys(shape(b));
       assert.deepEqual(ka, kb, `keys differ at ${path || "root"}`);
       for (const k of ka)
-        if (typeof a[k] === "object" && a[k] && !Array.isArray(a[k]))
+        // A value the example leaves null is set at launch (the pool key, addresses): its inside is the chain's.
+        if (typeof a[k] === "object" && a[k] && !Array.isArray(a[k]) && b[k] !== null)
           same(a[k], b[k], `${path}.${k}`);
     };
     same(strip(launch), strip(example));
