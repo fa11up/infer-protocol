@@ -298,7 +298,7 @@ function Shell({ children, asOf }: { children: ReactNode; asOf?: string }) {
         <header className="an-head">
           <div>
             <p className="micro">Ethereum mainnet · live</p>
-            <h1>imdUSD Analytics</h1>
+            <h1>imdUSD Stats</h1>
           </div>
           {asOf && <p className="an-asof">{asOf}</p>}
         </header>

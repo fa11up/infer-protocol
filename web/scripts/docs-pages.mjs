@@ -158,7 +158,7 @@ export function renderDocs({ outDir, contentDir, terminal, site }) {
     const root = posix.relative(currentDir, "") || ".";
     return (
       `<footer class="site-footer"><nav aria-label="Footer">` +
-      (terminal ? `<a href="${root}/terminal/">Terminal</a><a href="${root}/analytics/">Analytics</a>` : "") +
+      (terminal ? `<a href="${root}/terminal/">Terminal</a><a href="${root}/analytics/">Stats</a>` : "") +
       `<a href="${linkBetween(currentDir, "docs")}">Docs</a>` +
       `<a href="https://infer.imdusd.com" target="_blank" rel="noreferrer">INFER ↗</a>` +
       `<a href="https://whitepaper.imdusd.com" target="_blank" rel="noreferrer">Whitepaper ↗</a>` +

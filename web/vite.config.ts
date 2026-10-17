@@ -177,7 +177,7 @@ function publicSite(): Plugin {
         const about = page.match(/<meta\s+name="description"\s+content="([^"]*)"/)?.[1] ?? "";
         writeFileSync(
           analytics,
-          page.replace("</head>", `${socialTags(SITE, `${SITE}/analytics/`, "imdUSD Analytics", about, { type: "website" })}</head>`),
+          page.replace("</head>", `${socialTags(SITE, `${SITE}/analytics/`, "imdUSD Stats", about, { type: "website" })}</head>`),
         );
       }
       // The not-found page is served at whatever path was asked for, so its URLs must be absolute.

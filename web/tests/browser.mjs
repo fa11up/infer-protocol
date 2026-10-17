@@ -351,9 +351,9 @@ try {
   );
   // The analytics page: reached from the header, every panel either reads or says what failed, and it passes axe
   // and never scrolls sideways (its wide charts scroll inside their own panels).
-  await page.locator(".site-nav").getByRole("link", { name: "Analytics" }).click();
-  await page.getByRole("heading", { level: 1, name: "imdUSD Analytics" }).waitFor();
-  assert.equal(await page.locator('.site-nav a[aria-current="page"]').textContent(), "Analytics");
+  await page.locator(".site-nav").getByRole("link", { name: "Stats" }).click();
+  await page.getByRole("heading", { level: 1, name: "imdUSD Stats" }).waitFor();
+  assert.equal(await page.locator('.site-nav a[aria-current="page"]').textContent(), "Stats");
   await page.locator(".an-asof", { hasText: "block" }).waitFor();
   await expectText(page.locator(".an-vitals"), "System collateral ratio");
   await page.waitForFunction(() => ![...document.querySelectorAll(".an-quiet")].some((n) => /^Reading/.test(n.textContent ?? "")), null, { timeout: 30000 });
