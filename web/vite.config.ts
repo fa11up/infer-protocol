@@ -425,16 +425,48 @@ function inferSite(): Plugin {
  * script loads) is in that paint: with the browser holding the old page until then, a link to another
  * page changes the page and not the background. Vite rewrites the entry tag, so it is added here.
  */
+/**
+ * On imdusd.com the entry is only a boot script (src/boot-imdusd.ts: theme and background) that then
+ * imports the page's code (src/page-*.tsx). That page chunk and everything it imports statically are
+ * preloaded here, beside the entry, at low priority: they download while the boot runs without holding the first
+ * paint or taking the bandwidth the boot and the stylesheet need.
+ */
 function renderBlocking(): Plugin {
   return {
     name: "imdusd-render-blocking",
     transformIndexHtml: {
       order: "post",
-      handler: (html) =>
-        html.replace(
+      handler: (html, ctx) => {
+        html = html.replace(
           /<script type="module" crossorigin/g,
           '<script type="module" crossorigin blocking="render"',
-        ),
+        );
+        const { chunk: entry, bundle } = ctx;
+        if (!entry || !bundle) return html;
+        const pages = entry.dynamicImports.filter((f) => {
+          const c = bundle[f];
+          // A docs page is static HTML: its script only adds the header, so it is not worth the bandwidth early.
+          return c?.type === "chunk" && /\/src\/page-(?!docs)[a-z]+\.tsx$/.test(c.facadeModuleId ?? "");
+        });
+        if (!pages.length) return html;
+        const have = new Set([entry.fileName, ...entry.imports]);
+        const want: string[] = [];
+        const visit = (f: string) => {
+          if (have.has(f)) return;
+          have.add(f);
+          want.push(f);
+          const c = bundle[f];
+          if (c?.type === "chunk") c.imports.forEach(visit);
+        };
+        pages.forEach(visit);
+        const tag = /<script type="module" crossorigin blocking="render" src="([^"]*?)assets\/[^"]*"><\/script>/;
+        const prefix = html.match(tag)?.[1];
+        if (prefix === undefined) return html;
+        const links = want
+          .filter((f) => !html.includes(`${prefix}${f}"`)) // Vite's own preloads for the entry's imports
+          .map((f) => `<link rel="modulepreload" crossorigin fetchpriority="low" href="${prefix}${f}">`);
+        return html.replace(tag, (t) => [t, ...links].join("\n    "));
+      },
     },
   };
 }
@@ -516,6 +548,19 @@ export default defineConfig(({ mode }) => {
       emptyOutDir: true,
       sourcemap: false,
       rollupOptions: {
+        // Named, so the export says what each shared file is: the boot every page runs before its first paint
+        // (theme and background, src/boot-imdusd.ts) and React. The rest split by where they are used.
+        output: {
+          codeSplitting: {
+            groups: [
+              {
+                name: "boot",
+                test: /\/src\/(boot-imdusd|theme-core|vibe-core|vibe-imdusd)\.tsx?$|vite\/(preload-helper|modulepreload-polyfill)|react\/jsx-runtime|react\/cjs\/react-jsx-runtime/,
+              },
+              { name: "react", test: /node_modules\/(react|react-dom|scheduler)\// },
+            ],
+          },
+        },
         input: {
           home: resolve(import.meta.dirname, "index.html"),
           ...(site ? { notfound: resolve(import.meta.dirname, "404.html") } : {}),
