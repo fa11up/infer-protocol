@@ -20,6 +20,8 @@ const INFER_TOKENS: Record<string, { symbol: string; decimals: number }> = {
 };
 const RECIPIENTS: Record<string, string> = {
   "0x0c1ce09ccfe9243c4ad23c3caee0c11d4e8340d3": "INFER stakers (InferDripper)",
+  "0x00856bd495941f3b95da5b7e374c76d822c9059e": "Oracle asker (price updates)",
+  "0xbefd108085613662356aa26a2466ad3426da9c32": "Governance Safe",
 };
 
 type Payout = { block: bigint; tx: Hex; token: Address; to: Address; amount: bigint };
