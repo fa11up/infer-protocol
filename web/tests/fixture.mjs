@@ -316,7 +316,7 @@ function call(s, params) {
       debtCeiling: 1000000n * W,
       stabilityFeeBps: 200n,
       maxDivergenceBps: s.maxDivergenceBps,
-      gracePeriod: 21600n,
+      gracePeriod: s.lull ?? 21600n,
       liquidationWindow: 3600n,
       stabilityFeeOf: W,
       badDebtOf: 0n,

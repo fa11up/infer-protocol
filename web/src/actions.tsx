@@ -219,6 +219,7 @@ export function ActionForm({
   explain,
   warn,
   after,
+  request,
 }: {
   id: string;
   label: string;
@@ -235,6 +236,8 @@ export function ActionForm({
   warn?: (args: unknown[]) => string | undefined;
   /** From the inputs as typed (once they parse): shown below the button, before anything is sent. */
   after?: (args: unknown[]) => ReactNode;
+  /** Builds the request from the parsed inputs instead of `target`/`fn`/`mapArgs`, e.g. to add `before` steps. */
+  request?: (args: unknown[]) => Request;
 }) {
   const [values, setValues] = useState<Record<string, string>>({});
   const [error, setError] = useState("");
@@ -273,7 +276,7 @@ export function ActionForm({
               throw error;
             }
           });
-          await actions.run(id, {
+          await actions.run(id, request ? { explain, warning: warn?.(args), ...request(args) } : {
             target,
             fn,
             args: mapArgs ? mapArgs(args) : args,
@@ -484,6 +487,29 @@ export function useBackdropClose(close: () => void) {
     },
   };
 }
+/**
+ * Open a modal <dialog> with focus on the dialog itself. `showModal()` alone focuses the first focusable element
+ * inside, which lit up its focus ring and, when that element was an ⓘ button, opened its explanation every time a
+ * window opened. The dialog carries tabIndex={-1}; Tab still reaches every control from there.
+ */
+export function openModal(d: HTMLDialogElement | null, returnTo?: HTMLElement | null) {
+  if (!d || d.open) return;
+  // Closing a dialog that holds focus itself does not hand focus back on its own: return it to the control that
+  // opened the window, at once, so a keyboard user continues from where they were.
+  // Watched on the `open` attribute, not the `close` event: the event arrives a task later, the observer right after
+  // the close itself, so focus is back before anything else runs.
+  const opener = returnTo ?? (document.activeElement as HTMLElement | null);
+  const watch = new MutationObserver(() => {
+    if (d.open) return;
+    watch.disconnect();
+    const here = document.activeElement;
+    if ((here === d || here === document.body || !here) && opener?.isConnected && opener !== document.body && !(opener as HTMLButtonElement).disabled)
+      opener.focus();
+  });
+  watch.observe(d, { attributes: true, attributeFilter: ["open"] });
+  d.showModal();
+  d.focus();
+}
 export function Col({
   label,
   children,
@@ -575,7 +601,9 @@ export function Info({ label, text }: { label: string; text: string }) {
           show();
         }}
         onMouseLeave={leave}
-        onFocus={show}
+        onFocus={(e) => {
+          if (e.currentTarget.matches(":focus-visible")) show();
+        }}
         onBlur={hide}
         onClick={() => (at ? hide() : show())}
         onKeyDown={(e) => {

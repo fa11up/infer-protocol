@@ -767,6 +767,9 @@ dialog [role="status"] {
 .healthy-text {
   color: var(--healthy);
 }
+.caution-text {
+  color: var(--caution);
+}
 .danger-text {
   color: var(--danger);
 }
@@ -834,11 +837,16 @@ dialog [role="status"] {
 .loan-mark.is-healthy {
   color: var(--healthy);
 }
+.loan-mark.is-redeemable {
+  color: var(--caution);
+}
+/* A bubble: a translucent fill under a solid rim, so neighbouring loans read apart and the area reads as size. */
 .loan-dot {
   display: block;
   border-radius: 50%;
-  background: currentColor;
-  opacity: 0.85;
+  background: color-mix(in srgb, currentColor 28%, transparent);
+  border: 1.5px solid currentColor;
+  box-sizing: border-box;
 }
 .loan-mark[aria-pressed="true"] .loan-dot {
   outline: 2px solid var(--text);
@@ -873,7 +881,7 @@ dialog [role="status"] {
     background: var(--clear);
   }
   .loan-mark:hover .loan-dot {
-    opacity: 1;
+    background: color-mix(in srgb, currentColor 55%, transparent);
   }
 }
 .loan-ledger {
@@ -4573,4 +4581,37 @@ button.swap-flip {
   line-height: 1.45;
   padding-block: 6px;
   margin-block: 6px 8px;
+}
+/* A window takes focus itself when it opens (openModal), so no control inside lights up on open. */
+dialog:focus,
+dialog:focus-visible {
+  outline: none;
+}
+/* Govern: recent governance actions, one dated line each with its transaction. */
+.gov-log {
+  list-style: none;
+  margin: 4px 0 0;
+  padding: 0;
+  font-size: 11px;
+}
+.gov-log li {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 4px 10px;
+  align-items: baseline;
+  padding-block: 4px;
+  border-bottom: 1px solid var(--rule);
+}
+.gov-log time {
+  color: var(--muted);
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+.gov-log a {
+  white-space: nowrap;
+}
+/* Keeper → Act: one amount and the one button that takes this borrower's next step. */
+.keeper-act {
+  margin-top: 12px;
+  max-width: 520px;
 }

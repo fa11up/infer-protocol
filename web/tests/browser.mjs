@@ -587,13 +587,34 @@ try {
   assert.equal(await keeper.getByText("Review mark").count(), 0);
   await keeper.getByRole("button", { name: "Liquidate keeper.eth →" }).click();
   assert.equal(await keeper.getByLabel("Borrower address").count(), 0);
-  await review(page, "Review mark");
-  await cancel(page);
+  // One box: marked and past its grace, the button liquidates; no separate mark, clear-mark or beneficiary forms.
+  for (const gone of ["Review mark", "Review clear mark", "Review beneficiary mark"])
+    assert.equal(await keeper.getByRole("button", { name: gone, exact: true }).count(), 0, gone);
   await keeper.getByLabel("Repay borrower COMP").fill("1");
   await review(page, "Review liquidation");
   await cancel(page);
-  await review(page, "Review clear mark");
+  // Unmarked, the same button marks (the amount waits for the grace to end).
+  const reinspect = async () => {
+    await keeper.getByRole("button", { name: "Inspect", exact: true }).click();
+    await keeper.getByLabel("Borrower address").fill("");
+    await keeper.getByLabel("Borrower address").fill(candidate);
+    await expectText(keeper, "140%");
+    await keeper.getByRole("button", { name: "Act", exact: true }).click();
+  };
+  s.marked = [];
+  await reinspect();
+  await review(page, "Review mark");
   await cancel(page);
+  // With no grace (NHI at or below 0.60), marking and liquidating go together as one batch.
+  s.lull = 0n;
+  await page.getByRole("button", { name: "Refresh state" }).click();
+  await reinspect();
+  await keeper.getByLabel("Repay borrower COMP").fill("1");
+  await review(page, "Review mark and liquidation");
+  await expectText(page.locator("dialog[open]"), "Mark keeper.eth");
+  await cancel(page);
+  s.lull = undefined;
+  s.marked = [candidate];
   // Operator controls live on the Govern desk tab; the monitor holds no actions.
   const gov = page.locator(".pane-governance");
   await tab(page, "governance");
@@ -940,15 +961,14 @@ try {
   // No names on the chart; a loan's name shows in a popup on hover or focus.
   assert.equal(await page.locator(".strip-plot .loan-label").count(), 0);
   assert.equal(await page.locator(".loan-pop").count(), 0);
-  // Area is debt against the MEDIAN loan: the two 1,000-debt loans are the median and draw at 20px, the
-  // 250-debt loan at half that area, 10px.
+  // Area is debt in proportion to the largest loan: the 250-debt loan has a quarter the area of the two
+  // 1,000-debt loans, so half their diameter, whatever scale the cloud was packed at.
   const dots = await page
     .locator(".loan-dot")
     .evaluateAll((nodes) => nodes.map((n) => parseFloat(n.style.width)));
-  assert.deepEqual(
-    [...dots].sort((a, b) => a - b),
-    [10, 20, 20],
-  );
+  const [small, big, big2] = [...dots].sort((a, b) => a - b);
+  assert.equal(big, big2);
+  assert.ok(Math.abs(small / big - 0.5) < 0.01, `250 vs 1,000 debt: ${small}px vs ${big}px`);
   await page.locator(".loan-mark").first().hover();
   await page.locator(".loan-pop").waitFor();
   const names = [await page.locator(".loan-pop b").textContent()];
@@ -1435,6 +1455,8 @@ try {
     passed("Depositing sIMD approves sIMD and locks it, at 24 decimals");
     // Withdrawals are sIMD; unstaking is the staking vault's redeem, to and from this wallet.
     await pos.getByRole("button", { name: "Withdraw", exact: true }).click();
+    // Unticked, a withdrawal pays sIMD.
+    await pos.getByLabel(/Also unstake to IMD/).uncheck();
     await pos.getByLabel("Withdraw sIMD", { exact: true }).fill("1");
     await review(page, "Review withdrawal");
     await page
@@ -1443,13 +1465,15 @@ try {
       .click();
     await expectText(page.locator("footer"), "Confirmed on chain.");
     assert.deepEqual(s.sent.at(-1).args, [10n ** 24n]);
-    await pos.getByRole("button", { name: "Unstake", exact: true }).click();
+    // Ticked (the default), the same box withdraws and unstakes: free, then the staking vault's redeem.
+    assert.equal(await pos.getByRole("button", { name: "Unstake", exact: true }).count(), 0, "no Unstake tab");
     assert.equal(
       await pos.getByRole("button", { name: "Test IMD", exact: true }).count(),
       0,
     );
-    await pos.getByLabel("Unstake sIMD", { exact: true }).fill("1");
-    await review(page, "Review unstake");
+    await pos.getByLabel(/Also unstake to IMD/).check();
+    await pos.getByLabel("Withdraw sIMD", { exact: true }).fill("1");
+    await review(page, "Review withdrawal to IMD");
     await page
       .locator("dialog")
       .getByRole("button", { name: "Confirm in wallet" })
@@ -1459,7 +1483,7 @@ try {
     assert.equal(s.sent.at(-1).functionName, "redeem");
     assert.deepEqual(s.sent.at(-1).args, [10n ** 24n, account, account]);
     passed(
-      "Withdrawals parse sIMD at 24 decimals; Unstake redeems on the staking vault to this wallet; no test faucet",
+      "Withdrawals parse sIMD at 24 decimals; with unstake ticked they redeem on the staking vault to this wallet; no test faucet",
     );
     await tab(page, "redemption");
     await expectText(page.locator(".pane-redemption"), "sIMD");
@@ -1534,8 +1558,9 @@ try {
   }
   {
     // Repaying a borrower is capped at what they owe: the hint offers the debt (not the larger wallet
-    // balance), and more is refused before anything is sent.
-    const { page } = await setup();
+    // balance), and more is refused before anything is sent. The borrower is under minCR and its mark is live,
+    // so the one keeper button liquidates.
+    const { page } = await setup({ state: { candidateCR: 140n } });
     await connect(page);
     await tab(page, "loans");
     const loansPane = page.locator(".pane-loans");

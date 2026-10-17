@@ -46,6 +46,7 @@ import {
   maxDebt,
   requiredCollateral,
   nextStep,
+  span,
   ratioPercent,
   BORROW_BUFFER,
   BORROW_WARN,
@@ -226,6 +227,8 @@ export function Position({
   const [act, setAct] = useState("deposit");
   const [looping, setLooping] = useState(false);
   const [providing, setProviding] = useState(false);
+  // Withdraw pays sIMD; with this on, the same action unstakes it to IMD (free, then redeem, one batch).
+  const [unwrap, setUnwrap] = useState(true);
   const g = collateral();
   // With share collateral, a deposit can be IMD (the vault stakes it) or sIMD itself.
   const [token, setToken] = useState<"imd" | "gem">("imd");
@@ -351,7 +354,7 @@ export function Position({
             ["borrow", "Borrow"],
             ["repay", "Repay"],
             ["withdraw", "Withdraw"],
-            g.share ? ["unstake", "Unstake"] : ["faucet", "Test IMD"],
+            ...(g.share ? [] : [["faucet", "Test IMD"] as [string, string]]),
           ]}
         />
         {looping && <LoopWindow r={r} s={s} actions={actions} onClose={() => setLooping(false)} />}
@@ -480,10 +483,16 @@ export function Position({
             after={([a]) => <PositionAfter s={s} dDebt={-(a as bigint)} />}
           />
         )}
+        {act === "withdraw" && g.share && (
+          <label className="loop-check">
+            <input type="checkbox" checked={unwrap} onChange={(e) => setUnwrap(e.target.checked)} />
+            Also unstake to {g.underlyingSymbol} in the same transaction
+          </label>
+        )}
         {act === "withdraw" && (
           <ActionForm
             id="withdraw"
-            label="Review withdrawal"
+            label={g.share && unwrap ? `Review withdrawal to ${g.underlyingSymbol}` : "Review withdrawal"}
             actions={actions}
             target={t?.ParameterizedVault}
             fn="free"
@@ -494,7 +503,30 @@ export function Position({
                 balance: { connected, amount: free, symbol: gemUnit(), decimals: g.decimals, label: "Available" },
               },
             ]}
-            summary={`Remove ${gemUnit()} collateral if the remaining position meets minCR.`}
+            summary={
+              g.share && unwrap
+                ? `Remove ${gemUnit()} collateral if the remaining position meets minCR, and unstake it to ${g.underlyingSymbol} in this wallet.`
+                : `Remove ${gemUnit()} collateral if the remaining position meets minCR.`
+            }
+            request={
+              g.share && unwrap && t
+                ? ([a]) => {
+                    const n = a as bigint;
+                    const shares = `${exact(n, g.decimals)} ${gemUnit()}`;
+                    // free() pays the shares to this wallet and redeem() unstakes exactly those: freed shares can be
+                    // redeemed in the same block (checked against the deployed staking vault), so the two go as one
+                    // batch when the wallet can, and one after the other when it cannot.
+                    return {
+                      target: { address: t.gem.address, abi: shareAbi },
+                      fn: "redeem",
+                      args: [n, actions.account, actions.account],
+                      before: [{ target: t.ParameterizedVault, fn: "free", args: [n], label: `Withdraw ${shares} from the vault` }],
+                      label: `Unstake it to about ${fmt(asImd(n))} ${g.underlyingSymbol}`,
+                      summary: `Withdraw ${shares} and unstake it to about ${fmt(asImd(n))} ${g.underlyingSymbol} in this wallet.`,
+                    };
+                  }
+                : undefined
+            }
             warn={([a]) => {
               if (!sized || !debt || typeof a !== "bigint") return;
               const after = ratioPercent(held > a ? held - a : 0n, debt, price);
@@ -509,31 +541,12 @@ export function Position({
             reason="An indebted position needs fresh feeds to withdraw."
           />
         )}
-        {act === "unstake" && g.share && (
-          <>
-            <ActionForm
-              id="unstake"
-              label="Review unstake"
-              actions={actions}
-              target={t && { address: t.gem.address, abi: shareAbi }}
-              fn="redeem"
-              fields={[
-                {
-                  ...amt(`Unstake ${gemUnit()}`),
-                  decimals: g.decimals,
-                  balance: { connected, amount: v.gemBalance, symbol: gemUnit(), decimals: g.decimals },
-                },
-              ]}
-              mapArgs={(a) => [a[0], actions.account, actions.account]}
-              summary={`Unstake ${gemUnit()} in the staking vault and receive ${g.underlyingSymbol} in this wallet.`}
-            />
-            <p className="micro">
-              Withdrawals, liquidations and redemptions pay {gemUnit()}.
-              Unstaking is a call to the staking vault, not this protocol.{" "}
-              {gemUnit()} received in a block cannot be unstaked in that same
-              block.
-            </p>
-          </>
+        {act === "withdraw" && g.share && unwrap && (
+          <p className="micro">
+            {actions.atomic
+              ? "One signature: the withdrawal and the unstake go together, all or nothing."
+              : `Your wallet asks twice: the withdrawal, then the unstake. Untick to keep the ${gemUnit()}.`}
+          </p>
         )}
         {act === "faucet" && !g.share && (
           <ActionForm
@@ -1052,109 +1065,136 @@ export function Keeper({
       ) : (
         <>
           {summary || <p className="micro">Inspect a borrower first.</p>}
-          <div className="keeper-actions">
-            <div>
-              <ActionForm
-                id="bite"
-                label="Review liquidation"
-                actions={actions}
-                target={s?.targets.ParameterizedVault}
-                fn="bite"
-                fields={[
-                  {
-                    ...amt(`Repay borrower ${unit()}`),
-                    // At most what this borrower owes: the hint offers the smaller of that and the wallet.
-                    balance: {
-                      connected: !!actions.account,
-                      amount:
-                        position?.debt !== undefined && s?.v.compBalance !== undefined
-                          ? (position.debt < s.v.compBalance ? position.debt : s.v.compBalance)
-                          : s?.v.compBalance,
-                      symbol: unit(),
-                      decimals: Number(s?.v.compDecimals ?? 18),
-                    },
-                    max:
-                      position?.debt !== undefined
-                        ? {
-                            value: position.debt,
-                            message: `This borrower owes ${exact(position.debt)} ${unit()}. You can repay at most that.`,
-                          }
-                        : undefined,
-                  },
-                ]}
-                mapArgs={(a) => [address(owner), ...a]}
-                summary={`Burn your ${unit()} to cancel borrower debt and receive ${gemUnit()}, including the liquidation bonus after protocol and marker shares.`}
-                explain={borrower}
-                disabled={
-                  !feedsReady(s) ||
-                  !position?.mark[2] ||
-                  now < position.mark[0] + position.mark[1] ||
-                  now > position.mark[0] + position.mark[1] + (s?.v.tail ?? 0n)
-                }
-                reason={
-                  !feedsReady(s)
-                    ? "Waiting for fresh, agreeing price feeds."
-                    : !position?.mark[2]
-                      ? "This position is not marked. Mark it first; it can be liquidated once the grace period ends."
-                      : now < position.mark[0] + position.mark[1]
-                        ? `Marked: the grace period ends ${new Date(Number(position.mark[0] + position.mark[1]) * 1000).toLocaleString()}.`
-                        : "The mark expired: nobody liquidated it within its window. Mark it again; that starts a new grace period."
-                }
-              />
-            </div>
-            <div>
-              <div className="button-row">
-                <Action
-                  id="mark"
-                  label="Review mark"
-                  actions={actions}
-                  disabled={
-                    !feedsReady(s) || !position || position.cr >= s?.v.mat
-                  }
-                  reason="Inspect an unhealthy borrower with fresh feeds."
-                  request={() => ({
-                    target: s!.targets.ParameterizedVault,
-                    fn: "bark",
-                    args: [address(owner)],
-                    summary: `Mark ${address(owner)} as underwater. The on-chain grace snapshot governs liquidation.`,
-                    explain: borrower,
-                  })}
-                />
-                <Action
-                  id="clear-mark"
-                  label="Review clear mark"
-                  actions={actions}
-                  disabled={!position?.mark[2]}
-                  reason="Inspect a marked position."
-                  request={() => ({
-                    target: s!.targets.ParameterizedVault,
-                    fn: "heel",
-                    args: [address(owner)],
-                    summary: `Clear the mark only if ${address(owner)} has recovered.`,
-                    explain: (f) =>
-                      f.name === "UnderwaterPosition" && position
-                        ? `${position.owner} is still at ${ratio(position.cr)}, below minCR ${ratio(s?.v.mat)}. A mark clears only once the position recovers.`
-                        : undefined,
-                  })}
-                />
-              </div>
-              <ActionForm
-                id="mark-for"
-                label="Review beneficiary mark"
-                actions={actions}
-                target={s?.targets.ParameterizedVault}
-                fn="barkFor"
-                fields={[addr("Marker beneficiary")]}
-                mapArgs={(a) => [address(owner), ...a]}
-                summary="Mark for another beneficiary of the marker reward."
-                explain={borrower}
-                disabled={!feedsReady(s) || !position}
-                reason="Inspect a borrower and wait for fresh feeds."
-              />
-            </div>
-          </div>
+          <KeeperAct s={s} actions={actions} now={now} owner={owner} position={position} explain={borrower} />
         </>
       )}
+    </div>
+  );
+}
+
+/**
+ * The keeper's one box: an amount and a button that does whatever this borrower needs next. Underwater and not
+ * marked (or its mark expired): mark it, and when the grace a new mark gets is zero (NHI at or below 0.60), mark
+ * and liquidate together in one batch. Marked and in grace: wait, and the button says until when. Marked and past
+ * grace: liquidate. Marking goes to `bark`, so the marker's share of the bonus is the keeper's own.
+ */
+function KeeperAct({
+  s,
+  actions,
+  now,
+  owner,
+  position,
+  explain,
+}: {
+  s?: Snapshot;
+  actions: Actions;
+  now: bigint;
+  owner: string;
+  position: any;
+  explain: (f: Failure) => string | undefined;
+}) {
+  const [input, setInput] = useState("");
+  const vault = s?.targets.ParameterizedVault;
+  const mat = (s?.v.mat ?? 0n) as bigint;
+  const tail = (s?.v.tail ?? 0n) as bigint;
+  const lull = s?.v.lull as bigint | undefined;
+  const wallet = s?.v.compBalance as bigint | undefined;
+  const below = !!position && position.cr < mat;
+  const marked = !!position?.mark[2];
+  const graceEnds = marked ? (position.mark[0] + position.mark[1]) as bigint : 0n;
+  const expired = marked && now > graceEnds + tail;
+  const inGrace = marked && now < graceEnds;
+  const needsMark = below && (!marked || expired);
+  const step: "none" | "healthy" | "mark" | "both" | "wait" | "bite" = !position
+    ? "none"
+    : !below
+      ? "healthy"
+      : needsMark
+        ? lull === 0n
+          ? "both"
+          : "mark"
+        : inGrace
+          ? "wait"
+          : "bite";
+  const cap = position?.debt !== undefined && wallet !== undefined ? (position.debt < wallet ? position.debt : wallet) : wallet;
+  const when = (t: bigint) => new Date(Number(t) * 1000).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
+  const label =
+    step === "both"
+      ? "Review mark and liquidation"
+      : step === "mark"
+        ? marked
+          ? "Review mark again"
+          : "Review mark"
+        : step === "wait"
+          ? `Liquidatable in ${span(graceEnds - now)}`
+          : "Review liquidation";
+  const note =
+    step === "none"
+      ? "Inspect a borrower first."
+      : step === "healthy"
+        ? `${displayName(position.owner)} is at or above minCR ${ratio(mat)}: nothing to liquidate.`
+        : step === "mark"
+          ? `Marking starts a ${span(lull ?? 0n)} grace period in which the borrower can recover. After it, this button liquidates with the amount above.`
+          : step === "both"
+            ? `No grace at the network's current health: the mark and the liquidation go together${actions.atomic ? ", one signature" : "; your wallet asks twice"}.`
+            : step === "wait"
+              ? `Marked. Liquidatable from ${when(graceEnds)} until ${when(graceEnds + tail)}.`
+              : `Liquidatable until ${when(graceEnds + tail)}. Burns your ${unit()} and pays ${gemUnit()} with the bonus.`;
+  const disabled = !feedsReady(s) || step === "none" || step === "healthy" || step === "wait";
+  return (
+    <div className="keeper-act">
+      <div className="field">
+        <label>
+          Repay borrower {unit()}
+          <input
+            name="keeper-repay"
+            inputMode="decimal"
+            autoComplete="off"
+            spellCheck={false}
+            value={input}
+            placeholder={step === "mark" ? "Used once the grace ends" : undefined}
+            onChange={(e) => setInput(e.target.value)}
+          />
+        </label>
+        <BalanceHint
+          b={{ connected: !!actions.account, amount: cap, symbol: unit(), decimals: Number(s?.v.compDecimals ?? 18) }}
+          onUse={setInput}
+        />
+      </div>
+      <Action
+        id="keeper-act"
+        label={label}
+        actions={actions}
+        disabled={disabled}
+        reason={!feedsReady(s) ? "Waiting for fresh, agreeing price feeds." : note}
+        request={() => {
+          if (!vault) throw Error("Wait for contract verification.");
+          const who = address(owner);
+          const mark = { target: vault, fn: "bark", args: [who] as readonly unknown[] };
+          if (step === "mark")
+            return {
+              ...mark,
+              summary: `Mark ${who} as underwater. You receive the marker's share of the bonus when it is liquidated.`,
+              explain,
+            };
+          const n = amount(input, 18);
+          if (n === 0n) throw Error(`Enter the ${unit()} to repay.`);
+          if (position && n > position.debt)
+            throw Error(`This borrower owes ${exact(position.debt)} ${unit()}. You can repay at most that.`);
+          if (wallet !== undefined && n > wallet) throw Error(`You hold ${exact(wallet)} ${unit()}.`);
+          const bite = {
+            target: vault,
+            fn: "bite",
+            args: [who, n] as readonly unknown[],
+            summary: `Burn ${exact(n)} ${unit()} to cancel this borrower's debt and receive ${gemUnit()}, including the liquidation bonus.`,
+            explain,
+          };
+          return step === "both"
+            ? { ...bite, before: [{ ...mark, label: `Mark ${displayName(who)}` }], label: `Liquidate: repay ${exact(n)} ${unit()}` }
+            : bite;
+        }}
+      />
+      {!disabled && <p className="micro">{note}</p>}
     </div>
   );
 }

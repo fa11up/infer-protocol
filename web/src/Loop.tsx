@@ -10,7 +10,8 @@ import { useEffect, useRef, useState } from "react";
 import type { Address } from "viem";
 import type { Runtime } from "./config";
 import { feedsReady, type Snapshot } from "./state";
-import { Row, type Actions, type Call, useBackdropClose } from "./actions";
+import { Row, type Actions, type Call, useBackdropClose, openModal } from "./actions";
+import { StillFigures } from "./motion";
 import { collateral, fmtGem, gemUnit, perImd, vaultShareAbi } from "./collateral";
 import { fmt, liquidationPrice, message, BORROW_BUFFER } from "./math";
 import { unit } from "./unit";
@@ -101,7 +102,7 @@ export function LoopWindow({
   live.current = actions;
 
   useEffect(() => {
-    dialog.current?.showModal();
+    openModal(dialog.current);
   }, []);
 
   const v = s?.v ?? {};
@@ -357,8 +358,10 @@ export function LoopWindow({
         : `Leverage to ${short}`;
 
   return (
+    <StillFigures.Provider value={true}>
     <dialog
       ref={dialog}
+      tabIndex={-1}
       className="loop-dialog"
       aria-labelledby="loop-heading"
       {...backdrop}
@@ -468,5 +471,6 @@ export function LoopWindow({
         {pctText(SLIPPAGE_BPS)} slippage. You can stop between rounds.
       </p>
     </dialog>
+    </StillFigures.Provider>
   );
 }

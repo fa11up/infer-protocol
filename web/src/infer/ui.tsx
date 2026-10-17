@@ -475,13 +475,18 @@ export function WalletChooser({ wallet }: { wallet: Wallet }) {
   useEffect(() => {
     const d = ref.current;
     if (!d) return;
-    if (wallet.choosing && !d.open) d.showModal();
+    if (wallet.choosing && !d.open) {
+      // Focus the dialog itself: showModal alone lights up its first button.
+      d.showModal();
+      d.focus();
+    }
     if (!wallet.choosing && d.open) d.close();
   }, [wallet.choosing]);
   const phone = isPhone();
   return (
     <dialog
       ref={ref}
+      tabIndex={-1}
       className="wallet-chooser"
       aria-labelledby="wallet-chooser-h"
       onClose={() => wallet.choosing && wallet.cancel()}

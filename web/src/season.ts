@@ -32,7 +32,7 @@ export type SeasonInfo = {
 };
 
 /** keccak256("SeasonOpened(uint256,uint256,uint256,uint256,bytes32)") */
-const SEASON_OPENED_TOPIC = "0xe5fead77cd3d429b79f60d07d3d9a69b566d0c3812f6f0938a24e505f8faa3a6";
+export const SEASON_OPENED_TOPIC = "0xe5fead77cd3d429b79f60d07d3d9a69b566d0c3812f6f0938a24e505f8faa3a6";
 
 async function openedBlockFromExplorer(r: Runtime, vault: Address, head: bigint): Promise<number | undefined> {
   const logs = await explorerLogs(r, { address: vault, abi: SEASON_VAULT_ABI }, 0n, head);

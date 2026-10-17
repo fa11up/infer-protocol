@@ -19,6 +19,7 @@ import {
   type Call,
   AddressLink,
   ConnectWallet,
+  openModal,
 } from "./actions";
 import { Redemption } from "./Redemption";
 import { unit } from "./unit";
@@ -229,7 +230,7 @@ function Terminal({ r }: { r: Runtime }) {
     }
   }, [review, busy]);
   useEffect(() => {
-    if (review && !dialog.current?.open) dialog.current?.showModal();
+    if (review) openModal(dialog.current, opener.current as HTMLElement | null);
     if (!review && dialog.current?.open) dialog.current.close();
   }, [review]);
   const correctChain = chainId === r.config.chainId;
@@ -786,6 +787,7 @@ function Terminal({ r }: { r: Runtime }) {
       </footer>
       <dialog
         ref={dialog}
+        tabIndex={-1}
         aria-labelledby="review-heading"
         onCancel={(e) => {
           if (busy) e.preventDefault();

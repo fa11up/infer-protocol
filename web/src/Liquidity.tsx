@@ -8,7 +8,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPublicClient, fallback, http, type Address, type Hex } from "viem";
 import type { Runtime } from "./config";
 import type { Snapshot } from "./state";
-import { BalanceHint, Choice, FadingError, Info, Row, type Actions, type Call, useBackdropClose } from "./actions";
+import { BalanceHint, Choice, FadingError, Info, Row, type Actions, type Call, useBackdropClose, openModal } from "./actions";
+import { StillFigures } from "./motion";
 import { amount, exact, fmt, message } from "./math";
 import { unit } from "./unit";
 import { PERMIT2, UNIVERSAL_ROUTER, encodeSwap } from "./infer/swap";
@@ -206,7 +207,7 @@ export function LpWindow({
   onClose: () => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
-  const [tab, setTab] = useState<"add" | "positions" | "trade">("add");
+  const [tab, setTab] = useState<"add" | "positions" | "trade">("trade");
   // Trade tab: a swap card. Any pair through 0x (Matcha's engine, via imdusd.com/swap/*, which sets the fee);
   // imdUSD <-> USDC also on the peg pool directly, and whichever returns more.
   const [sellT, setSellT] = useState<Token>(() => TOKENS.find((t) => same(t.address, USDC))!);
@@ -241,7 +242,7 @@ export function LpWindow({
   const atomic = actions.atomic;
 
   useEffect(() => {
-    dialog.current?.showModal();
+    openModal(dialog.current);
   }, []);
 
   // The pool and the wallet's two balances, on their own 15-second clock.
@@ -752,8 +753,10 @@ export function LpWindow({
   const ready = actions.ready && !busy;
 
   return (
+    <StillFigures.Provider value={true}>
     <dialog
       ref={dialog}
+      tabIndex={-1}
       className="loop-dialog"
       aria-labelledby="lp-heading"
       {...backdrop}
@@ -1222,5 +1225,6 @@ export function LpWindow({
         )}
       </div>
     </dialog>
+    </StillFigures.Provider>
   );
 }

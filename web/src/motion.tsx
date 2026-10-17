@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { createContext, useContext, useEffect, useRef, useState } from "react";
 // The existing CSS curve: cubic-bezier(.2, 0, 0, 1).
 function ease(t: number) {
   let lo = 0,
@@ -12,7 +12,15 @@ function ease(t: number) {
   const u = (lo + hi) / 2;
   return 3 * (1 - u) * u * u + u * u * u;
 }
+/**
+ * Figures inside a window (the leverage and liquidity windows) are read while they are being acted on: they
+ * change on every 15-second refresh and on every keystroke, and the count-up animation made them roll through
+ * values that were never true. Inside this provider a Ticker shows its text as is.
+ */
+export const StillFigures = createContext(false);
+
 export function Ticker({ text }: { text: string }) {
+  const still = useContext(StillFigures);
   const [shown, setShown] = useState(text);
   const previous = useRef(text);
   useEffect(() => {
@@ -24,6 +32,7 @@ export function Ticker({ text }: { text: string }) {
       b = text.match(pattern);
     if (
       motion.matches ||
+      still ||
       !a ||
       !b ||
       a.length !== b.length ||
@@ -69,7 +78,7 @@ export function Ticker({ text }: { text: string }) {
       cancelAnimationFrame(frame);
       motion.removeEventListener("change", stop);
     };
-  }, [text]);
+  }, [text, still]);
   if (!/\d/.test(text)) return <>{text}</>;
   return (
     <span className="ticker">

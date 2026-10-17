@@ -82,6 +82,8 @@ export function useCharts(r: Runtime, s?: Snapshot) {
   return { book, feeds, retry: () => retry((n) => n + 1) };
 }
 export type ChartData = ReturnType<typeof useCharts>;
+/** The loan book shows loans owing at least this much (1 imdUSD, about $1). */
+const MIN_SHOWN_DEBT = 10n ** 18n;
 const number = (v: bigint) => Number(formatUnits(v, 18));
 const liquidation = (p: { collateral: bigint; debt: bigint }, s?: Snapshot) => {
   const at =
@@ -119,7 +121,11 @@ export function LoanBook({
     return () => observer.disconnect();
   }, [book.data, available]);
   const s = book.snapshot;
-  const positions = book.data?.positions ?? [];
+  // Loans that matter: at least $1 of debt. A repaid position (no debt) or one owing cents is not a loan anyone
+  // will mark, liquidate or redeem against, and on the chart it only crowded the left edge with specks.
+  const all = book.data?.positions ?? [];
+  const positions = all.filter((p) => p.cr !== maxUint256 && p.debt >= MIN_SHOWN_DEBT);
+  const hidden = all.length - positions.length;
   useEns(positions.map((p) => p.owner));
   const min = s?.v.mat as bigint | undefined;
   const ceiling = s?.v.redemptionCeilingCR as bigint | undefined;
@@ -149,20 +155,21 @@ export function LoanBook({
   const at = (value: bigint) =>
     Math.max(0, Math.min(100, ((Number(value) - FLOOR) / (maximum - FLOOR)) * 100));
   // A bubble cloud: each circle at its exact ratio, nudged up or down only as far as it must to clear the
-  // others (the height carries no value). Area is debt, sized against the MEDIAN loan rather than the
-  // largest: the typical loan is a 20px circle, a tenth of it 7px, ten times it 32px and no more, so one
-  // whale cannot shrink every other loan to a speck, and nothing is under 8px. If the cloud would outgrow
-  // MAX_HEIGHT the dots shrink and it packs again, but every circle's HIT area stays a 24px target and the
-  // plot grows rather than clip (swarm.ts `pack`).
-  const debts = positions.map((p) => Number(p.debt)).sort((a, b) => a - b);
-  const typical = Math.max(1, debts[Math.floor(debts.length / 2)] ?? 1);
-  const MAX_HEIGHT = 200;
+  // others (the height carries no value). AREA IS DEBT, in true proportion to the largest loan: the largest is
+  // MAX_DOT px in radius and a loan a quarter its size is half that, so the cloud shows where the money is.
+  // Only the smallest are lifted to MIN_DOT so they stay visible. If the cloud would outgrow MAX_HEIGHT the
+  // dots shrink and it packs again, but every circle's HIT area stays a 24px target and the plot grows rather
+  // than clip (swarm.ts `pack`).
+  const largest = positions.reduce((m, p) => Math.max(m, Number(p.debt)), 1);
+  const MAX_DOT = 24;
+  const MIN_DOT = 4;
+  const MAX_HEIGHT = 96; // the desk never scrolls: a stacked cloud shrinks its dots (sizes stay proportional) before it grows
   const plotWidth = Math.max(1, width);
   const { circles, ys, height } = pack(
     positions.map((p) => ({
       id: p.owner,
       x: (at(p.cr) / 100) * plotWidth,
-      dot: Math.min(16, Math.max(4, 10 * Math.sqrt(Number(p.debt) / typical))),
+      dot: Math.max(MIN_DOT, MAX_DOT * Math.sqrt(Number(p.debt) / largest)),
     })),
     MAX_HEIGHT,
   );
@@ -184,10 +191,10 @@ export function LoanBook({
           Collateral ratio
           <Info
             label="Loan book"
-            text={`Every open position by collateral ratio, from 100%. Circle area is accrued ${unit()} debt; circles stack up and down only to stay apart, so height carries no value and a tall cloud is where debt is concentrated. Positions under 100% sit at the left edge and those above 500% at the right edge. The bands move with the live minCR and redemption ceiling.`}
+            text={`Every open position owing at least $1, by collateral ratio, from 100%. Circle area is accrued ${unit()} debt, in proportion to the largest loan; circles stack up and down only to stay apart, so height carries no value and a tall cloud is where debt is concentrated. Positions under 100% sit at the left edge and those above 500% at the right edge. The bands move with the live minCR and redemption ceiling.`}
           />
         </p>
-        <span className="muted">
+        <span className="muted" title={hidden ? `${hidden} position${hidden === 1 ? "" : "s"} owing under $1 not shown` : undefined}>
           {/* The book's own block: after a failed refresh the last good book stays on screen, read at its block. */}
           {valid
             ? `${positions.length} open · block ${(book.snapshot ?? s!).block}`
@@ -203,7 +210,7 @@ export function LoanBook({
       )}
       <div className="book-legend">
         <span className="danger-text">Below minCR · liquidatable</span>
-        <span>minCR → ceiling · redeemable</span>
+        <span className="caution-text">minCR → ceiling · redeemable</span>
         <span className="healthy-text">Above ceiling · safe</span>
       </div>
       {!valid ? (
@@ -271,13 +278,16 @@ export function LoanBook({
                 <button
                   key={p.owner}
                   type="button"
-                  className={`loan-mark ${p.cr < min! ? "is-danger" : "is-healthy"}`}
+                  className={`loan-mark ${p.cr < min! ? "is-danger" : p.cr < ceiling! ? "is-redeemable" : "is-healthy"}`}
                   style={{ left: `${p.x}%`, top: p.y, width: p.hit * 2, height: p.hit * 2 }}
                   aria-label={`${displayName(p.owner)}, ${p.owner}, ${p.cr}% collateral ratio, ${fmt(p.debt)} ${unit()}, ${stateOf(p.cr, min!, ceiling!)}, ${liquidation(p, s)}`}
                   aria-pressed={selected === p.owner}
                   onMouseEnter={() => setHovered(p.owner)}
                   onMouseLeave={() => setHovered((h) => (h === p.owner ? undefined : h))}
-                  onFocus={() => setHovered(p.owner)}
+                  onFocus={(e) => {
+                    // Keyboard focus shows the popup; focus a script moved here does not.
+                    if (e.currentTarget.matches(":focus-visible")) setHovered(p.owner);
+                  }}
                   onBlur={() => setHovered((h) => (h === p.owner ? undefined : h))}
                   onClick={() =>
                     setSelected(selected === p.owner ? undefined : p.owner)
