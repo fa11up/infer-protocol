@@ -169,6 +169,107 @@ export async function explorerLogs(
   }
   throw Error("History exceeds the browser page limit; coverage is incomplete");
 }
+/**
+ * Aligned windows over [from, head]: every closed window is a whole [k·size, (k+1)·size − 1], so every visitor asks
+ * for the same ones and /rpc can serve them from its cache; the open window, [k·size, head], reaches back to at least
+ * `tail` blocks when it is shorter (so a window just past a boundary is not a sliver that holds no logs and reads as
+ * unverified). Closed windows are only listed down to `from`; the open one may start before it.
+ */
+export function alignedWindows(from: bigint, head: bigint, size = historyConfig.windowSize, tail = historyConfig.tailSize): [bigint, bigint][] {
+  if (head < from) return [];
+  const k = head / size;
+  const open: [bigint, bigint] = [k * size, head];
+  if (head - open[0] + 1n < tail) open[0] = head + 1n >= tail ? head - tail + 1n : 0n;
+  const windows: [bigint, bigint][] = [];
+  for (let j = from / size; from < open[0] && j < k; j++) {
+    if (windows.length >= historyConfig.maxChunks) throw Error("History range limit");
+    windows.push([j * size, (j + 1n) * size - 1n]);
+  }
+  windows.push(open);
+  return windows;
+}
+
+/**
+ * The deployment's history contracts, read together: one eth_getLogs per window names all of them (sorted, lowercase,
+ * so the request body, and /rpc's cache key, is the same for every visitor), and the answer is split per contract.
+ * Registered from the snapshot (state.ts) once the vault's linked contracts are known. A contract outside the group
+ * is read alone, as before.
+ */
+const groups = new WeakMap<Runtime, string[]>();
+export function historyGroup(r: Runtime, addresses: Address[]) {
+  const list = [...new Set(addresses.map((a) => a.toLowerCase()))].sort();
+  const old = groups.get(r);
+  if (!old || old.join() !== list.join()) groups.set(r, list);
+  // A new snapshot is a new refresh: windows still open at the last one are read again.
+  openWindows.get(r)?.clear();
+}
+const groupOf = (r: Runtime, address: Address) => {
+  const g = groups.get(r);
+  return g?.includes(address.toLowerCase()) ? g : [address.toLowerCase()];
+};
+/** The client eth_getLogs goes through (config.ts: /rpc, then providers that serve old ranges), else the main one. */
+export const logClient = (r: Runtime) => (r as Runtime & { logs?: Runtime["client"] }).logs ?? r.client;
+
+/** At most historyConfig.parallel log reads at once per runtime, whoever asks. */
+const slots = new WeakMap<Runtime, { busy: number; queue: (() => void)[] }>();
+export async function limited<T>(r: Runtime, fn: () => Promise<T>): Promise<T> {
+  let s = slots.get(r);
+  if (!s) slots.set(r, (s = { busy: 0, queue: [] }));
+  if (s.busy >= historyConfig.parallel) await new Promise<void>((go) => s!.queue.push(go));
+  else s.busy++;
+  try {
+    return await fn();
+  } finally {
+    const next = s.queue.shift();
+    if (next) next();
+    else s.busy--;
+  }
+}
+
+type Split = Map<string, ChainLog[]>;
+// A window wholly FINAL_DEPTH below the head when read cannot be reorganised: kept for the runtime's life, as /rpc
+// keeps it for a month. A window nearer the head is shared only by the readers of one refresh (cleared by the next
+// snapshot, historyGroup); a failure is never kept, so a retry reads again.
+const FINAL_DEPTH = 64n;
+const closedWindows = new WeakMap<Runtime, Map<string, Promise<Split>>>();
+const openWindows = new WeakMap<Runtime, Map<string, Promise<Split>>>();
+function memo(m: WeakMap<Runtime, Map<string, Promise<Split>>>, r: Runtime) {
+  let x = m.get(r);
+  if (!x) m.set(r, (x = new Map()));
+  return x;
+}
+function readWindow(r: Runtime, addresses: string[], [start, end]: [bigint, bigint], head: bigint): Promise<Split> {
+  const closed = end + FINAL_DEPTH <= head;
+  const map = memo(closed ? closedWindows : openWindows, r);
+  const id = `${addresses.join(",")}:${start}-${end}`;
+  const old = map.get(id);
+  if (old) return old;
+  const wanted = new Set(addresses);
+  const pending = limited(r, () =>
+    logClient(r).getLogs({
+      address: (addresses.length === 1 ? addresses[0] : addresses) as Address | Address[],
+      fromBlock: start,
+      toBlock: end,
+    }),
+  ).then((batch) => {
+    // Some providers silently refuse ranges with []. Never treat that as proof of absence: with several contracts in
+    // one window an empty answer is just as unverified, and every contract in it falls back to Blockscout.
+    if (!batch.length) throw Error("Empty RPC log range is unverified");
+    const split: Split = new Map(addresses.map((a) => [a, []]));
+    for (const raw of batch) {
+      const a = String((raw as { address?: unknown }).address ?? "").toLowerCase();
+      if (!wanted.has(a)) throw Error("Log address mismatch");
+      const log = normalize(raw, a as Address);
+      if (log.blockNumber < start || log.blockNumber > end) throw Error("RPC returned logs outside the requested range");
+      split.get(a)!.push(log);
+    }
+    return split;
+  });
+  map.set(id, pending);
+  pending.catch(() => map.get(id) === pending && map.delete(id));
+  return pending;
+}
+
 export async function rangeLogs(
   r: Runtime,
   t: Target,
@@ -176,58 +277,44 @@ export async function rangeLogs(
   to: bigint,
 ): Promise<{ logs: ChainLog[]; source: History["source"] }> {
   try {
-    // Windows end on multiples of chunkSize, so every visitor asks for the same closed windows and /rpc can serve
-    // them from its cache; they are read several at a time, and any one failing fails the range as before. The first
-    // runs at least a full chunk (up to two), so a start just before a boundary is not a sliver that holds no logs
-    // and fails as unverified.
-    const size = historyConfig.chunkSize;
-    const windows: [bigint, bigint][] = [];
-    for (let start = from; start <= to; ) {
-      if (windows.length >= historyConfig.maxChunks)
-        throw Error("History range limit");
-      const end = ((start + size - 1n) / size + 1n) * size - 1n;
-      windows.push([start, end < to ? end : to]);
-      start = end + 1n;
-    }
-    // The newest window is usually a sliver up to the head, often with no logs yet, which would fail as unverified
-    // and send the whole range to Blockscout: it reaches back a full chunk instead (never before `from`). It overlaps
-    // the window before it; history() drops the repeated logs.
-    const last = windows[windows.length - 1];
-    if (windows.length > 1 && last[1] - last[0] + 1n < size) last[0] = last[1] - size + 1n > from ? last[1] - size + 1n : from;
-    const read = async ([start, end]: [bigint, bigint]) => {
-      const batch = await r.client.getLogs({
-        address: t.address,
-        fromBlock: start,
-        toBlock: end,
-      });
-      // Some providers silently refuse ranges with []. Never treat that as proof of absence.
-      if (!batch.length) throw Error("Empty RPC log range is unverified");
-      const normalized = batch.map((log) => normalize(log, t.address));
-      if (normalized.some((log) => log.blockNumber < start || log.blockNumber > end))
-        throw Error("RPC returned logs outside the requested range");
-      return normalized;
-    };
-    const got: ChainLog[][] = new Array(windows.length);
-    let next = 0;
-    await Promise.all(
-      Array.from({ length: Math.min(historyConfig.parallel, windows.length) }, async () => {
-        while (next < windows.length) {
-          const i = next++;
-          got[i] = await read(windows[i]);
-        }
-      }),
-    );
-    const logs = [...new Map(got.flat().map((l) => [key(l), l])).values()];
-    if (!logs.length) throw Error("No verifiable logs");
-    return { logs, source: "RPC" };
+    return await rpcRange(r, t, from, to);
   } catch {
-    const logs = await explorerLogs(r, t, from, to);
-    if (!logs.length)
-      throw Error(
-        "Could not read history: RPC and Blockscout returned no verifiable logs. Retry history.",
-      );
-    return { logs, source: "Blockscout" };
+    return fromExplorer(r, t, from, to);
   }
+}
+/** The range from the RPC, or a throw when any window is refused or unverified. */
+async function rpcRange(
+  r: Runtime,
+  t: Target,
+  from: bigint,
+  to: bigint,
+): Promise<{ logs: ChainLog[]; source: History["source"] }> {
+  // Every window at once (limited() keeps a runtime to historyConfig.parallel reads), any one failing fails the
+  // range as before. Windows the other contracts' readers asked for are shared, not read again.
+  const addresses = groupOf(r, t.address);
+  const own = t.address.toLowerCase();
+  const got = await Promise.all(alignedWindows(from, to).map((w) => readWindow(r, addresses, w, to)));
+  const logs = [
+    ...new Map(
+      got
+        .flatMap((split) => split.get(own) ?? [])
+        .filter((l) => l.blockNumber >= from && l.blockNumber <= to)
+        .map((l) => [key(l), l]),
+    ).values(),
+  ];
+  // A contract read alone must show a log to be verified. In a group the windows were verified by the answer as a
+  // whole, so a contract with nothing in this range is believed, except when the range is its whole history
+  // (history() checks that), the same unknown-versus-empty rule as before.
+  if (!logs.length && addresses.length === 1) throw Error("No verifiable logs");
+  return { logs, source: "RPC" };
+}
+async function fromExplorer(r: Runtime, t: Target, from: bigint, to: bigint): Promise<{ logs: ChainLog[]; source: History["source"] }> {
+  const logs = await explorerLogs(r, t, from, to);
+  if (!logs.length)
+    throw Error(
+      "Could not read history: RPC and Blockscout returned no verifiable logs. Retry history.",
+    );
+  return { logs, source: "Blockscout" };
 }
 // History kept in the browser between visits, so a returning visitor reads only the blocks since: per deployment and
 // contract, with bigints as strings. Storage may be missing or full (private windows, previews): then it is skipped.
@@ -257,7 +344,23 @@ function save(r: Runtime, address: Address, h: History) {
     /* No storage: the next visit reads from the start again. */
   }
 }
-export async function history(
+const inFlight = new WeakMap<Runtime, Map<string, Promise<History>>>();
+/** A contract's history from its first block to `head`. Concurrent calls for the same contract and head share one read. */
+export function history(
+  r: Runtime,
+  t: Target,
+  head: bigint,
+): Promise<History> {
+  let m = inFlight.get(r);
+  if (!m) inFlight.set(r, (m = new Map()));
+  const id = `${t.address.toLowerCase()}@${head}`;
+  const old = m.get(id);
+  if (old) return old;
+  const pending = readHistory(r, t, head).finally(() => m!.delete(id));
+  m.set(id, pending);
+  return pending;
+}
+async function readHistory(
   r: Runtime,
   t: Target,
   head: bigint,
@@ -273,17 +376,28 @@ export async function history(
   }
   const old = map.get(t.address);
   const from = old?.from ?? (await deploymentBlock(r, t, head));
-  // Retain an anchor log in every refresh, and re-read the reorg overlap.
-  const anchor = old?.logs.at(-1)?.blockNumber ?? from;
+  // Re-read the reorg overlap. A contract read alone also retains an anchor log in every refresh (its own logs are
+  // what verify the read); in a group the window is verified by every contract's logs, so it starts at the overlap.
+  const alone = groupOf(r, t.address).length === 1;
+  const anchor = alone ? (old?.logs.at(-1)?.blockNumber ?? from) : (old?.through ?? from);
   const overlap =
     anchor > historyConfig.overlap ? anchor - historyConfig.overlap : from;
   const start =
     old && head >= old.through ? (overlap > from ? overlap : from) : from;
-  const next = await rangeLogs(r, t, start, head);
-  const combined = [
-    ...(old?.logs.filter((l) => l.blockNumber < start) ?? []),
-    ...next.logs,
-  ];
+  let next: Awaited<ReturnType<typeof rangeLogs>>;
+  let kept = old?.logs.filter((l) => l.blockNumber < start) ?? [];
+  try {
+    next = await rpcRange(r, t, start, head);
+    // No log in the contract's whole history is unknown, not empty: Blockscout must confirm it (below).
+    if (!kept.length && !next.logs.length) throw Error("No verifiable logs");
+  } catch {
+    // Blockscout pages the contract's whole history whatever the range, so the fallback takes all of it: a refresh
+    // range with no log of this contract (normal in a group) is then not mistaken for a refused read, and an empty
+    // whole history still fails as unknown.
+    next = await fromExplorer(r, t, from, head);
+    kept = [];
+  }
+  const combined = [...kept, ...next.logs];
   const logs = [...new Map(combined.map((l) => [key(l), l])).values()].sort(
     (a, b) =>
       a.blockNumber === b.blockNumber

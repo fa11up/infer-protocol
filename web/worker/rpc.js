@@ -70,7 +70,7 @@ const FINAL_MS = 30 * 86_400_000;
 // for a while, instead of first on every call; it is still tried if nothing else answers.
 const BENCH_MS = 5 * 60_000;
 const ARCHIVE_DEPTH = 100n;
-// The terminal reads logs in 2,000-block chunks (src/config.ts historyConfig.chunkSize); public RPCs refuse
+// The terminal reads logs in aligned 5,000-block windows naming several contracts (src/config.ts historyConfig.windowSize); public RPCs refuse
 // spans above 50,000. One request may not ask a provider for more than this.
 const MAX_LOG_SPAN = 10_000n;
 const MAX_BODY = 64 * 1024;

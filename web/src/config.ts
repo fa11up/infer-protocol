@@ -155,6 +155,17 @@ export async function loadConfig() {
           }),
         ]
       : [];
+  // eth_getLogs has its own client: on imdusd.com /rpc (which walks its keyed providers, and caches closed windows),
+  // then only the deployment's RPCs that serve old log ranges; history.ts falls back to Blockscout after that. Off
+  // imdusd.com (local dev, previews) the same list without /rpc. If every RPC is on the refusing list, all are kept.
+  const archive = config.network.rpcUrls.filter((url) => !historyConfig.noArchiveLogs.includes(new URL(url).hostname));
+  const logs = createPublicClient({
+    chain,
+    transport: fallback([
+      ...(own.length ? [http(new URL("/rpc", location.origin).href, { timeout: 15000, retryCount: 0 })] : []),
+      ...(archive.length ? archive : config.network.rpcUrls).map((url) => http(url, { timeout: 15000, retryCount: 0 })),
+    ]),
+  });
   const client = createPublicClient({
     chain,
     transport: fallback([
@@ -168,7 +179,7 @@ export async function loadConfig() {
     // those at the Worker's 64 calls (512 let 128 through once the snapshot read everything at once).
     batch: { multicall: { batchSize: 256, wait: 16 } },
   });
-  return { config, abis, targets, chain, client };
+  return { config, abis, targets, chain, client, logs };
 }
 export type Runtime = Awaited<ReturnType<typeof loadConfig>>;
 export function wallet(r: Runtime, p: EIP1193Provider) {
@@ -287,8 +298,23 @@ export const historyConfig = {
    * every contract the terminal reads was deployed at or after it.
    */
   historyFloor: { "imdusd-mainnet-26166417": 26165887n } as Record<string, bigint>,
-  chunkSize: 2000n,
-  /** History windows read at once. */
+  /**
+   * eth_getLogs windows, aligned to multiples of this so closed ones are cache-identical across visitors (/rpc keeps
+   * a window wholly 64 blocks below the head for 30 days, keyed by the request body). One request names every
+   * history contract (history.ts historyGroup). /rpc allows spans under 10,000 (worker/rpc.js MAX_LOG_SPAN), but
+   * 5,000 is the largest every viable archive endpoint accepts (Pocket caps getLogs at 5,000 blocks; Infura and MEV
+   * Blocker cap results at 10,000 logs; the history contracts emit ~25 logs per 1,000 blocks). Measured 2026-10-17:
+   * MEV Blocker answers multi-address ranges up to 10,000 blocks; publicnode (403 without a token), dRPC's free plan
+   * (400) and Blast (10 blocks) refuse old ranges whatever the span.
+   */
+  windowSize: 5000n,
+  /** The open window (up to the head) reaches back at least this far, so it is rarely empty (an empty answer is
+   * unverified and sends the read to Blockscout). */
+  tailSize: 2000n,
+  /** Public RPCs that refuse eth_getLogs over old ranges (above): the log client skips them, so a window /rpc could
+   * not serve goes to a provider that can, or to Blockscout, instead of being walked through each refusal. */
+  noArchiveLogs: ["ethereum-rpc.publicnode.com", "eth.drpc.org", "eth-mainnet.public.blastapi.io"],
+  /** Log reads at once, per runtime (history.ts limited()). */
   parallel: 6,
   maxChunks: 10000,
   maxPages: 2000,

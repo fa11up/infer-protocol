@@ -502,7 +502,12 @@ export function rpc(s, body) {
         const p = body.params[0];
         result =
           s.logMode === "rpc"
-            ? fixtureLogs(s, p.address).filter(
+            ? // One address or several (history.ts reads the deployment's contracts together), in block order.
+              [p.address]
+                .flat()
+                .flatMap((a) => fixtureLogs(s, a))
+                .sort((x, y) => Number(BigInt(x.blockNumber) - BigInt(y.blockNumber)) || Number(BigInt(x.logIndex) - BigInt(y.logIndex)))
+                .filter(
                 (l) =>
                   BigInt(l.blockNumber) >= BigInt(p.fromBlock) &&
                   BigInt(l.blockNumber) <= BigInt(p.toBlock),
@@ -721,6 +726,9 @@ export function fixtureLogs(s, address) {
   if (!["PriceFeed", "NhiFeed", "SpotFeed", "oracle"].includes(name)) return [];
   return [7200, 7000, 2400, 120, ...(s.extraPoint ? [30] : [])].flatMap(
     (seconds, i) => {
+      // The fixture's head never moves (block 256), so a point added later is placed inside the reorg overlap that a
+      // refresh re-reads (history.ts: from 12 blocks below the last head read), as a new block's log would be.
+      const height = i === 4 ? 250 : 100 + i * 10;
       const value =
         name === "NhiFeed"
           ? ((80n + BigInt(i)) * W) / 100n
@@ -731,7 +739,7 @@ export function fixtureLogs(s, address) {
         event(
           "ValueUpdated",
           { value, updatedAt: s.now - BigInt(seconds) },
-          100 + i * 10,
+          height,
           0,
         ),
         event(
@@ -740,7 +748,7 @@ export function fixtureLogs(s, address) {
             requestId: "0x" + i.toString(16).padStart(64, "0"),
             questionHash: "0x" + "01".repeat(32),
           },
-          100 + i * 10,
+          height,
           1,
         ),
       ];

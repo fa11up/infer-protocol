@@ -4,6 +4,7 @@ import { setUnit } from "./unit";
 import { setCollateral, shareAbi, vaultShareAbi } from "./collateral";
 import { readAsker, type AskerState } from "./BuyUpdate";
 import type { Runtime, Target } from "./config";
+import { historyGroup } from "./history";
 
 const lastValueAbi = parseAbi([
   "function latestValue() view returns (uint256 value, uint64 updatedAt)",
@@ -105,6 +106,13 @@ export async function snapshot(
     if (addresses[i] === zeroAddress) throw Error(`Missing linked contract: ${fn}`);
     targets[fn] = { address: addresses[i], abi: r.abis[abiName] };
   });
+  // The contracts whose event history the pages read: one eth_getLogs per window names them all (history.ts).
+  historyGroup(
+    r,
+    ["ParameterizedVault", "PriceFeed", "NhiFeed", "SpotFeed", "stablecoin", "parameters", "treasury", "oracle"]
+      .filter((n) => targets[n])
+      .map((n) => targets[n].address),
+  );
   const errors: string[] = [];
   const v: Record<string, any> = {};
   const feeds: Snapshot["feeds"] = {};
