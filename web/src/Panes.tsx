@@ -1,3 +1,4 @@
+import { GovActivity } from "./GovActivity";
 import { activeInterface } from "./names";
 import { unit } from "./unit";
 import {
@@ -1396,6 +1397,7 @@ export function Governance({
           label="Parameters"
         />
       </Col>
+      <GovActivity r={r} s={s} />
       {/* Operator controls render only for the connected governor; everyone else sees what is
           pending and may apply it once the timelock ends. */}
       {!isGov && <Col label="Pending">{pendingBlock}</Col>}
