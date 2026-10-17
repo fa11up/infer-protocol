@@ -4,7 +4,7 @@
 import { decodeEventLog, getAddress, parseAbi, type Address } from "viem";
 import { S1_TOPICS, type RawLog } from "../../points/pool.ts";
 import type { Runtime, Target } from "./config";
-import { history, type ChainLog } from "./history";
+import { alignedWindows, history, limited, logClient, type ChainLog } from "./history";
 import { ours } from "./names";
 import { pegPoolScan } from "./peg-logs";
 import { read, type Snapshot } from "./state";
@@ -301,13 +301,8 @@ export async function readSwarm(r: Runtime, s: Snapshot): Promise<Swarm> {
     .then((x) => (x.ok ? x.json() : undefined))
     .then((d) => (d?.health ?? d) as { agentsOnline?: number; seatsEnrolled?: number } | undefined)
     .catch(() => undefined);
-  const step = 2000;
-  const windows: [number, number][] = [];
-  for (let a = from; a <= head; ) {
-    const b = (Math.floor(a / step) + 1) * step - 1;
-    windows.push([a, Math.min(head, b)]);
-    a = b + 1;
-  }
+  // The history windows (aligned, so closed ones are cache-identical at /rpc); the days outside the week are dropped.
+  const windows = alignedWindows(BigInt(from), BigInt(head)).map(([a, b]) => [Number(a), Number(b)] as const);
   const byDay = new Map<string, SwarmDay>();
   for (let t0 = today - 7 * DAY; t0 < today; t0 += DAY) byDay.set(dayOf(t0), { day: dayOf(t0), requests: 0, imd: 0 });
   const add = (t: number, imd: number) => {
@@ -324,17 +319,22 @@ export async function readSwarm(r: Runtime, s: Snapshot): Promise<Swarm> {
   }
   const topic = "0x" + SWARM_PAY_TO.slice(2).toLowerCase().padStart(64, "0");
   const viaRpc = await Promise.all(
-    windows.map(
-      ([a, b]) =>
-        r.client.request({
-          method: "eth_getLogs",
-          params: [{ address: IMD_TOKEN, topics: [S1_TOPICS.transfer as `0x${string}`, null, topic as `0x${string}`], fromBlock: `0x${a.toString(16)}`, toBlock: `0x${b.toString(16)}` }],
-        }) as Promise<RawLog[]>,
+    windows.map(([a, b]) =>
+      limited(
+        r,
+        () =>
+          logClient(r).request({
+            method: "eth_getLogs",
+            params: [{ address: IMD_TOKEN, topics: [S1_TOPICS.transfer as `0x${string}`, null, topic as `0x${string}`], fromBlock: `0x${a.toString(16)}`, toBlock: `0x${b.toString(16)}` }],
+          }) as Promise<RawLog[]>,
+      ),
     ),
   ).catch(() => undefined);
   if (viaRpc) {
     const clock = await blockClock(r, from, head);
-    for (const l of viaRpc.flat()) add(clock(Number(BigInt(l.blockNumber))), Number(BigInt(l.data)) / 1e18);
+    // The open window can reach back over the closed one before it: a transfer read twice counts once.
+    const unique = new Map(viaRpc.flat().map((l) => [`${l.transactionHash}:${BigInt(l.logIndex)}`, l]));
+    for (const l of unique.values()) if (Number(BigInt(l.blockNumber)) >= from) add(clock(Number(BigInt(l.blockNumber))), Number(BigInt(l.data)) / 1e18);
   } else {
     // A public RPC that refuses week-old log ranges (imdusd.com's /rpc serves them; local and fallback hosts may not):
     // read the same transfers from Blockscout's token-transfer list for the payment address, newest first.

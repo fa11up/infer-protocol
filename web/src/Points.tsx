@@ -10,13 +10,13 @@ import {
 } from "../../points/engine.ts";
 import { lpEvents, type TxTransfer } from "../../points/lp.ts";
 import { computePreseason } from "../../points/preseason.ts";
-import { poolEvents, nftOwnerEvents, isWalletCode, isSafeProxy, type RawLog } from "../../points/pool.ts";
-import { pegPoolLogs } from "./peg-logs";
+import { poolEvents, nftOwnerEvents, isWalletCode, isSafeProxy, S1_TOPICS } from "../../points/pool.ts";
+import { pegPoolLogs, pegPoolScan } from "./peg-logs";
 import { computeSeason1, type S1Event } from "../../points/season1.ts";
 import { readSeason, firstBlockAtOrAfter, type SeasonInfo } from "./season";
 import { history } from "./history";
 import { ours } from "./names";
-import { historyConfig, pointsConfig, type Runtime } from "./config";
+import { pointsConfig, type Runtime } from "./config";
 import type { Snapshot } from "./state";
 import { message } from "./math";
 import { Info, Row } from "./actions";
@@ -27,57 +27,14 @@ const TRANSFER =
   "0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef";
 const SECONDS_PER_BLOCK = 12;
 const topicAddress = (t: string) => getAddress(`0x${t.slice(-40)}`);
-/** keccak256("ModifyLiquidity(bytes32,address,int24,int24,int256,bytes32)"), the PoolManager's add/remove event. */
-const MODIFY_LIQUIDITY =
-  "0xf208f4912782fd25c7f114ca3723a2d5dd6f3bcc3ac8db5af63baa85f711d5ec";
-
-/** Transactions that added to or removed from the peg pool, read once and then only the new blocks. */
-const lpScans = new WeakMap<Runtime, { through: number; txs: Set<string> }>();
+/** Transactions that added to or removed from the peg pool: the ModifyLiquidity logs of the peg pool scan
+ * (peg-logs.ts), which already reads them, so they are not read a second time. */
 async function pegLiquidityTxs(r: Runtime, head: number): Promise<Set<string> | undefined> {
-  const pool = pointsConfig.pegPools[r.config.chainId];
-  const pm = pointsConfig.poolManagers[r.config.chainId];
-  if (!pool || !pm) return undefined;
-  // Kept in the browser between visits (missing or full storage just means a full scan), and re-read from 64 blocks
-  // before where the last scan stopped, so a reorganised block is read again.
-  const storeKey = `lp-scan:${r.config.chainId}:${pool.poolId}`;
-  let old = lpScans.get(r);
-  if (!old)
-    try {
-      const kept = JSON.parse(localStorage.getItem(storeKey) ?? "null");
-      if (kept && Number.isSafeInteger(kept.through) && Array.isArray(kept.txs)) old = { through: kept.through, txs: new Set(kept.txs) };
-    } catch {
-      /* no storage */
-    }
-  const txs = new Set(old?.txs);
-  const step = Number(historyConfig.chunkSize);
-  // Windows aligned to multiples of the chunk size, as history.ts reads them, so /rpc can serve closed ones from
-  // its cache; several at a time.
-  const windows: [number, number][] = [];
-  for (let a = old ? Math.max(pool.fromBlock, old.through - 63) : pool.fromBlock; a <= head; ) {
-    const b = (Math.floor((a + step - 1) / step) + 1) * step - 1;
-    windows.push([a, Math.min(head, b)]);
-    a = b + 1;
-  }
-  let next = 0;
-  await Promise.all(
-    Array.from({ length: Math.min(historyConfig.parallel, windows.length) }, async () => {
-      while (next < windows.length) {
-        const [a, b] = windows[next++];
-        const logs = (await r.client.request({
-          method: "eth_getLogs",
-          params: [{ address: pm as `0x${string}`, topics: [MODIFY_LIQUIDITY, pool.poolId], fromBlock: `0x${a.toString(16)}`, toBlock: `0x${b.toString(16)}` }],
-        })) as { transactionHash: string }[];
-        for (const l of logs) txs.add(l.transactionHash.toLowerCase());
-      }
-    }),
+  const logs = await pegPoolScan(r, head);
+  if (!logs) return undefined;
+  return new Set(
+    logs.filter((l) => l.topics[0]?.toLowerCase() === S1_TOPICS.modifyLiquidity && l.transactionHash).map((l) => l.transactionHash!.toLowerCase()),
   );
-  lpScans.set(r, { through: head, txs });
-  try {
-    localStorage.setItem(storeKey, JSON.stringify({ through: head, txs: [...txs] }));
-  } catch {
-    /* no storage */
-  }
-  return txs;
 }
 
 /** Reads imdUSD transfers and vault liquidations, then runs the shared engine at the snapshot block. */
