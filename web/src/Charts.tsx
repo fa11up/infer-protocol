@@ -518,7 +518,7 @@ function LoanFeed({
       </ul>
       <div className="loan-coverage">
         <span>
-          {coverage.source} · blocks {coverage.from.toString()}–
+          {coverage.source === "Index" && coverage.index !== undefined ? `Index to ${coverage.index} + RPC` : coverage.source} · blocks {coverage.from.toString()}–
           {coverage.through.toString()} · {shown.length}/{positions.length}
         </span>
         <Info

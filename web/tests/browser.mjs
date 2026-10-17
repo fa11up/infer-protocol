@@ -19,6 +19,8 @@ import {
   askerBody,
   askerPrice,
   fixtureDeploymentDir,
+  fixtureLogs,
+  addresses,
 } from "./fixture.mjs";
 const root = resolve(fileURLToPath(new URL("../..", import.meta.url)));
 const archiveRpcUrls = Object.values(JSON.parse(await readFile(new URL("../src/archive-rpc.json", import.meta.url), "utf8"))).flat();
@@ -90,12 +92,38 @@ function passed(name, detail) {
   results.push({ name, status: "passed", detail });
   console.log("PASS", name);
 }
+/**
+ * imdusd.com/api/v1 (worker/history-api.js) for the fixture chain: the public history index up to `through`, made from
+ * the fixture's own logs, every request recorded in s.apiCalls. The page opts in (localStorage), as a local
+ * wrangler dev of the Worker does: off imdusd.com the terminal never asks it otherwise.
+ */
+function fixtureApi({ through = 240, unverified = false } = {}) {
+  const group = [...new Set(Object.values(addresses).map((a) => a.toLowerCase()))];
+  return async (route, s) => {
+    const u = new URL(route.request().url());
+    (s.apiCalls ??= []).push(u.pathname + u.search);
+    const base = { chainId: 11155111, through, unverified };
+    if (u.pathname.endsWith("/api/v1/meta"))
+      return route.fulfill({ json: { ...base, floor: 0, finality: 12, addresses: Object.fromEntries(group.map((a, i) => [`c${i}`, a])) }, headers: { "access-control-allow-origin": "*" } });
+    const from = BigInt(u.searchParams.get("fromBlock"));
+    const to = BigInt(u.searchParams.get("toBlock")) < BigInt(through) ? BigInt(u.searchParams.get("toBlock")) : BigInt(through);
+    const logs = u.searchParams
+      .get("address")
+      .split(",")
+      .filter((a) => group.includes(a))
+      .flatMap((a) => (fixtureLogs(s, a) ?? []).map((l) => ({ ...l, address: a })))
+      .filter((l) => BigInt(l.blockNumber) >= from && BigInt(l.blockNumber) <= to)
+      .sort((x, y) => Number(BigInt(x.blockNumber) - BigInt(y.blockNumber)) || Number(BigInt(x.logIndex) - BigInt(y.logIndex)));
+    return route.fulfill({ json: { ...base, fromBlock: Number(from), toBlock: Number(to), complete: true, next: null, logs }, headers: { "access-control-allow-origin": "*" } });
+  };
+}
 async function setup({
   wallet = true,
   atomic = false,
   chain = "0x1",
   state = {},
   deployment,
+  api,
 } = {}) {
   if (context) await context.close();
   context = await browser.newContext({
@@ -169,6 +197,14 @@ async function setup({
       const json = await (await route.fetch()).json();
       await route.fulfill({ json: deployment(json) });
     });
+  if (api) {
+    await context.addInitScript(() => {
+      try {
+        localStorage.setItem("imdusd:history-index", "same-origin");
+      } catch {}
+    });
+    await context.route(/\/api\/v1\//, (route) => api(route, s));
+  }
   if (wallet) {
     await page.exposeFunction("__sendFixture", (tx) => sent(s, tx));
     await installWallet(page, { chain, atomic });
@@ -1818,7 +1854,34 @@ try {
       assert.deepEqual(f.address, [...f.address].map((a) => a.toLowerCase()).sort(), "a sorted, lowercase address list");
     passed("History skips RPCs that refuse old log ranges and reads the deployment's contracts together in sorted windows");
   }
-  assert.deepEqual(errors, [], JSON.stringify(errors.slice(0, 10)));
+  {
+    // The public history index (/api/v1): the loan book's history comes from it up to its `through` and the chain after;
+    // the stats page says so in its source line. An index that is unverified, or failing, is ignored silently.
+    const { page, s } = await setup({ api: fixtureApi() });
+    await tab(page, "loans");
+    await page.locator(".loan-mark").first().waitFor();
+    await expectText(page.locator(".loan-coverage"), "Index");
+    assert.ok(s.apiCalls.some((c) => c.startsWith("/api/v1/meta")), "meta asked");
+    assert.ok(s.apiCalls.some((c) => c.startsWith("/api/v1/logs?address=")), "logs asked");
+    const viaIndex = await page.locator(".loan-mark").count();
+    await page.goto(`${url}stats/`);
+    await page.getByRole("heading", { level: 1, name: "imdUSD Analytics" }).waitFor();
+    await expectText(page.locator(".an-src").first(), "history via index, through block 240");
+    for (const [name, api] of [
+      ["unverified", fixtureApi({ unverified: true })],
+      ["failing", (route, st) => ((st.apiCalls ??= []).push("fail"), route.fulfill({ status: 503, body: "{}" }))],
+    ]) {
+      const { page: p2 } = await setup({ api });
+      await tab(p2, "loans");
+      await p2.locator(".loan-mark").first().waitFor();
+      await expectText(p2.locator(".loan-coverage"), "RPC");
+      assert.equal(await p2.locator(".loan-mark").count(), viaIndex, `${name}: the same book from the chain`);
+      await p2.goto(`${url}stats/`);
+      await expectText(p2.locator(".an-src").first(), "history via chain");
+    }
+    passed("History reads the public index up to its through when usable, says so on the stats page, and falls back to the chain when it is unverified or failing");
+  }
+  assert.deepEqual(errors.filter((e) => !/^503 .*\/api\/v1\//.test(e) && !/Failed to load resource.*503/.test(e)), [], JSON.stringify(errors.slice(0, 10)));
   passed(
     "No browser console errors or uncaught exceptions in mocked workflows",
   );
