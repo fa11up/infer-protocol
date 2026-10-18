@@ -12,6 +12,7 @@ import {
   installWallet,
   config,
   candidate,
+  extraOwner,
   account,
   blockscout,
   ensRpc,
@@ -1142,16 +1143,34 @@ try {
   await loans.getByLabel("Search positions by name or address").fill("keeper");
   await expectText(loans.getByRole("status"), "1 of 3 positions shown");
   await loans.getByLabel("Search positions by name or address").fill("");
-  // A loan-book row opens that borrower in Keeper, already inspected.
-  await loans.locator(".loan-feed button", { hasText: "keeper.eth" }).click();
-  const opened = page.locator(".pane-keeper");
-  await expectText(opened, "keeper.eth");
-  await expectText(opened.getByRole("status"), "Inspected keeper.eth");
-  assert.equal(
-    await opened.getByLabel("Borrower address").inputValue(),
-    candidate,
-  );
-  await expectText(opened, "Liquidation price");
+  // A loan between minCR and the ceiling opens in the redemption desk as its candidate: keeper.eth at 180% with
+  // minCR 150% and the ceiling 200%, from its row (the row says where it goes) and by keyboard from its circle.
+  const deskSelected = async (name) =>
+    assert.equal(await page.getByRole("tab", { name, exact: true }).getAttribute("aria-selected"), "true", `${name} desk open`);
+  await tab(page, "position");
+  const redeemRow = loans.locator(".loan-feed button", { hasText: "keeper.eth" });
+  assert.equal(await redeemRow.getAttribute("title"), "Open keeper.eth in redemption desk");
+  assert.match(await redeemRow.textContent(), /Redeemable\. Open in redemption desk/);
+  await redeemRow.click();
+  await deskSelected("Redeem");
+  const candidateField = page.locator('.pane-redemption input[name="redemption-candidate"]');
+  const candidateIs = (value) =>
+    page.waitForFunction(
+      (v) => document.querySelector('.pane-redemption input[name="redemption-candidate"]')?.value.toLowerCase() === v.toLowerCase(),
+      value,
+    );
+  await candidateIs(candidate);
+  await candidateField.fill("");
+  await tab(page, "position");
+  const redeemMark = page.locator(`.loan-mark[aria-label*="${candidate}"]`);
+  assert.match(await redeemMark.getAttribute("aria-label"), /Open in redemption desk$/);
+  await redeemMark.hover();
+  await expectText(page.locator(".loan-pop"), "Click: open in redemption desk");
+  await redeemMark.focus();
+  await page.keyboard.press("Enter");
+  await deskSelected("Redeem");
+  await candidateIs(candidate);
+  assert.equal(await page.locator(".selected-loan").getAttribute("data-owner"), candidate);
   passed(
     "Deposit owners deduplicated, zero-debt owner excluded, debt area ratio 4:1; hover, keyboard and touch-readable addresses",
     names,
@@ -1166,6 +1185,34 @@ try {
     document.querySelector(".liquidatable-band")?.style.width.startsWith("50"),
   );
   assert.ok((await page.locator(".loan-mark.is-danger").count()) >= 2);
+  // Under minCR (now 200%) the same loan opens in Keeper instead, already inspected: from its circle by click and
+  // from its row.
+  await tab(page, "position");
+  const liqMark = page.locator(`.loan-mark[aria-label*="${candidate}"]`);
+  assert.match(await liqMark.getAttribute("aria-label"), /Liquidatable.*Open in keeper desk$/);
+  await liqMark.click();
+  await deskSelected("Keeper");
+  const opened = page.locator(".pane-keeper");
+  await expectText(opened, "keeper.eth");
+  await expectText(opened.getByRole("status"), "Inspected keeper.eth");
+  assert.equal(await opened.getByLabel("Borrower address").inputValue(), candidate);
+  await expectText(opened, "Liquidation price");
+  await tab(page, "position");
+  const liqRow = loans.locator(".loan-feed button", { hasText: "keeper.eth" });
+  assert.equal(await liqRow.getAttribute("title"), "Open keeper.eth in keeper desk");
+  await liqRow.press("Enter");
+  await deskSelected("Keeper");
+  // A safe loan (260%, above the 250% ceiling): its row inspects it in Keeper as before; its circle only selects.
+  await opened.getByLabel("Borrower address").fill("");
+  await tab(page, "position");
+  const safeMark = page.locator(`.loan-mark[aria-label*="${extraOwner}"]`);
+  assert.doesNotMatch(await safeMark.getAttribute("aria-label"), /Open in/);
+  await safeMark.click();
+  await deskSelected("Position");
+  assert.equal(await page.locator(".selected-loan").getAttribute("data-owner"), extraOwner);
+  await loans.locator(`.loan-feed li[data-owner="${extraOwner}"] button`).click();
+  await deskSelected("Keeper");
+  assert.equal((await opened.getByLabel("Borrower address").inputValue()).toLowerCase(), extraOwner.toLowerCase());
   const updatedWidth = await page
     .locator(".liquidatable-band")
     .evaluate((n) => parseFloat(n.style.width));

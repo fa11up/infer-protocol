@@ -94,6 +94,14 @@ const liquidation = (p: { collateral: bigint; debt: bigint }, s?: Snapshot) => {
 };
 const stateOf = (cr: bigint, min: bigint, ceiling: bigint) =>
   cr < min ? "Liquidatable" : cr < ceiling ? "Redeemable" : "Safe";
+/** The desk a loan opens in. Under minCR it is the keeper's (mark and liquidate: the keeper acts only below minCR,
+ * so a mark left on a loan back above it is nothing to act on); from minCR to strictly under the ceiling it is a
+ * redemption candidate (`cash` refuses one at or above the ceiling). A safe loan has neither: a row opens it in the
+ * keeper desk to inspect, as before; a circle only selects it. */
+export type Desk = "keeper" | "redemption";
+const deskOf = (cr: bigint, min: bigint, ceiling: bigint): Desk | undefined =>
+  cr < min ? "keeper" : cr < ceiling ? "redemption" : undefined;
+const DESK_TEXT: Record<Desk, string> = { keeper: "keeper desk", redemption: "redemption desk" };
 
 export function LoanBook({
   charts,
@@ -102,8 +110,8 @@ export function LoanBook({
 }: {
   charts: ChartData;
   available: boolean;
-  /** Opens a borrower in the keeper desk. */
-  onOpen?: (owner: string) => void;
+  /** Opens a borrower in the keeper desk (to liquidate or inspect) or the redemption desk (as the candidate). */
+  onOpen?: (owner: string, desk: Desk) => void;
 }) {
   const { book } = charts;
   const host = useRef<HTMLDivElement>(null);
@@ -274,13 +282,16 @@ export function LoanBook({
                 className="band-boundary ceiling-boundary"
                 style={{ left: `${at(ceiling!)}%` }}
               />
-              {marks.map((p) => (
+              {marks.map((p) => {
+                const desk = onOpen ? deskOf(p.cr, min!, ceiling!) : undefined;
+                return (
                 <button
                   key={p.owner}
                   type="button"
                   className={`loan-mark ${p.cr < min! ? "is-danger" : p.cr < ceiling! ? "is-redeemable" : "is-healthy"}`}
                   style={{ left: `${p.x}%`, top: p.y, width: p.hit * 2, height: p.hit * 2 }}
-                  aria-label={`${displayName(p.owner)}, ${p.owner}, ${p.cr}% collateral ratio, ${fmt(p.debt)} ${unit()}, ${stateOf(p.cr, min!, ceiling!)}, ${liquidation(p, s)}`}
+                  data-desk={desk}
+                  aria-label={`${displayName(p.owner)}, ${p.owner}, ${p.cr}% collateral ratio, ${fmt(p.debt)} ${unit()}, ${stateOf(p.cr, min!, ceiling!)}, ${liquidation(p, s)}${desk ? `. Open in ${DESK_TEXT[desk]}` : ""}`}
                   aria-pressed={selected === p.owner}
                   onMouseEnter={() => setHovered(p.owner)}
                   onMouseLeave={() => setHovered((h) => (h === p.owner ? undefined : h))}
@@ -289,16 +300,20 @@ export function LoanBook({
                     if (e.currentTarget.matches(":focus-visible")) setHovered(p.owner);
                   }}
                   onBlur={() => setHovered((h) => (h === p.owner ? undefined : h))}
-                  onClick={() =>
-                    setSelected(selected === p.owner ? undefined : p.owner)
-                  }
+                  onClick={() => {
+                    if (desk) {
+                      setSelected(p.owner);
+                      onOpen!(p.owner, desk);
+                    } else setSelected(selected === p.owner ? undefined : p.owner);
+                  }}
                 >
                   <span
                     className="loan-dot"
                     style={{ width: p.radius * 2, height: p.radius * 2 }}
                   />
                 </button>
-              ))}
+                );
+              })}
               {(() => {
                 const p = marks.find((m) => m.owner === hovered);
                 if (!p) return null;
@@ -320,6 +335,9 @@ export function LoanBook({
                       {stateOf(p.cr, min!, ceiling!)}
                     </span>
                     <span>{liquidation(p, s)}</span>
+                    {onOpen && deskOf(p.cr, min!, ceiling!) && (
+                      <span className="loan-pop-go">Click: open in {DESK_TEXT[deskOf(p.cr, min!, ceiling!)!]}</span>
+                    )}
                   </div>
                 );
               })()}
@@ -362,7 +380,7 @@ function LoanFeed({
   ceiling: bigint;
   selected?: string;
   onSelect: (owner?: string) => void;
-  onOpen?: (owner: string) => void;
+  onOpen?: (owner: string, desk: Desk) => void;
   coverage: Book["history"];
 }) {
   const [query, setQuery] = useState("");
@@ -467,6 +485,7 @@ function LoanFeed({
         {shown.map((p) => {
           const at = perImd(liquidationPrice(p.collateral, p.debt, min));
           const zoneOf = stateOf(p.cr, min, ceiling);
+          const desk = deskOf(p.cr, min, ceiling) ?? "keeper";
           return (
             <li
               key={p.owner}
@@ -476,10 +495,11 @@ function LoanFeed({
               <button
                 type="button"
                 aria-current={selected === p.owner || undefined}
-                title={`Open ${displayName(p.owner)} in Keeper`}
+                data-desk={onOpen ? desk : undefined}
+                title={onOpen ? `Open ${displayName(p.owner)} in ${DESK_TEXT[desk]}` : undefined}
                 onClick={() => {
                   onSelect(p.owner);
-                  onOpen?.(p.owner);
+                  onOpen?.(p.owner, desk);
                 }}
               >
                 <span className="loan-who">
@@ -506,6 +526,7 @@ function LoanFeed({
                   {at ? `$\u00a0${fmt(at, 18, 2)}` : "—"}
                   <small>{at ? cushion(s.feeds.USD?.value, at) : ""}</small>
                 </span>
+                {onOpen && <span className="sr-only">, {zoneOf}. Open in {DESK_TEXT[desk]}</span>}
               </button>
             </li>
           );

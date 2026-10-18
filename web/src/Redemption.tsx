@@ -35,13 +35,21 @@ export function Redemption({
   r,
   s,
   actions,
+  target,
 }: {
   r: Runtime;
   s?: Snapshot;
   actions: Actions;
+  /** A borrower opened from the loan book: it becomes the candidate position. */
+  target?: { owner: string; seq: number };
 }) {
   const [input, setInput] = useState("");
   const [candidate, setCandidate] = useState("");
+  // Only a new open sets it; a snapshot refresh must not replace what the redeemer typed.
+  useEffect(() => {
+    if (target) setCandidate(target.owner);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target?.seq]);
   const [slippage, setSlippage] = useState("50");
   const version = useRef(0);
   const [q, setQ] = useState<Quote>();

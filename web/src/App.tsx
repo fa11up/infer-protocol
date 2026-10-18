@@ -111,10 +111,16 @@ function Terminal({ r }: { r: Runtime }) {
     owner: string;
     seq: number;
   }>();
-  const openInKeeper = (owner: string) => {
-    setKeeperTarget((t) => ({ owner, seq: (t?.seq ?? 0) + 1 }));
-    setDesk("keeper");
-    setMobilePane("keeper");
+  const [redemptionTarget, setRedemptionTarget] = useState<{
+    owner: string;
+    seq: number;
+  }>();
+  // A loan-book click opens the desk that can act on that loan: Keeper below minCR (or to inspect a safe loan),
+  // Redemption, with the loan as its candidate, between minCR and the ceiling (Charts.tsx deskOf).
+  const openLoan = (owner: string, to: "keeper" | "redemption") => {
+    (to === "keeper" ? setKeeperTarget : setRedemptionTarget)((t) => ({ owner, seq: (t?.seq ?? 0) + 1 }));
+    setDesk(to);
+    setMobilePane(to);
   };
   const charts = useCharts(r, s);
   const points = usePoints(r, s);
@@ -616,7 +622,7 @@ function Terminal({ r }: { r: Runtime }) {
             title="Loan book"
             tag="Live risk bands"
           >
-            <LoanBook charts={charts} available={!!s} onOpen={openInKeeper} />
+            <LoanBook charts={charts} available={!!s} onOpen={openLoan} />
           </Pane>
           <Pane monitor id="oracle" index="01" title="Oracle" tag="Feeds">
             <Oracle r={r} s={s} now={now} charts={charts} actions={actions} />
@@ -668,7 +674,7 @@ function Terminal({ r }: { r: Runtime }) {
             title="Redemption"
             tag="Reserve first"
           >
-            <Redemption r={r} s={s} actions={actions} />
+            <Redemption r={r} s={s} actions={actions} target={redemptionTarget} />
           </Pane>
           <Pane
             desk

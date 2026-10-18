@@ -875,6 +875,9 @@ dialog [role="status"] {
   color: var(--text);
   font-size: 11px;
 }
+.loan-pop-go {
+  color: var(--text);
+}
 
 @media (hover: hover) {
   .loan-mark:not(:disabled):hover {
