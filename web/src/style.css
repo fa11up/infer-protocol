@@ -4737,6 +4737,11 @@ dialog:focus-visible {
   color: var(--muted);
   font-size: 11px;
 }
+/* A note reads "…: reading" until the chain is read, then often takes a second line: both lines are kept from the
+   start, so the vitals row (in the first screen) does not grow and push the peg chart down. */
+.an-vital-note {
+  min-height: 2lh;
+}
 .an-vital-value {
   font-size: 22px;
   line-height: 1.15;
@@ -4810,6 +4815,20 @@ dialog:focus-visible {
   height: auto;
 }
 .an-chart .an-svg { min-width: 560px; }
+/* FloorBody's note is two lines (three on a narrow column); its room is kept while the floor is read. */
+.an-wait-lines {
+  min-height: 2lh;
+}
+/* A chart's empty frame while its data is read (Analytics.tsx ChartWait), with the reading note over it. */
+.an-wait {
+  position: relative;
+}
+.an-wait > .an-quiet {
+  position: absolute;
+  inset: 45% 0 auto;
+  padding-inline: 16px;
+  text-align: center;
+}
 .an-svg text {
   fill: var(--muted);
   font-size: 11px;

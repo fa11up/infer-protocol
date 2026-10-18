@@ -18,7 +18,7 @@ import {
   vaultEvents,
   type FeedUpdates,
 } from "./analytics-data";
-import { DayBars, HBars, PegChart, ShareBar, Spark, StressPlot, utcShort, type DayCol } from "./AnalyticsCharts";
+import { DayBars, HBars, PEG_CHART_W, PegChart, pegChartHeight, ShareBar, Spark, StressPlot, utcShort, type DayCol } from "./AnalyticsCharts";
 import { loadConfig, pointsConfig, type Runtime } from "./config";
 import { ensName, useEns } from "./ens";
 import { describePending } from "./governance";
@@ -174,17 +174,17 @@ export function Analytics() {
         </div>
       </section>
 
-      <PegPanel peg={peg} feeds={feeds.data} now={now} pegNow={pegNow} />
+      <PegPanel peg={peg} feeds={feeds.data} now={now} pegNow={pegNow} lanes={s ? ["PriceFeed", "SpotFeed"].filter((k) => s.targets[k]).length : 2} />
 
       <div className="an-grid2">
-        <Panel title="Redemption floor" sub="What 1 imdUSD is worth, three ways" load={floor}>
+        <Panel title="Redemption floor" sub="What 1 imdUSD is worth, three ways" load={floor} wait={floorWait}>
           {floor.data && s && pegNow !== undefined && redeem !== undefined && market ? (
             <FloorBody floor={floor.data} s={s} pegNow={pegNow} redeem={redeem} marketImdUsd={market.imdUsd} />
           ) : (
-            <p className="an-quiet">Reading the market price…</p>
+            floorWait("Reading the market price…")
           )}
         </Panel>
-        <Panel title="Price updates" sub="Accepted answers per day, last 7 days" load={feeds}>
+        <Panel title="Price updates" sub="Accepted answers per day, last 7 days" load={feeds} wait={updatesWait}>
           {feeds.data && s && <UpdatesBody feeds={feeds.data} s={s} now={now} />}
         </Panel>
       </div>
@@ -315,14 +315,29 @@ function Shell({ children, asOf }: { children: ReactNode; asOf?: string }) {
   );
 }
 
-function Panel({ title, sub, load, children }: { title: string; sub?: string; load: Load<unknown>; children?: ReactNode }) {
+/** A chart's empty frame at the size the chart will have (its viewBox), with a reading note over it: what a panel in
+ * the first screens shows until its data arrives, so the panels under it do not move down when it does. */
+function ChartWait({ w, h, note, scroll }: { w: number; h: number; note: string; scroll?: boolean }) {
+  return (
+    <div className={scroll ? "an-chart an-wait" : "an-wait"}>
+      <svg viewBox={`0 0 ${w} ${h}`} className="an-svg" aria-hidden="true" />
+      <p className="an-quiet">{note}</p>
+    </div>
+  );
+}
+
+function Panel({ title, sub, load, wait, children }: { title: string; sub?: string; load: Load<unknown>; wait?: (note: string) => ReactNode; children?: ReactNode }) {
   return (
     <section className="an-panel" aria-label={title}>
       <div className="an-panel-head">
         <h2>{title}</h2>
         {sub && <p>{sub}</p>}
       </div>
-      {load.data === undefined ? <p className="an-quiet">{load.error ? `Could not read this: ${load.error}` : "Reading the chain…"}</p> : children}
+      {load.data === undefined ? (
+        load.error || !wait ? <p className="an-quiet">{load.error ? `Could not read this: ${load.error}` : "Reading the chain…"}</p> : wait("Reading the chain…")
+      ) : (
+        children
+      )}
       {load.data !== undefined && load.error && <p className="an-quiet">Showing the last good read; the latest failed: {load.error}</p>}
     </section>
   );
@@ -386,7 +401,7 @@ function readRange() {
     return "24h";
   }
 }
-function PegPanel({ peg, feeds, now, pegNow }: { peg: Load<Awaited<ReturnType<typeof pegHistory>>>; feeds?: FeedUpdates[]; now: number; pegNow?: number }) {
+function PegPanel({ peg, feeds, now, pegNow, lanes }: { peg: Load<Awaited<ReturnType<typeof pegHistory>>>; feeds?: FeedUpdates[]; now: number; pegNow?: number; lanes: number }) {
   const [range, setRange] = useState(readRange);
   const pick = (id: string) => {
     setRange(id);
@@ -414,40 +429,40 @@ function PegPanel({ peg, feeds, now, pegNow }: { peg: Load<Awaited<ReturnType<ty
           ))}
         </div>
       </div>
+      {/* The chart's frame, legend and figures are drawn before the swaps are read, at their final size: the panel
+          sits in the first screen on a desktop and would push everything under it down when the chart arrives. */}
       {!points || !st ? (
-        <p className="an-quiet">{peg.error ? `Could not read the peg pool: ${peg.error}` : "Reading the peg pool…"}</p>
+        <ChartWait scroll w={PEG_CHART_W} h={pegChartHeight(lanes)} note={peg.error ? `Could not read the peg pool: ${peg.error}` : "Reading the peg pool…"} />
       ) : (
-        <>
-          <div className="an-chart" tabIndex={0} role="region" aria-label="Peg chart, scrolls sideways on small screens">
-            <PegChart points={points} feeds={feeds ?? []} t0={t0} t1={now} now={pegNow ?? st.now} />
-          </div>
-          <ul className="an-legend">
-            <li>
-              <i className="an-key-line" />
-              pool price, USDC per imdUSD
-            </li>
-            <li>
-              <i className="an-key-band" />
-              peg band $0.99–$1.01
-            </li>
-            <li>
-              <i className="an-key-fresh" />
-              feed fresh
-            </li>
-            <li>
-              <i className="an-key-stale" />
-              feed stale: new borrowing paused, payout price held
-            </li>
-          </ul>
-          <dl className="an-figs">
-            <Fig k="Time-weighted average" v={`$${st.twap.toFixed(3)}`} />
-            <Fig k="Time below $0.99" v={`${(st.below / 3600).toFixed(1)} h`} />
-            <Fig k="Lowest" v={`$${st.low.price.toFixed(3)}`} />
-            <Fig k="Swaps" v={whole(st.inside.length)} />
-            {price && <Fig k="Price feed fresh" v={`${freshShare(price, t0, now)}%`} />}
-          </dl>
-        </>
+        <div className="an-chart" tabIndex={0} role="region" aria-label="Peg chart, scrolls sideways on small screens">
+          <PegChart points={points} feeds={feeds ?? []} t0={t0} t1={now} now={pegNow ?? st.now} minLanes={feeds ? 0 : lanes} />
+        </div>
       )}
+      <ul className="an-legend">
+        <li>
+          <i className="an-key-line" />
+          pool price, USDC per imdUSD
+        </li>
+        <li>
+          <i className="an-key-band" />
+          peg band $0.99–$1.01
+        </li>
+        <li>
+          <i className="an-key-fresh" />
+          feed fresh
+        </li>
+        <li>
+          <i className="an-key-stale" />
+          feed stale: new borrowing paused, payout price held
+        </li>
+      </ul>
+      <dl className="an-figs">
+        <Fig k="Time-weighted average" v={st ? `$${st.twap.toFixed(3)}` : "…"} />
+        <Fig k="Time below $0.99" v={st ? `${(st.below / 3600).toFixed(1)} h` : "…"} />
+        <Fig k="Lowest" v={st ? `$${st.low.price.toFixed(3)}` : "…"} />
+        <Fig k="Swaps" v={st ? whole(st.inside.length) : "…"} />
+        {(price || !feeds) && <Fig k="Price feed fresh" v={price && st ? `${freshShare(price, t0, now)}%` : "…"} />}
+      </dl>
       <p className="an-src">Swap logs of the imdUSD/USDC pool {short(pointsConfig.pegPools[1]?.poolId ?? "0x0000000000")} · ValueUpdated logs of the price and spot feeds</p>
     </section>
   );
@@ -481,6 +496,39 @@ function FloorBody({ floor, s, pegNow, redeem, marketImdUsd }: { floor: Awaited<
         )}
         . {hours > 0.5 ? `The payout price falls at most 1% per fresh hour, so about ${Math.ceil(hours)} fresh hours close the gap.` : "The payout price is at the market."}
       </p>
+    </>
+  );
+}
+
+/** FloorBody's bars (HBars, three rows) and its two-line note, before the floor is read. */
+function floorWait(note: string) {
+  return (
+    <>
+      <ChartWait w={520} h={24 + 3 * 34} note={note} />
+      <p className="an-body an-wait-lines" aria-hidden="true" />
+    </>
+  );
+}
+/** UpdatesBody's frame: its bars, legend and figures, before the feeds' logs are read. */
+function updatesWait(note: string) {
+  return (
+    <>
+      <ChartWait w={520} h={190} note={note} />
+      <ul className="an-legend">
+        <li>
+          <i className="an-key-ink" />
+          price feed
+        </li>
+        <li>
+          <i className="an-key-muted" />
+          spot and health feeds
+        </li>
+      </ul>
+      <dl className="an-figs">
+        <Fig k="Updates since launch" v="…" />
+        <Fig k="Each bought for" v={`${REQUEST_IMD} IMD`} />
+        <Fig k="Stability fees per day" v="…" />
+      </dl>
     </>
   );
 }

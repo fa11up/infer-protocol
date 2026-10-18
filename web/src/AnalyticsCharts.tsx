@@ -11,15 +11,19 @@ export const utcShort = (t: number) => {
 const whole = (v: number) => Math.round(v).toLocaleString("en-US");
 
 /** The peg pool's price as a step line over [t0, t1], the $0.99–$1.01 band, and a freshness lane per feed. */
-export function PegChart({ points, feeds, t0, t1, now }: { points: PegPoint[]; feeds: FeedUpdates[]; t0: number; t1: number; now: number }) {
-  const W = 1060,
+/** The peg chart's viewBox: 1060 wide, and tall enough for its price plot and one freshness lane per feed. */
+export const PEG_CHART_W = 1060;
+export const pegChartHeight = (lanes: number) => 246 + lanes * 26 + 30;
+/** `minLanes` keeps room for the lanes of feeds still being read, so the chart does not grow when they arrive. */
+export function PegChart({ points, feeds, t0, t1, now, minLanes = 0 }: { points: PegPoint[]; feeds: FeedUpdates[]; t0: number; t1: number; now: number; minLanes?: number }) {
+  const W = PEG_CHART_W,
     L = 100,
     R = 1044,
     T = 16,
     B = 222,
     laneTop = 246,
     lanes = feeds.filter((f) => f.name !== "health");
-  const H = laneTop + lanes.length * 26 + 30;
+  const H = pegChartHeight(Math.max(lanes.length, minLanes));
   let start = points[0]?.price ?? 1;
   for (const p of points) if (p.t <= t0) start = p.price;
   const inside = points.filter((p) => p.t > t0 && p.t <= t1);
