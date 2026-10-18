@@ -543,7 +543,7 @@ function collateralDays(events: Awaited<ReturnType<typeof vaultEvents>>, dec: nu
 }
 
 function StressPanel({ loans, mat, redeemable, load }: { loans: { owner: string; debt: number; cr: number }[]; mat: number; redeemable: number; load: Load<unknown> }) {
-  const [fall, setFall] = useState(25);
+  const [fall, setFall] = useState(0);
   const real = loans.filter((l) => l.debt >= DUST);
   const after = real.map((l) => ({ ...l, nc: l.cr * (1 - fall / 100) }));
   const bad = after.filter((l) => l.nc < mat);

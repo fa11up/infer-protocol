@@ -435,6 +435,8 @@ try {
   await page.getByRole("button", { name: "Since launch" }).click();
   assert.equal(await page.getByRole("button", { name: "Since launch" }).getAttribute("aria-pressed"), "true");
   await page.getByRole("button", { name: "Liquidations" }).click();
+  assert.equal(await page.locator("#an-fall").inputValue(), "0", "the stress test starts at no fall");
+  await expectText(page.locator(".an-stress-ctl output"), "0%");
   await page.locator("#an-fall").fill("60");
   await expectText(page.locator(".an-stress-ctl output"), "60%");
   passed("Analytics is reached from the header, reads every panel or names what failed, passes axe and never scrolls sideways");
