@@ -9,3 +9,6 @@ test-results/
 # The INFER page's real figures and addresses: private until the launch request is submitted
 # (fa11up/infer-token/README.md). launch.example.json ships in its place.
 src/infer/launch.json
+
+# wrangler dev state (local D1, cache)
+.wrangler/
