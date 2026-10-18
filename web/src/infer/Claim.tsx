@@ -149,6 +149,8 @@ export function Claim() {
   // and simply has no clock.
   // `fuel`: the redeemer's own balance of the token, which its advanceClock burns 1 wei at a time.
   const [moons, setMoons] = useState<Record<string, MoonState & { fuel: bigint }>>({});
+  // Whether the clocks have been read once: until then a token redeemed at full moons keeps its clock's room.
+  const [moonsRead, setMoonsRead] = useState(false);
   useEffect(() => {
     if (!LIVE) return;
     let stale = false;
@@ -172,7 +174,11 @@ export function Claim() {
         }),
       );
       if (!stale) setMoons(out);
-    })().catch(() => undefined);
+    })()
+      .catch(() => undefined)
+      .finally(() => {
+        if (!stale) setMoonsRead(true);
+      });
     return () => {
       stale = true;
     };
@@ -431,6 +437,15 @@ export function Claim() {
                   : "Rate published at launch"}
                 , {r.window}.
               </p>
+              {!moon && LIVE && r.token && !moonsRead && /full.moon/i.test(r.window) && (
+                // The clock is read after the page is drawn; its room is kept so the form under it does not jump.
+                <div className="infer-moon infer-moon-wait">
+                  <dl className="infer-lines">
+                    <Line k="Full moon" v="—" />
+                    <Line k={`${r.symbol}'s clock`} v="—" />
+                  </dl>
+                </div>
+              )}
               {moon && (
                 <div className="infer-moon" aria-live="polite">
                   <dl className="infer-lines">

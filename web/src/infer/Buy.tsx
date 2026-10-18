@@ -13,10 +13,8 @@ import { Trade } from "./App";
 import { LIVE } from "./config";
 import { useInferMarket, usdCompact, usdPrice } from "./price";
 import { Vibe } from "../vibe";
-import { Fig, Mark, WalletChooser, useWallet } from "./ui";
+import { Fig, InferSound, Mark, WalletChooser, useWallet } from "./ui";
 import { INFER_VIBES } from "./vibes";
-import { Sound } from "../score";
-import { INFER_SCORE } from "./score";
 
 export function Buy() {
   const m = useInferMarket();
@@ -66,7 +64,7 @@ export function Buy() {
         <div className="infer-buy-tools">
           <p className="infer-buy-price">
             <span className="sr-only">Price </span>
-            <strong>
+            <strong className={m ? undefined : "infer-fig-wait"}>
               <Fig v={m ? usdPrice(m.priceUsd) : null} />
             </strong>
             <span className="infer-buy-cap">
@@ -74,11 +72,13 @@ export function Buy() {
                 {" · "}
               </span>
               {"MC "}
-              <Fig v={m ? usdCompact(m.marketCapUsd) : null} />
+              <span className={m ? undefined : "infer-fig-wait infer-cap-wait"}>
+                <Fig v={m ? usdCompact(m.marketCapUsd) : null} />
+              </span>
             </span>
           </p>
           <Vibe suite={INFER_VIBES} />
-          <Sound score={INFER_SCORE} />
+          <InferSound />
         </div>
       </header>
       <main className="infer-buy-main">

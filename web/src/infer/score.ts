@@ -7,6 +7,7 @@
 import { seeded, type Kit, type Score } from "../score";
 import { click, env, hiss, osc, pitch, place, squall, timbre, weather } from "../score-voices";
 import { INFER_VIBES } from "./vibes";
+import { INFER_SOUND_KEY } from "../sound-key";
 
 const A = 110; // A2
 const PENT = [1, 9 / 8, 5 / 4, 3 / 2, 5 / 3];
@@ -300,7 +301,7 @@ const TRIM: Record<string, number> = {
 };
 
 export const INFER_SCORE: Score = {
-  key: "infer-sound",
+  key: INFER_SOUND_KEY,
   vibe: INFER_VIBES,
   voicings: {
     network: { root: A, scale: PENT, weather: "wind" },

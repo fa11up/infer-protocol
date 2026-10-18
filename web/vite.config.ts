@@ -436,8 +436,8 @@ function inferSite(): Plugin {
  * page changes the page and not the background. Vite rewrites the entry tag, so it is added here.
  */
 /**
- * On imdusd.com the entry is only a boot script (src/boot-imdusd.ts: theme and background) that then
- * imports the page's code (src/page-*.tsx). That page chunk and everything it imports statically are
+ * On both sites the entry is only a boot script (src/boot-imdusd.ts, src/boot-infer.ts: theme and background)
+ * that then imports the page's code (src/page-*.tsx). That page chunk and everything it imports statically are
  * preloaded here, beside the entry, at low priority: they download while the boot runs without holding the first
  * paint or taking the bandwidth the boot and the stylesheet need.
  */
@@ -456,7 +456,7 @@ function renderBlocking(): Plugin {
         const pages = entry.dynamicImports.filter((f) => {
           const c = bundle[f];
           // A docs page is static HTML: its script only adds the header, so it is not worth the bandwidth early.
-          return c?.type === "chunk" && /\/src\/page-(?!docs)[a-z]+\.tsx$/.test(c.facadeModuleId ?? "");
+          return c?.type === "chunk" && /\/src\/page-(?!docs)[a-z-]+\.tsx$/.test(c.facadeModuleId ?? "");
         });
         if (!pages.length) return html;
         const have = new Set([entry.fileName, ...entry.imports]);
@@ -510,6 +510,20 @@ export default defineConfig(({ mode }) => {
         emptyOutDir: true,
         sourcemap: false,
         rollupOptions: {
+          // As on imdusd.com: the boot every page but /97/ runs before its first paint (theme and background,
+          // src/boot-infer.ts) and React get named chunks; the rest split by where they are used. The module
+          // preload polyfill stays out of the boot, so /97/ (no background) does not load the background.
+          output: {
+            codeSplitting: {
+              groups: [
+                {
+                  name: "boot",
+                  test: /\/src\/(boot-infer|theme-core|vibe-core|infer\/vibes)\.tsx?$|vite\/preload-helper|react\/jsx-runtime|react\/cjs\/react-jsx-runtime/,
+                },
+                { name: "react", test: /node_modules\/(react|react-dom|scheduler)\// },
+              ],
+            },
+          },
           input: {
             index: resolve(import.meta.dirname, "infer/index.html"),
             claim: resolve(import.meta.dirname, "infer/claim/index.html"),

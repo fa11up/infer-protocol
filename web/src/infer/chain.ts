@@ -3,7 +3,6 @@
 // contracts are the reference implementations in fa11up/infer-token (SeasonVault, LegacyRedeemer,
 // StakedInfer), which the swarm builds to the same interface.
 import {
-  createPublicClient,
   createWalletClient,
   custom,
   defineChain,
@@ -15,6 +14,7 @@ import {
   type Hex,
 } from "viem";
 import { LAUNCH } from "./config";
+import { createReadClient } from "../read-client";
 
 export const ERC20 = parseAbi([
   "function balanceOf(address) view returns (uint256)",
@@ -76,7 +76,9 @@ export const chain = defineChain({
  */
 const OWN_RPC = typeof location !== "undefined" ? [new URL("/rpc", location.origin).href] : [];
 
-export const client = createPublicClient({
+// Only the read actions the pages call (../read-client.ts): createPublicClient would bring signature and typed-data
+// verification and their curve libraries into every page's first load.
+export const client = createReadClient({
   chain,
   batch: { multicall: true },
   transport: fallback(

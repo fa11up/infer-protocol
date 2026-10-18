@@ -17,9 +17,9 @@ export { parseAmount } from "./amount";
 import { ThemeToggle } from "../theme";
 import { Vibe } from "../vibe";
 import { INFER_VIBES } from "./vibes";
-import { Sound } from "../score";
-import { INFER_SCORE } from "./score";
-import { NetworkChip } from "../site";
+import { lazySound } from "../lazy-sound";
+import { INFER_SOUND_KEY } from "../sound-key";
+import { NetworkChip } from "../network-chip";
 import { useInferMarket, usdCompact, usdPrice } from "./price";
 import { LAUNCH, LIVE } from "./config";
 import { ERC20, client, message } from "./chain";
@@ -46,6 +46,9 @@ const WALLET_APPS: { name: string; link: (uri: string) => string }[] = [
     link: (u) => `https://uniswap.org/app/wc?uri=${encodeURIComponent(u)}`,
   },
 ];
+
+/** The sound button, its score loaded when the page is idle (lazy-sound.tsx). */
+export const InferSound = lazySound(INFER_SOUND_KEY, () => import("../sound-infer"));
 
 export const SITE = "https://imdusd.com";
 export const WHITEPAPER = "https://whitepaper.imdusd.com";
@@ -821,7 +824,7 @@ export function Shell({
           <NetworkChip network="Mainnet" state={LIVE ? "live" : "staging"} />
           <ThemeToggle />
           <Vibe suite={INFER_VIBES} />
-          <Sound score={INFER_SCORE} />
+          <InferSound />
           {/* Disconnected, a Connect button (the amount boxes' "disconnected" label connects too); connected, the
               disconnect box in its place. People looked for the button and missed the label (2026-10-11). */}
           {!wallet.account && (
@@ -863,9 +866,9 @@ function InferTicker() {
   return (
     <p className="infer-ticker" title="INFER in USD: the launch pool, IMD's ETH pool and Chainlink ETH/USD">
       <span className="sr-only">INFER price </span>
-      <b>{m ? usdPrice(m.priceUsd) : "—"}</b>
+      <b className={m ? undefined : "infer-fig-wait"}>{m ? usdPrice(m.priceUsd) : "—"}</b>
       <span className="infer-ticker-cap">
-        <span aria-hidden="true">{" · "}</span>MC <b>{m ? usdCompact(m.marketCapUsd) : "—"}</b>
+        <span aria-hidden="true">{" · "}</span>MC <b className={m ? undefined : "infer-fig-wait infer-cap-wait"}>{m ? usdCompact(m.marketCapUsd) : "—"}</b>
       </span>
     </p>
   );

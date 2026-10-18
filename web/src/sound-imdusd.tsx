@@ -1,4 +1,4 @@
-// imdusd.com's sound button with its score: loaded after the page is drawn (site.tsx LazySound), since the
+// imdusd.com's sound button with its score: loaded after the page is drawn (lazy-sound.tsx, site.tsx), since the
 // score and its voices are code no first paint needs.
 import { useEffect } from "react";
 import { Sound, player } from "./score";

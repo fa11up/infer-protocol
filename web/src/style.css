@@ -3338,6 +3338,21 @@ button.infer-go:not(:disabled):hover {
   gap: 8px;
   margin: 4px 0 14px;
 }
+/* The clock's room while it is read (Claim.tsx): its usual height at each width. */
+.infer-moon-wait {
+  align-content: start;
+  min-height: 198px;
+}
+@media (max-width: 579px) {
+  .infer-moon-wait {
+    min-height: 216px;
+  }
+}
+@media (max-width: 459px) {
+  .infer-moon-wait {
+    min-height: 234px;
+  }
+}
 .infer-moon .infer-small {
   justify-self: start;
 }
@@ -3917,6 +3932,18 @@ html.app-terminal body:has(> .vibe-canvas:not([hidden])) :is(input, textarea) {
 .oracle-chip b {
   display: inline-block;
   min-width: 3ch;
+  text-align: end;
+}
+/* INFER's price and market cap arrive after the page is drawn: while each is a dash it keeps the width of its
+   usual figure ("$0.001099", "$1.10M"), so what sits beside it hardly moves when the first read lands. */
+.infer-fig-wait {
+  display: inline-block;
+  min-width: 9ch;
+}
+.infer-fig-wait.infer-cap-wait {
+  min-width: 6ch;
+}
+.infer-buy-price .infer-fig-wait {
   text-align: end;
 }
 .infer-ticker {
