@@ -130,7 +130,7 @@ const PLANS = [
   }],
   ["../../dist-public", 5302, {
     start: "/", sound: true, chunk: false, // the homepage and the docs share one script file
-    links: [[".site-nav a[href*=docs]", "/docs/", "imdUSD docs"], ["main a[href*=glossary]", "/docs/overview/glossary/", "Glossary"], ['main a[href*="relay-oracle-updates"]', "/docs/keepers/relay-oracle-updates/", "Relay"], ["header a:first-child", "/", "imdUSD"]],
+    links: [[".site-nav a[href*=docs]", "/docs/", "imdUSD docs"], ["main a[href*=glossary]", "/docs/overview/glossary/", "Glossary"], ['main a[href*="relay-oracle-updates"]', "/docs/keepers/relay-oracle-updates/", "Relay"], [".site-footer a[href$='links/']", "/links/", "imdUSD links"], ["main a.links-row[href$='docs/']", "/docs/", "imdUSD docs"], ["header a:first-child", "/", "imdUSD"]],
   }],
 ];
 // A docs page reserves its header's height until the header renders (style.css `.docs-site > #root:empty`), so the

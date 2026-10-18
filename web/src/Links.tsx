@@ -155,8 +155,10 @@ function QrDialog({ open, onClose }: { open: boolean; onClose: () => void }) {
         alt={`QR code: ${LINKS_URL}`}
       />
       <p className="links-qr-caption">
-        imd<b>USD</b>
-        <span>imdusd.com/links</span>
+        <span className="links-qr-name">
+          imd<b>USD</b>
+        </span>
+        <span className="links-qr-url">imdusd.com/links</span>
       </p>
       <button type="button" className="links-qr-close" onClick={onClose} autoFocus>
         Close

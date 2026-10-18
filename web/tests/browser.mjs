@@ -1934,6 +1934,92 @@ try {
     }
     passed("History reads the public index up to its through when usable, says so on the stats page, and falls back to the chain when it is unverified or failing");
   }
+  {
+    // imdusd.com/links/ (src/Links.tsx), the page shared by QR code: every link, Telegram left out while its URL is unset,
+    // the email's Copy (clipboard, or selecting the address where the clipboard is refused), and the full-screen QR,
+    // black on white in either theme, keyboard operable. Passes axe and never scrolls sideways, phone to desktop.
+    const { page } = await setup({ wallet: false });
+    const axeOk = async (where) => {
+      const axe = await new AxeBuilder({ page }).withTags(["wcag2a", "wcag2aa", "wcag21aa", "wcag22aa"]).analyze();
+      assert.deepEqual(
+        axe.violations.map((v) => v.id),
+        [],
+        `links ${where}: ` + axe.violations.map((v) => `${v.id}: ${v.nodes.map((n) => n.target.join(" ")).slice(0, 5).join(", ")}`).join("; "),
+      );
+    };
+    await page.goto(url);
+    await page.locator(".site-footer").getByRole("link", { name: "Links", exact: true }).click();
+    await page.getByRole("heading", { level: 1, name: "imdUSD" }).waitFor();
+    assert.equal(new URL(page.url()).pathname, "/preview/links/");
+    const rows = Object.fromEntries(
+      await page.locator(".links-row").evaluateAll((as) => as.map((a) => [a.querySelector(".links-title").textContent, a.getAttribute("href")])),
+    );
+    const want = {
+      Website: `${url}`,
+      Terminal: `${url}terminal/`,
+      Stats: `${url}stats/`,
+      Docs: `${url}docs/`,
+      Whitepaper: "https://whitepaper.imdusd.com",
+      INFER: "https://infer.imdusd.com",
+      "Buy INFER": "https://infer.imdusd.com/buy/",
+      "INFER on DexScreener": "https://dexscreener.com/ethereum/0x1f03dd2c202cf17b58305b73ae2f8b3143e9c056ed9c9e8dbd4924b350431e95",
+      X: "https://x.com/imdusd",
+      "Source code": "https://github.com/fa11up/infer-protocol",
+      IdentityMD: "https://imd.fun",
+    };
+    assert.deepEqual(rows, want, "the links page's rows");
+    assert.equal(await page.locator(".links", { hasText: "Telegram" }).count(), 0, "no Telegram row while its URL is unset");
+    assert.equal(await page.locator(".links-address").textContent(), "admin@imdusd.com");
+    assert.equal(await page.getByRole("link", { name: /Write/ }).getAttribute("href"), "mailto:admin@imdusd.com");
+    for (const [width, height] of [
+      [1440, 900],
+      [390, 844],
+      [320, 740],
+    ]) {
+      await page.setViewportSize({ width, height });
+      await page.waitForTimeout(100);
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth), width, `links scrolls sideways at ${width}px`);
+      if (width !== 320) await axeOk(`at ${width}px`);
+    }
+    // Copy: to the clipboard where it is allowed...
+    await context.grantPermissions(["clipboard-read", "clipboard-write"], { origin: new URL(url).origin });
+    await page.getByRole("button", { name: "Copy" }).click();
+    await expectText(page.locator(".links-status"), "Copied");
+    assert.equal(await page.evaluate(() => navigator.clipboard.readText()), "admin@imdusd.com");
+    // ...and where it is refused, the address is selected for the visitor to copy.
+    await page.evaluate(() => {
+      navigator.clipboard.writeText = () => Promise.reject(new Error("refused"));
+      getSelection().removeAllRanges();
+    });
+    await page.getByRole("button", { name: "Copy" }).click();
+    await expectText(page.locator(".links-status"), "Selected");
+    assert.equal(await page.evaluate(() => getSelection().toString().trim()), "admin@imdusd.com");
+    // The QR view, in the dark theme: still black on white, focus inside, Escape closes and focus returns.
+    await page.evaluate(() => (document.documentElement.dataset.theme = "dark"));
+    await page.setViewportSize({ width: 390, height: 844 });
+    const show = page.getByRole("button", { name: "Show QR" });
+    await show.click();
+    const dialog = page.getByRole("dialog", { name: "QR code for imdusd.com/links" });
+    await dialog.waitFor();
+    const view = await page.evaluate(() => {
+      const d = document.querySelector("dialog.links-qr");
+      const img = d.querySelector("img");
+      const r = img.getBoundingClientRect();
+      return { bg: getComputedStyle(d).backgroundColor, loaded: img.complete && img.naturalWidth > 0, w: r.width, focus: d.contains(document.activeElement) };
+    });
+    assert.equal(view.bg, "rgb(255, 255, 255)", "the QR view is white in the dark theme");
+    assert.ok(view.loaded, "the QR image loads");
+    assert.ok(view.w >= 350, `the QR fills a phone's width (${view.w}px)`);
+    assert.ok(view.focus, "focus moves into the QR view");
+    await axeOk("QR view");
+    await page.keyboard.press("Escape");
+    await dialog.waitFor({ state: "hidden" });
+    assert.ok(await show.evaluate((b) => b === document.activeElement), "focus returns to Show QR");
+    await show.click();
+    await page.getByRole("button", { name: "Close" }).click();
+    await dialog.waitFor({ state: "hidden" });
+    passed("Links page: every link, no Telegram row while unset, Copy with a select fallback, a white full-screen QR; axe clean at 390 and 1440, no sideways scroll");
+  }
   assert.deepEqual(errors.filter((e) => !/^503 .*\/api\/v1\//.test(e) && !/Failed to load resource.*503/.test(e)), [], JSON.stringify(errors.slice(0, 10)));
   passed(
     "No browser console errors or uncaught exceptions in mocked workflows",

@@ -5117,11 +5117,15 @@ dialog:focus-visible {
   padding: 12px 4px;
 }
 /* The address is the point of the row: large, and a tap selects all of it. */
+.links-email .links-text {
+  /* Wide enough for the address on one line; on a narrow phone the buttons drop below it instead. */
+  flex: 1 1 15em;
+}
 .links-address {
   font-size: 15px;
   user-select: all;
   -webkit-user-select: all;
-  overflow-wrap: anywhere;
+  white-space: nowrap;
 }
 .links-email-actions {
   display: flex;
@@ -5145,6 +5149,10 @@ dialog:focus-visible {
 /* The QR view: the whole screen, black on white in both themes (scanners read that best), the code as large as fits
    above its caption and the Close button. */
 dialog.links-qr {
+  /* The code's own two colours, outside the site palette on purpose: pure black on pure white is what every
+     scanner reads best, and they must not follow the theme. Scoped here, never a site-wide role. */
+  --qr-paper: #fff;
+  --qr-ink: #000;
   width: 100vw;
   height: 100dvh;
   max-width: none;
@@ -5152,8 +5160,8 @@ dialog.links-qr {
   margin: 0;
   padding: 16px;
   border: 0;
-  background: #fff;
-  color: #000;
+  background: var(--qr-paper);
+  color: var(--qr-ink);
   color-scheme: light;
   overflow: hidden;
 }
@@ -5165,7 +5173,7 @@ dialog.links-qr[open] {
   gap: 16px;
 }
 dialog.links-qr::backdrop {
-  background: #fff;
+  background: var(--qr-paper);
   opacity: 1;
 }
 .links-qr-code {
@@ -5187,20 +5195,20 @@ dialog.links-qr::backdrop {
 .links-qr-caption b {
   font-weight: 700;
 }
-.links-qr-caption span {
+.links-qr-url {
   font-size: 15px;
   letter-spacing: 0;
 }
 dialog.links-qr .links-qr-close {
   min-height: 48px;
   min-width: 120px;
-  border-color: #000;
-  color: #000;
-  background: #fff;
+  border-color: var(--qr-ink);
+  color: var(--qr-ink);
+  background: var(--qr-paper);
   font-size: 14px;
 }
 dialog.links-qr :focus-visible {
-  outline-color: #000;
+  outline-color: var(--qr-ink);
 }
 @media (max-width: 760px) {
   .links {
