@@ -23,6 +23,9 @@ async function serve(dir, port) {
   const csp = headers.match(/Content-Security-Policy: (.*)/)[1];
   const types = { ".html": "text/html", ".js": "text/javascript", ".css": "text/css", ".svg": "image/svg+xml", ".png": "image/png", ".json": "application/json", ".webmanifest": "application/manifest+json", ".woff2": "font/woff2", ".mp4": "video/mp4" };
   let mode = "normal";
+  // Served as http://imdusd.com (docsHeaderReserved maps the host here): over plain HTTP the policy's
+  // upgrade-insecure-requests would send every same-origin file to https://, which this server does not speak.
+  const plain = (req) => /^imdusd\.com(:|$)/.test(req.headers.host ?? "");
   return createServer(async (req, res) => {
     const u = new URL(req.url, "http://x");
     if (u.pathname === "/__mode") { mode = u.searchParams.get("x"); res.end(mode); return; }
@@ -47,7 +50,7 @@ async function serve(dir, port) {
     try { body = await readFile(resolve(dir, "." + p)); }
     catch { try { body = await readFile(resolve(dir, "." + p + "/index.html")); p += "/index.html"; } catch { body = await readFile(resolve(dir, "404.html")); status = 404; p = "/404.html"; } }
     if (mode === "newbuild" && p.endsWith(".html") && !u.pathname.match(/^\/(index\.html)?$/)) body = Buffer.from(body.toString().replace(/<meta name="build" content="[^"]+"/, '<meta name="build" content="NEWER"'));
-    res.writeHead(status, { "content-type": types[extname(p)] ?? "application/octet-stream", "content-security-policy": csp });
+    res.writeHead(status, { "content-type": types[extname(p)] ?? "application/octet-stream", "content-security-policy": plain(req) ? csp.replace(/;?\s*upgrade-insecure-requests/, "") : csp });
     res.end(body);
   }).listen(port, "127.0.0.1");
 }
@@ -132,25 +135,33 @@ const PLANS = [
 ];
 // A docs page reserves its header's height until the header renders (style.css `.docs-site > #root:empty`), so the
 // article never jumps down when it arrives. The reserved height must be the header's own at every layout. (Below
-// 345px the reservation is the imdusd.com header's, whose peg ticker wraps the chips; this server has no /rpc, so
+// 344px the reservation is the imdusd.com header's, whose peg ticker and oracle chip wrap the chips; this server has no /rpc, so
 // no ticker, and 320px is not compared.)
 async function docsHeaderReserved(dir, port) {
   const server = await serve(dir, port);
-  const b = await chromium.launch();
-  for (const width of [360, 390, 761, 900, 1001, 1440]) {
+  // Served as imdusd.com too (the host mapped to this server), where the header carries the peg and oracle chips
+  // (their places are held from the start, read or not, so the height does not depend on the network).
+  const b = await chromium.launch({ args: [`--host-resolver-rules=MAP imdusd.com 127.0.0.1:${port}`] });
+  const sites = [
+    [`http://127.0.0.1:${port}`, [360, 390, 761, 900, 1001, 1440]],
+    ["http://imdusd.com", [320, 343, 344, 360, 390, 761, 900, 1001, 1180, 1440]],
+  ];
+  for (const [origin, widths] of sites)
+  for (const width of widths) {
     const viewport = { width, height: 800 };
     const still = await b.newContext({ viewport, javaScriptEnabled: false });
     const sp = await still.newPage();
-    await sp.goto(`http://127.0.0.1:${port}/docs/overview/glossary/`);
+    await sp.goto(`${origin}/docs/overview/glossary/`);
     const reserved = await sp.evaluate(() => document.getElementById("root").getBoundingClientRect().height);
     await still.close();
     const live = await b.newContext({ viewport });
     const lp = await live.newPage();
-    await lp.goto(`http://127.0.0.1:${port}/docs/overview/glossary/`);
+    await lp.goto(`${origin}/docs/overview/glossary/`);
     await lp.locator(".topbar").waitFor();
+    if (origin.includes("imdusd.com")) await lp.locator(".topbar .oracle-chip").waitFor({ state: "attached" });
     const header = await lp.evaluate(() => document.querySelector(".topbar").getBoundingClientRect().height);
     await live.close();
-    ok(Math.abs(reserved - header) < 1, `docs at ${width}px: header space reserved ${reserved}px, header ${header}px`);
+    ok(Math.abs(reserved - header) < 1, `docs on ${new URL(origin).hostname} at ${width}px: header space reserved ${reserved}px, header ${header}px`);
   }
   await b.close();
   server.close();

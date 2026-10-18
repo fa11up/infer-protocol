@@ -11,7 +11,7 @@ const SLOT0_CALL =
   "0x1e2eaeaf1dbccba4aec74400b6ea5e6bb1c3e931232ad7d9664e083f9178059dfc726192";
 const POLL_MS = 30_000;
 /** Only imdusd.com's Workers serve /rpc (worker/index.js, worker/infer.js). */
-const HAS_RPC = typeof location !== "undefined" && /(^|\.)imdusd\.com$/.test(location.hostname);
+export const HAS_RPC = typeof location !== "undefined" && /(^|\.)imdusd\.com$/.test(location.hostname);
 const KEEP_MS = 120_000;
 
 /** USDC per imdUSD. currency0 is imdUSD (18 decimals), currency1 USDC (6): price = sqrtP² / 2^192 × 10^12. */

@@ -3912,6 +3912,13 @@ html.app-terminal body:has(> .vibe-canvas:not([hidden])) :is(input, textarea) {
 .chip.peg-ticker b.peg-bad {
   color: var(--danger);
 }
+/* The price feeds' age (oracle-chip.tsx), coloured as the peg is: green fresh, yellow stale, red hours stale or
+   unreadable. Its figure keeps one width ("4m", "44m", "1h", "12d"), so the header never reflows as it ages. */
+.oracle-chip b {
+  display: inline-block;
+  min-width: 3ch;
+  text-align: end;
+}
 .infer-ticker {
   margin: 0;
   font-size: 11px;
@@ -3934,6 +3941,11 @@ html.app-terminal body:has(> .vibe-canvas:not([hidden])) :is(input, textarea) {
   .topbar .wallet-bar .chips {
     flex-wrap: wrap;
     gap: 6px;
+  }
+  /* A pixel off each side of a chip keeps the peg, oracle and network chips on one row down to 344px (the docs'
+     reserved header height below assumes that width). */
+  .topbar .wallet-bar .chips .chip {
+    padding-inline: 6px;
   }
 }
 
@@ -4987,7 +4999,7 @@ dialog:focus-visible {
 /* A docs page is static HTML; React adds only its header, into #root, after the page's code loads. Until then #root
    holds the header's height, so the article does not jump down when the header arrives (the docs pages' layout
    shift). The heights are the header's own at each layout (style.css above; tests/soft.mjs checks they match):
-   one row from 1001px, two short rows 761-1000px, the phone header up to 760px, and below 345px the phone header
+   one row from 1001px, two short rows 761-1000px, the phone header up to 760px, and below 344px the phone header
    with its chips on two rows (the peg ticker and the network chip no longer fit one). */
 .docs-site > #root:empty {
   display: block;
@@ -5005,7 +5017,7 @@ dialog:focus-visible {
     min-height: 131px;
   }
 }
-@media (max-width: 344px) {
+@media (max-width: 343px) {
   .docs-site > #root:empty {
     min-height: 160px;
   }

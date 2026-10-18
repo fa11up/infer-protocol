@@ -107,6 +107,17 @@ function Terminal({ r }: { r: Runtime }) {
   const [mobilePane, setMobilePane] = useState("loans");
   const [desk, setDesk] = useState("position");
   const [view, setView] = useState("loans");
+  // terminal/#oracle (the header's oracle chip) opens the Oracle monitor, on a phone its pane.
+  useEffect(() => {
+    const open = () => {
+      if (location.hash !== "#oracle") return;
+      setView("oracle");
+      setMobilePane("oracle");
+    };
+    open();
+    addEventListener("hashchange", open);
+    return () => removeEventListener("hashchange", open);
+  }, []);
   const [keeperTarget, setKeeperTarget] = useState<{
     owner: string;
     seq: number;

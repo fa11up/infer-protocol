@@ -4,6 +4,7 @@ import { Vibe } from "./vibe";
 import { IMDUSD_VIBES } from "./vibe-imdusd";
 import { IMDUSD_SOUND_KEY } from "./sound-key";
 import { PegTicker } from "./peg-price";
+import { OracleChip } from "./oracle-chip";
 
 // The sound button's score is loaded once the page is idle, or at once if the visitor left the sound on (so it
 // carries on from the last page). Until then the button is drawn as it is when off, and a press on it is kept.
@@ -172,6 +173,7 @@ export function SiteHeader({
         ) : (
           <span className="chips">
             <PegTicker />
+            <OracleChip href={TERMINAL ? href("terminal/#oracle") : undefined} />
             <NetworkChip network="Mainnet" state="live" />
             <NetworkChip network="Robinhood" state="staging" optional />
           </span>
