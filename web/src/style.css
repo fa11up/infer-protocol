@@ -3796,6 +3796,18 @@ body:has(> .vibe-canvas:not([hidden])) .infer :is(.infer-ticket, .infer-stats) {
 body:has(> .vibe-canvas:not([hidden])) .live-panel {
   background: color-mix(in srgb, var(--surface) 35%, transparent);
 }
+/* The stats page (/stats/): its panels and the vitals strip are the same translucent paper. The vitals' hairlines
+   were the strip's opaque backing showing through 1px gaps; with the strip translucent and each vital clear they
+   are drawn as shadows instead, as on INFER's stats grid. */
+body:has(> .vibe-canvas:not([hidden])) :is(.an-panel, .an-vitals) {
+  background: color-mix(in srgb, var(--surface) 35%, transparent);
+}
+body:has(> .vibe-canvas:not([hidden])) .an-vital {
+  background: transparent;
+  box-shadow:
+    1px 0 0 var(--rule),
+    0 1px 0 var(--rule);
+}
 body:has(> .vibe-canvas:not([hidden])) .infer-buy-sheet {
   background: color-mix(in srgb, var(--surface) 35%, transparent);
 }
