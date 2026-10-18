@@ -1866,7 +1866,7 @@ try {
     const viaIndex = await page.locator(".loan-mark").count();
     await page.goto(`${url}stats/`);
     await page.getByRole("heading", { level: 1, name: "imdUSD Analytics" }).waitFor();
-    await expectText(page.locator(".an-src").first(), "history via index, through block 240");
+    await expectText(page.locator(".an-src", { hasText: "history via" }), "history via index, through block 240");
     for (const [name, api] of [
       ["unverified", fixtureApi({ unverified: true })],
       ["failing", (route, st) => ((st.apiCalls ??= []).push("fail"), route.fulfill({ status: 503, body: "{}" }))],
@@ -1877,7 +1877,7 @@ try {
       await expectText(p2.locator(".loan-coverage"), "RPC");
       assert.equal(await p2.locator(".loan-mark").count(), viaIndex, `${name}: the same book from the chain`);
       await p2.goto(`${url}stats/`);
-      await expectText(p2.locator(".an-src").first(), "history via chain");
+      await expectText(p2.locator(".an-src", { hasText: "history via" }), "history via chain");
     }
     passed("History reads the public index up to its through when usable, says so on the stats page, and falls back to the chain when it is unverified or failing");
   }
