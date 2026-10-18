@@ -41,7 +41,7 @@
   // `npx wrangler d1 create imdusd-public`, the same as in infer-ops' wrangler.jsonc (local dev shares one local
   // database through it).
   "d1_databases": [
-    { "binding": "PUBLIC_DB", "database_name": "imdusd-public", "database_id": "00000000-0000-4000-8000-000000000001" }
+    { "binding": "PUBLIC_DB", "database_name": "imdusd-public", "database_id": "64882ca9-cf89-428b-8641-3eba946d6c36" }
   ],
   "limits": { "cpu_ms": 100 },
   "routes": [
