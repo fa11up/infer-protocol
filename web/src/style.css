@@ -5022,3 +5022,189 @@ dialog:focus-visible {
     min-height: 160px;
   }
 }
+
+/* ---- imdusd.com/links/ (src/Links.tsx): every link on one page, mostly opened on a phone from a QR code ---- */
+.links {
+  max-width: 640px;
+  margin-inline: auto;
+  padding-block: 36px 56px;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+.links-head h1 {
+  font-size: clamp(44px, 13vw, 72px);
+  line-height: 1;
+  letter-spacing: -0.045em;
+  font-weight: 400;
+}
+.links-head h1 b {
+  font-weight: 700;
+}
+.links-head .lede {
+  margin-block: 16px 20px;
+}
+.links-show-qr {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-height: 48px;
+  padding: 10px 18px;
+  background: var(--text);
+  border-color: var(--text);
+  color: var(--bg);
+  font-size: 14px;
+}
+.links-group h2 {
+  margin: 0 0 8px;
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.links-group ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  border-top: 1px solid var(--rule);
+}
+.links-group li {
+  border-bottom: 1px solid var(--rule);
+}
+/* A whole row is the target: at least 56px tall, the title over its subtitle, an arrow on the right. */
+.links-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 60px;
+  padding: 12px 4px;
+  color: var(--text);
+  text-decoration: none;
+}
+.links-row:hover .links-title {
+  text-decoration: underline;
+}
+.links-row:focus-visible {
+  outline-offset: -2px;
+}
+.links-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.links-title {
+  font-size: 16px;
+  letter-spacing: -0.01em;
+}
+.links-sub {
+  font-size: 12px;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.links-arrow {
+  font-size: 16px;
+  color: var(--muted);
+}
+.links-email {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 16px;
+  row-gap: 8px;
+  padding: 12px 4px;
+}
+/* The address is the point of the row: large, and a tap selects all of it. */
+.links-address {
+  font-size: 15px;
+  user-select: all;
+  -webkit-user-select: all;
+  overflow-wrap: anywhere;
+}
+.links-email-actions {
+  display: flex;
+  gap: 8px;
+}
+.links-email-actions :is(button, a.button) {
+  min-height: 44px;
+  min-width: 64px;
+}
+.links-status {
+  flex-basis: 100%;
+  min-height: 1.5em;
+  margin: -4px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.links-status:empty {
+  /* Holds its line so a status appearing does not move the rows below. */
+  visibility: hidden;
+}
+/* The QR view: the whole screen, black on white in both themes (scanners read that best), the code as large as fits
+   above its caption and the Close button. */
+dialog.links-qr {
+  width: 100vw;
+  height: 100dvh;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  padding: 16px;
+  border: 0;
+  background: #fff;
+  color: #000;
+  color-scheme: light;
+  overflow: hidden;
+}
+dialog.links-qr[open] {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 16px;
+}
+dialog.links-qr::backdrop {
+  background: #fff;
+  opacity: 1;
+}
+.links-qr-code {
+  display: block;
+  width: min(100%, calc(100dvh - 200px), 720px);
+  height: auto;
+  aspect-ratio: 1;
+  image-rendering: pixelated;
+}
+.links-qr-caption {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  font-size: 28px;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+}
+.links-qr-caption b {
+  font-weight: 700;
+}
+.links-qr-caption span {
+  font-size: 15px;
+  letter-spacing: 0;
+}
+dialog.links-qr .links-qr-close {
+  min-height: 48px;
+  min-width: 120px;
+  border-color: #000;
+  color: #000;
+  background: #fff;
+  font-size: 14px;
+}
+dialog.links-qr :focus-visible {
+  outline-color: #000;
+}
+@media (max-width: 760px) {
+  .links {
+    padding-block: 24px 40px;
+    gap: 28px;
+  }
+}

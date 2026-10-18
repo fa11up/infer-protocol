@@ -268,6 +268,7 @@ export function Page({
           {TERMINAL && <a href={href("terminal/")}>Terminal</a>}
           {TERMINAL && <a href={href("stats/")}>Stats</a>}
           <a href={href("docs/")}>Docs</a>
+          <a href={href("links/")}>Links</a>
           <a href={INFER_SITE} target="_blank" rel="noreferrer">
             INFER ↗
           </a>

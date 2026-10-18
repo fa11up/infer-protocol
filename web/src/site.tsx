@@ -82,6 +82,10 @@ export const TERMINAL =
 export const WHITEPAPER = "https://whitepaper.imdusd.com";
 export const INFER_SITE = "https://infer.imdusd.com";
 export const X_ACCOUNT = "https://x.com/imdusd";
+/** The public source: contracts, both sites and the docs. */
+export const SOURCE_REPO = "https://github.com/fa11up/infer-protocol";
+/** IdentityMD, the agent network whose panels price imdUSD. */
+export const IDENTITYMD = "https://imd.fun";
 /** INFER's launch pool (INFER/IMD, Uniswap v4) on DexScreener. The pool, not the token: a stranger's
  * INFER/USDC pool exists, and a token link lets DexScreener pick which pair to show. */
 export const INFER_DEXSCREENER =
@@ -129,7 +133,7 @@ export function NetworkChip({
   );
 }
 
-type Page = "home" | "terminal" | "analytics" | "docs";
+type Page = "home" | "terminal" | "analytics" | "docs" | "links";
 /** One header for every page: brand and navigation on the left; the network chip, theme, background and a
  * page-specific end on the right. */
 export function SiteHeader({
@@ -195,6 +199,7 @@ export function SiteFooter() {
         {TERMINAL && <a href={href("terminal/")}>Terminal</a>}
         {TERMINAL && <a href={href("stats/")}>Stats</a>}
         <a href={href("docs/")}>Docs</a>
+        <a href={href("links/")}>Links</a>
         <a href={INFER_SITE} target="_blank" rel="noreferrer">
           INFER ↗
         </a>

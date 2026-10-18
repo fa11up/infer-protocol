@@ -8,6 +8,8 @@ export const IMDUSD_ROUTES: Route[] = [
   { path: "", load: () => import("./Landing").then((m) => m.Landing) },
   // /docs/, /docs/<section>/ and /docs/<section>/<page>/; an address with no page behind it 404s and loads.
   { path: /^docs\/(?:[a-z0-9-]+\/){0,2}$/, load: () => import("./Docs").then((m) => m.Docs) },
+  // The links page (/links/, the one shared by QR code): reads no chain, so it is in every build.
+  { path: "links/", load: () => import("./Links").then((m) => m.Links) },
   // The analytics page reads the chain, so it exists only where the terminal does (the launch build and dev).
   ...ANALYTICS_ROUTES,
 ];

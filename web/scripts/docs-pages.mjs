@@ -160,6 +160,7 @@ export function renderDocs({ outDir, contentDir, terminal, site }) {
       `<footer class="site-footer"><nav aria-label="Footer">` +
       (terminal ? `<a href="${root}/terminal/">Terminal</a><a href="${root}/stats/">Stats</a>` : "") +
       `<a href="${linkBetween(currentDir, "docs")}">Docs</a>` +
+      `<a href="${root}/links/">Links</a>` +
       `<a href="https://infer.imdusd.com" target="_blank" rel="noreferrer">INFER ↗</a>` +
       `<a href="https://whitepaper.imdusd.com" target="_blank" rel="noreferrer">Whitepaper ↗</a>` +
       `<a class="x-link" href="https://x.com/imdusd" target="_blank" rel="noreferrer" aria-label="imdUSD on X" title="imdUSD on X">` +
@@ -369,7 +370,7 @@ export function renderDocs({ outDir, contentDir, terminal, site }) {
   page("docs", "imdUSD docs", "How imdUSD works: borrowing, redemption, liquidation, the swarm oracle and the contracts.", index);
   if (site) {
     // Every public page but the redacted one, which is not for crawlers until it has content.
-    const urls = ["", ...(terminal ? ["stats/"] : []), "docs/", ...pages.filter((p) => !(redact && REDACT_WHOLE.has(p.file))).map((p) => `${p.dir}/`)];
+    const urls = ["", ...(terminal ? ["stats/"] : []), "links/", "docs/", ...pages.filter((p) => !(redact && REDACT_WHOLE.has(p.file))).map((p) => `${p.dir}/`)];
     writeFileSync(
       resolve(outDir, "sitemap.xml"),
       `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n` +

@@ -186,6 +186,14 @@ function publicSite(): Plugin {
           page.replace("</head>", `${socialTags(SITE, `${SITE}/stats/`, "imdUSD Analytics", about, { type: "website" })}</head>`),
         );
       }
+      // The links page's canonical URL and social card (every public build has it).
+      const links = resolve(dir, "links/index.html");
+      const linksPage = readFileSync(links, "utf8");
+      const linksAbout = linksPage.match(/<meta\s+name="description"\s+content="([^"]*)"/)?.[1] ?? "";
+      writeFileSync(
+        links,
+        linksPage.replace("</head>", `${socialTags(SITE, `${SITE}/links/`, "imdUSD links", linksAbout, { type: "website" })}</head>`),
+      );
       // The not-found page is served at whatever path was asked for, so its URLs must be absolute.
       const notFound = resolve(dir, "404.html");
       writeFileSync(
@@ -357,6 +365,8 @@ function inferSite(): Plugin {
           .replace("</head>", `${buildMeta}</head>`),
       );
       rmSync(resolve(dir, "abi"), { recursive: true, force: true });
+      // imdusd.com/links/'s QR code (public/links) belongs to imdusd.com, not here.
+      rmSync(resolve(dir, "links"), { recursive: true, force: true });
       const file = resolve(dir, "manifest.webmanifest");
       const manifest = JSON.parse(readFileSync(file, "utf8"));
       manifest.name = "INFER";
@@ -571,6 +581,8 @@ export default defineConfig(({ mode }) => {
             ? { stats: resolve(import.meta.dirname, "stats/index.html") }
             : {}),
           docs: resolve(import.meta.dirname, "docs/index.html"),
+          // /links/, shared by QR code; it reads no chain, so every build has it.
+          links: resolve(import.meta.dirname, "links/index.html"),
         },
       },
     },
