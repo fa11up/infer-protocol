@@ -1145,8 +1145,11 @@ try {
   await loans.getByLabel("Search positions by name or address").fill("");
   // A loan between minCR and the ceiling opens in the redemption desk as its candidate: keeper.eth at 180% with
   // minCR 150% and the ceiling 200%, from its row (the row says where it goes) and by keyboard from its circle.
-  const deskSelected = async (name) =>
-    assert.equal(await page.getByRole("tab", { name, exact: true }).getAttribute("aria-selected"), "true", `${name} desk open`);
+  // React commits after the click resolves: wait for the change rather than read it at once.
+  const deskSelected = (name) =>
+    page.getByRole("tab", { name, exact: true }).and(page.locator('[aria-selected="true"]')).waitFor();
+  const borrowerIs = (value) =>
+    page.waitForFunction((v) => document.getElementById("keeper-borrower")?.value.toLowerCase() === v.toLowerCase(), value);
   await tab(page, "position");
   const redeemRow = loans.locator(".loan-feed button", { hasText: "keeper.eth" });
   assert.equal(await redeemRow.getAttribute("title"), "Open keeper.eth in redemption desk");
@@ -1170,7 +1173,7 @@ try {
   await page.keyboard.press("Enter");
   await deskSelected("Redeem");
   await candidateIs(candidate);
-  assert.equal(await page.locator(".selected-loan").getAttribute("data-owner"), candidate);
+  await page.locator(`.selected-loan[data-owner="${candidate}"]`).waitFor();
   passed(
     "Deposit owners deduplicated, zero-debt owner excluded, debt area ratio 4:1; hover, keyboard and touch-readable addresses",
     names,
@@ -1195,24 +1198,25 @@ try {
   const opened = page.locator(".pane-keeper");
   await expectText(opened, "keeper.eth");
   await expectText(opened.getByRole("status"), "Inspected keeper.eth");
-  assert.equal(await opened.getByLabel("Borrower address").inputValue(), candidate);
+  await borrowerIs(candidate);
   await expectText(opened, "Liquidation price");
   await tab(page, "position");
   const liqRow = loans.locator(".loan-feed button", { hasText: "keeper.eth" });
   assert.equal(await liqRow.getAttribute("title"), "Open keeper.eth in keeper desk");
   await liqRow.press("Enter");
   await deskSelected("Keeper");
+  await borrowerIs(candidate);
   // A safe loan (260%, above the 250% ceiling): its row inspects it in Keeper as before; its circle only selects.
   await opened.getByLabel("Borrower address").fill("");
   await tab(page, "position");
   const safeMark = page.locator(`.loan-mark[aria-label*="${extraOwner}"]`);
   assert.doesNotMatch(await safeMark.getAttribute("aria-label"), /Open in/);
   await safeMark.click();
+  await page.locator(`.selected-loan[data-owner="${extraOwner}"]`).waitFor();
   await deskSelected("Position");
-  assert.equal(await page.locator(".selected-loan").getAttribute("data-owner"), extraOwner);
   await loans.locator(`.loan-feed li[data-owner="${extraOwner}"] button`).click();
   await deskSelected("Keeper");
-  assert.equal((await opened.getByLabel("Borrower address").inputValue()).toLowerCase(), extraOwner.toLowerCase());
+  await borrowerIs(extraOwner);
   const updatedWidth = await page
     .locator(".liquidatable-band")
     .evaluate((n) => parseFloat(n.style.width));
