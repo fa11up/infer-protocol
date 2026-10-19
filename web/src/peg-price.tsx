@@ -50,9 +50,10 @@ export function usePegPrice(): number | undefined {
   return p?.v;
 }
 
-/** "imdUSD $1.0084" beside the network chips: green within 0.25% of $1 (the band where swaps pay no surcharge),
- * yellow out to 1%, red beyond 1%. */
-export function PegTicker() {
+/** "imdUSD $1.0084" beside the network chips: green inside the $0.99–$1.01 peg band, yellow out to 2%, red beyond
+ * (the Stats page's peg tile, user 2026-10-19). With `href` (where the terminal exists) it opens the liquidity window's
+ * Trade tab; without, it links to Matcha. */
+export function PegTicker({ href }: { href?: string }) {
   const v = usePegPrice();
   // On imdusd.com the chip's place is kept, empty, until the first read: it arriving used to push the chips beside
   // it along (and on a narrow phone wrap them onto a second row). Elsewhere there is no /rpc, so no chip at all.
@@ -63,8 +64,17 @@ export function PegTicker() {
       </span>
     ) : null;
   const off = Math.abs(v - 1);
-  const level = off <= 0.0025 ? "peg-ok" : off <= 0.01 ? "peg-warn" : "peg-bad";
-  return (
+  const level = off <= 0.01 ? "peg-ok" : off <= 0.02 ? "peg-warn" : "peg-bad";
+  const body = (
+    <>
+      imdUSD <b className={level}>$&nbsp;{v.toFixed(4)}</b>
+    </>
+  );
+  return href ? (
+    <a className="chip peg-ticker" href={href} title="imdUSD's price in its imdUSD/USDC pool; trade it in the terminal">
+      {body}
+    </a>
+  ) : (
     <a
       className="chip peg-ticker"
       href="https://matcha.xyz/tokens/ethereum/0x61aaf8a992a3143e2b0c9cb0030b9fe702854a25"
@@ -72,7 +82,7 @@ export function PegTicker() {
       rel="noreferrer"
       title="imdUSD's price in its imdUSD/USDC pool; trade it on Matcha"
     >
-      imdUSD <b className={level}>$&nbsp;{v.toFixed(4)}</b>
+      {body}
     </a>
   );
 }

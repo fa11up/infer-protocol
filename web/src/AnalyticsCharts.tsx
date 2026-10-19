@@ -1,6 +1,6 @@
 // The analytics page's charts: hand-rolled SVG, coloured only through style.css roles (the .an-* classes), each an
 // image with a name for screen readers and a <title> on every mark for hover. No chart library, like Charts.tsx.
-import type { FeedUpdates, PegPoint } from "./analytics-data";
+import type { FeedUpdates, PegPoint, RedeemPoint } from "./analytics-data";
 import { freshIntervals } from "./analytics-data";
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -10,12 +10,13 @@ export const utcShort = (t: number) => {
 };
 const whole = (v: number) => Math.round(v).toLocaleString("en-US");
 
-/** The peg pool's price as a step line over [t0, t1], the $0.99–$1.01 band, and a freshness lane per feed. */
+/** The peg pool's price as a step line over [t0, t1], the $0.99–$1.01 band, what redeeming one imdUSD returned (sampled,
+ * dashed), and a freshness lane per feed. */
 /** The peg chart's viewBox: 1060 wide, and tall enough for its price plot and one freshness lane per feed. */
 export const PEG_CHART_W = 1060;
 export const pegChartHeight = (lanes: number) => 246 + lanes * 26 + 30;
 /** `minLanes` keeps room for the lanes of feeds still being read, so the chart does not grow when they arrive. */
-export function PegChart({ points, feeds, t0, t1, now, minLanes = 0 }: { points: PegPoint[]; feeds: FeedUpdates[]; t0: number; t1: number; now: number; minLanes?: number }) {
+export function PegChart({ points, feeds, t0, t1, now, minLanes = 0, redeem = [] }: { points: PegPoint[]; feeds: FeedUpdates[]; t0: number; t1: number; now: number; minLanes?: number; redeem?: RedeemPoint[] }) {
   const W = PEG_CHART_W,
     L = 100,
     R = 1044,
@@ -27,13 +28,20 @@ export function PegChart({ points, feeds, t0, t1, now, minLanes = 0 }: { points:
   let start = points[0]?.price ?? 1;
   for (const p of points) if (p.t <= t0) start = p.price;
   const inside = points.filter((p) => p.t > t0 && p.t <= t1);
-  const vals = [start, ...inside.map((p) => p.price)];
-  const lo = Math.min(0.98, Math.floor((Math.min(...vals) - 0.01) * 50) / 50);
-  const hi = Math.max(1.02, Math.ceil((Math.max(...vals) + 0.005) * 50) / 50);
+  // The redemption line from its last sample at or before t0, so it enters the chart at the left edge.
+  let rFirst = -1;
+  redeem.forEach((p, i) => p.t <= t0 && (rFirst = i));
+  const rShown = redeem.slice(Math.max(0, rFirst)).filter((p) => p.t <= t1);
+  const vals = [start, ...inside.map((p) => p.price), ...rShown.map((p) => p.value)];
+  // Grid every 2 cents, or 5/10 cents once redemption pulls the range wide.
+  const raw = Math.max(...vals) - Math.min(...vals);
+  const gs = raw > 0.3 ? 0.1 : raw > 0.12 ? 0.05 : 0.02;
+  const lo = Math.min(0.98, Math.floor((Math.min(...vals) - 0.01) / gs) * gs);
+  const hi = Math.max(1.02, Math.ceil((Math.max(...vals) + 0.005) / gs) * gs);
   const x = (t: number) => L + ((t - t0) / (t1 - t0)) * (R - L);
   const y = (v: number) => B - ((v - lo) / (hi - lo)) * (B - T);
   const grid: number[] = [];
-  for (let v = lo; v <= hi + 1e-9; v += 0.02) grid.push(Number(v.toFixed(2)));
+  for (let v = lo; v <= hi + 1e-9; v += gs) grid.push(Number(v.toFixed(2)));
   const span = t1 - t0;
   const step = span > 4 * 86400 ? 86400 : span > 2 * 86400 ? 43200 : 3 * 3600;
   const ticks: number[] = [];
@@ -41,6 +49,8 @@ export function PegChart({ points, feeds, t0, t1, now, minLanes = 0 }: { points:
   let d = `M${x(t0)},${y(start)}`;
   for (const p of inside) d += `H${x(p.t)}V${y(p.price)}`;
   d += `H${x(t1)}`;
+  const clampT = (t: number) => Math.min(t1, Math.max(t0, t));
+  const rd = rShown.map((p, i) => `${i ? "L" : "M"}${x(clampT(p.t))},${y(p.value)}`).join("");
   let low = { t: t0, price: start };
   for (const p of inside) if (p.price < low.price) low = p;
   return (
@@ -71,6 +81,14 @@ export function PegChart({ points, feeds, t0, t1, now, minLanes = 0 }: { points:
       <text className="an-note" x={L + 6} y={y(1.01) - 6}>
         peg band
       </text>
+      {rd && <path className="an-redeem" d={rd} />}
+      {rShown
+        .filter((p) => p.t >= t0)
+        .map((p) => (
+          <circle key={`r${p.block}`} className="an-hit" cx={x(p.t)} cy={y(p.value)} r={5}>
+            <title>{`${utcShort(p.t)} UTC: redeeming returned $${p.value.toFixed(3)}`}</title>
+          </circle>
+        ))}
       <path className="an-line" d={d} />
       {inside.map((p) => (
         <circle key={`${p.block}-${p.t}-${p.price}`} className="an-hit" cx={x(p.t)} cy={y(p.price)} r={6}>

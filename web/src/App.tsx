@@ -107,9 +107,15 @@ function Terminal({ r }: { r: Runtime }) {
   const [mobilePane, setMobilePane] = useState("loans");
   const [desk, setDesk] = useState("position");
   const [view, setView] = useState("loans");
-  // terminal/#oracle (the header's oracle chip) opens the Oracle monitor, on a phone its pane.
+  // terminal/#oracle (the header's oracle chip) opens the Oracle monitor, on a phone its pane. terminal/#trade (the
+  // imdUSD ticker) shows the Position desk, whose pane opens the liquidity window on its Trade tab.
   useEffect(() => {
     const open = () => {
+      if (location.hash === "#trade") {
+        setDesk("position");
+        setMobilePane("position");
+        return;
+      }
       if (location.hash !== "#oracle") return;
       setView("oracle");
       setMobilePane("oracle");

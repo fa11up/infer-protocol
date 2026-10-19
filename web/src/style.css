@@ -3916,8 +3916,8 @@ html.app-terminal body:has(> .vibe-canvas:not([hidden])) :is(input, textarea) {
   font-weight: 600;
   font-variant-numeric: tabular-nums;
 }
-/* imdUSD against its dollar: green inside the 0.25% band where swaps pay no surcharge, yellow out to 1%,
-   red beyond 1% (user, 2026-10-12). */
+/* imdUSD against its dollar: green inside the $0.99-$1.01 peg band (user, 2026-10-19; was 0.25%), yellow out to 2%,
+   red beyond. */
 .chip.peg-ticker b.peg-ok {
   color: var(--live);
 }
@@ -4872,6 +4872,7 @@ dialog:focus-visible {
 .an-band { fill: var(--healthy); fill-opacity: 0.12; }
 .an-par { stroke: var(--healthy); stroke-dasharray: 3 3; stroke-opacity: 0.7; }
 .an-line { fill: none; stroke: var(--text); stroke-width: 2; stroke-linejoin: round; }
+.an-redeem { fill: none; stroke: var(--caution); stroke-width: 2; stroke-dasharray: 6 4; stroke-linejoin: round; }
 .an-hit { fill: transparent; }
 .an-dot { fill: var(--text); }
 .an-dot-danger { fill: var(--danger); stroke: var(--surface); stroke-width: 2; }
@@ -4910,6 +4911,7 @@ dialog:focus-visible {
 .an-key-line,
 .an-key-ink { background: var(--text); }
 .an-key-muted { background: var(--muted); opacity: 0.45; }
+.an-key-redeem { height: 0 !important; border-top: 2px dashed var(--caution); vertical-align: 3px !important; }
 .an-key-band { background: var(--surface); box-shadow: inset 0 0 0 10px color-mix(in srgb, var(--healthy) 12%, transparent); outline: 1px solid var(--healthy); }
 .an-key-fresh { background: var(--healthy); }
 .an-key-stale { outline: 1px solid var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); }

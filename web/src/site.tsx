@@ -106,7 +106,7 @@ export function SiteHeader({
           <span className="chip">{`${network} · testnet`}</span>
         ) : (
           <span className="chips">
-            <PegTicker />
+            <PegTicker href={TERMINAL ? href("terminal/#trade") : undefined} />
             <OracleChip href={TERMINAL ? href("terminal/#oracle") : undefined} />
             <NetworkChip network="Mainnet" state="live" />
             <NetworkChip network="Robinhood" state="staging" optional />

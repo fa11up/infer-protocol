@@ -229,6 +229,18 @@ export function Position({
   const [act, setAct] = useState("deposit");
   const [looping, setLooping] = useState(false);
   const [providing, setProviding] = useState(false);
+  // terminal/#trade (the header's imdUSD ticker): the liquidity window, which opens on Trade, once the deployment is
+  // read and has the pool. The hash is dropped so the next click on the ticker is a change again.
+  useEffect(() => {
+    const open = () => {
+      if (location.hash !== "#trade" || !s || !loopAvailable(r, s)) return;
+      setProviding(true);
+      history.replaceState(history.state, "", location.pathname + location.search);
+    };
+    open();
+    addEventListener("hashchange", open);
+    return () => removeEventListener("hashchange", open);
+  }, [r, s]);
   // Withdraw pays sIMD; with this on, the same action unstakes it to IMD (free, then redeem, one batch).
   const [unwrap, setUnwrap] = useState(true);
   const g = collateral();

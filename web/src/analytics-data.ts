@@ -6,6 +6,7 @@ import { S1_TOPICS, type RawLog } from "../../points/pool.ts";
 import type { Runtime, Target } from "./config";
 import { alignedWindows, history, limited, logClient, type ChainLog } from "./history";
 import { ours } from "./names";
+import { ETH_USD, POOL_MANAGER, SLOT0 } from "./market";
 import { pegPoolScan } from "./peg-logs";
 import { read, type Snapshot } from "./state";
 
@@ -256,6 +257,102 @@ export function redemptionValue(f: Floor, marketImdUsd: bigint, attestedImdUsd: 
   const paid = f.payoutPrice > f.attested ? f.payoutPrice : f.attested;
   const marketShare = (Number(f.attested) * Number(marketImdUsd)) / Number(attestedImdUsd);
   return (Number(f.backing) / 1e18) * (1 - Number(f.feeBps) / 10_000) * (marketShare / Number(paid));
+}
+
+/* ---------- redemption value over time ---------- */
+
+// The same figure as `redemptionValue`, at past blocks. The vault emits nothing when its paced payout price moves, so
+// it is sampled: one Multicall3 eth_call per sample (the vault's payout price, fee and backing, the two feeds, IMD's
+// pool and Chainlink ETH/USD as market.ts reads them now), hourly for the last three days and every four hours before.
+// A sample at a closed block never changes, so each is kept in the browser and a revisit reads only the new ones.
+const SAMPLE_ABI = parseAbi([
+  "function payoutPrice() view returns (uint256)",
+  "function redemptionFeeBps(uint256) view returns (uint256)",
+  "function backingPerUnit() view returns (uint256)",
+  "function latestValue() view returns (uint256, uint256)",
+  "function extsload(bytes32) view returns (bytes32)",
+  "function latestRoundData() view returns (uint80, int256, uint256, uint256, uint80)",
+]);
+export type RedeemPoint = { t: number; value: number; block: number };
+const BLOCKS_PER_HOUR = 300;
+
+/** Sample blocks in [from, head): every 4 hours, then hourly over the last 3 days, on fixed multiples so they repeat. */
+export function redemptionSampleBlocks(from: number, head: number): number[] {
+  const out: number[] = [];
+  const coarse = 4 * BLOCKS_PER_HOUR;
+  const recent = head - 72 * BLOCKS_PER_HOUR;
+  for (let b = Math.ceil(from / coarse) * coarse; b < recent; b += coarse) out.push(b);
+  for (let b = Math.ceil(Math.max(from, recent) / BLOCKS_PER_HOUR) * BLOCKS_PER_HOUR; b < head; b += BLOCKS_PER_HOUR) out.push(b);
+  return out;
+}
+
+export async function redemptionHistory(r: Runtime, s: Snapshot, from: number): Promise<RedeemPoint[]> {
+  const vault = s.targets.ParameterizedVault.address;
+  const usd = s.targets.usdPriceFeed?.address;
+  const col = (s.targets.collateralPriceFeed ?? s.targets.usdPriceFeed)?.address;
+  if (!usd || !col || r.config.chainId !== 1) throw Error("Redemption history is read on mainnet only.");
+  const head = Number(s.block);
+  const blocks = redemptionSampleBlocks(from, head);
+  const key = `an-redeem:${vault.toLowerCase()}`;
+  let kept: Record<string, number | null> = {};
+  try {
+    kept = JSON.parse(localStorage.getItem(key) ?? "{}");
+  } catch {
+    /* no storage: every sample is read */
+  }
+  const call = (address: Address, functionName: string, args: readonly unknown[] = []) => ({ address, abi: SAMPLE_ABI, functionName, args });
+  // null: the figure did not exist at that block (a feed unreadable, the vault not deployed yet).
+  const sample = async (b: number): Promise<number | null> => {
+    const res: { status: string; result?: unknown }[] = await r.archive.multicall({
+      allowFailure: true,
+      blockNumber: BigInt(b),
+      contracts: [
+        call(vault, "payoutPrice"),
+        call(vault, "redemptionFeeBps", [1000n * 10n ** 18n]),
+        call(vault, "backingPerUnit"),
+        call(col, "latestValue"),
+        call(usd, "latestValue"),
+        call(POOL_MANAGER, "extsload", [SLOT0]),
+        call(ETH_USD, "latestRoundData"),
+      ] as never,
+    } as never);
+    if (res.some((x: { status: string }) => x.status !== "success")) return null;
+    const [payout, fee, backing, colV, usdV, word, round] = res.map((x: { result?: unknown }) => x.result) as [
+      bigint,
+      bigint,
+      bigint,
+      readonly [bigint, bigint],
+      readonly [bigint, bigint],
+      `0x${string}`,
+      readonly [bigint, bigint],
+    ];
+    const sqrt = BigInt(word) & ((1n << 160n) - 1n);
+    if (!sqrt || round[1] <= 0n) return null;
+    const imdUsd = ((((10n ** 18n) << 192n) / (sqrt * sqrt)) * round[1]) / 10n ** 8n;
+    const v = redemptionValue({ payoutPrice: payout, attested: colV[0], feeBps: fee, backing }, imdUsd, usdV[0]);
+    return v === undefined || !Number.isFinite(v) ? null : v;
+  };
+  const got = await Promise.all(
+    blocks.map(async (b): Promise<[number, number | null | undefined]> => {
+      if (b in kept) return [b, kept[b]];
+      try {
+        return [b, await limited(r, () => sample(b))];
+      } catch {
+        return [b, undefined]; // refused: read again on the next visit
+      }
+    }),
+  );
+  const closed = head - 64;
+  for (const [b, v] of got) if (v !== undefined && b <= closed) kept[b] = v;
+  try {
+    localStorage.setItem(key, JSON.stringify(kept));
+  } catch {
+    /* not kept */
+  }
+  const points = got.filter((x): x is [number, number] => typeof x[1] === "number");
+  if (!points.length) throw Error("No redemption value could be read.");
+  const clock = await blockClock(r, points[0][0], head);
+  return points.map(([b, value]) => ({ t: clock(b), value, block: b }));
 }
 
 export type TreasuryHolding = { symbol: string; amount: number; usd?: number };

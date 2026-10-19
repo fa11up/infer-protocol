@@ -10,6 +10,7 @@ import {
   pegStats,
   readFloor,
   readSwarm,
+  redemptionHistory,
   redemptionValue,
   REQUEST_IMD,
   settingEvents,
@@ -17,6 +18,7 @@ import {
   treasuryHoldings,
   vaultEvents,
   type FeedUpdates,
+  type RedeemPoint,
 } from "./analytics-data";
 import { DayBars, HBars, PEG_CHART_W, PegChart, pegChartHeight, ShareBar, Spark, StressPlot, utcShort, type DayCol } from "./AnalyticsCharts";
 import { loadConfig, pointsConfig, type Runtime } from "./config";
@@ -85,6 +87,8 @@ export function Analytics() {
   const feeds = useLoad(ready ? () => feedUpdates(r, s) : undefined, block);
   const book = useLoad(ready ? () => loanBook(r, s) : undefined, block);
   const floor = useLoad(ready ? () => readFloor(r, s) : undefined, block);
+  // Hourly samples: re-read once an hour of blocks has passed, not every snapshot.
+  const redeemHist = useLoad(ready && peg.data ? () => redemptionHistory(r, s, peg.data!.firstBlock) : undefined, block !== undefined && peg.data ? `${block / 300n}` : undefined);
   const ledger = useLoad(ready ? () => tokenLedger(r, s) : undefined, block);
   const events = useLoad(ready ? () => vaultEvents(r, s) : undefined, block);
   const settings = useLoad(ready ? () => settingEvents(r, s) : undefined, block);
@@ -174,7 +178,7 @@ export function Analytics() {
         </div>
       </section>
 
-      <PegPanel peg={peg} feeds={feeds.data} now={now} pegNow={pegNow} lanes={s ? ["PriceFeed", "SpotFeed"].filter((k) => s.targets[k]).length : 2} />
+      <PegPanel peg={peg} feeds={feeds.data} now={now} pegNow={pegNow} redeem={redeemLine(redeemHist.data, redeem, now)} lanes={s ? ["PriceFeed", "SpotFeed"].filter((k) => s.targets[k]).length : 2} />
 
       <div className="an-grid2">
         <Panel title="Redemption floor" sub="What 1 imdUSD is worth, three ways" load={floor} wait={floorWait}>
@@ -401,7 +405,12 @@ function readRange() {
     return "24h";
   }
 }
-function PegPanel({ peg, feeds, now, pegNow, lanes }: { peg: Load<Awaited<ReturnType<typeof pegHistory>>>; feeds?: FeedUpdates[]; now: number; pegNow?: number; lanes: number }) {
+/** The sampled history with the live figure (the "Redemption value" tile's) as its last point. */
+function redeemLine(hist: RedeemPoint[] | undefined, live: number | undefined, now: number): RedeemPoint[] | undefined {
+  if (!hist) return undefined;
+  return live === undefined ? hist : [...hist.filter((p) => p.t < now), { t: now, value: live, block: Infinity }];
+}
+function PegPanel({ peg, feeds, now, pegNow, lanes, redeem }: { peg: Load<Awaited<ReturnType<typeof pegHistory>>>; feeds?: FeedUpdates[]; now: number; pegNow?: number; lanes: number; redeem?: RedeemPoint[] }) {
   const [range, setRange] = useState(readRange);
   const pick = (id: string) => {
     setRange(id);
@@ -435,13 +444,17 @@ function PegPanel({ peg, feeds, now, pegNow, lanes }: { peg: Load<Awaited<Return
         <ChartWait scroll w={PEG_CHART_W} h={pegChartHeight(lanes)} note={peg.error ? `Could not read the peg pool: ${peg.error}` : "Reading the peg pool…"} />
       ) : (
         <div className="an-chart" tabIndex={0} role="region" aria-label="Peg chart, scrolls sideways on small screens">
-          <PegChart points={points} feeds={feeds ?? []} t0={t0} t1={now} now={pegNow ?? st.now} minLanes={feeds ? 0 : lanes} />
+          <PegChart points={points} feeds={feeds ?? []} t0={t0} t1={now} now={pegNow ?? st.now} minLanes={feeds ? 0 : lanes} redeem={redeem} />
         </div>
       )}
       <ul className="an-legend">
         <li>
           <i className="an-key-line" />
           pool price, USDC per imdUSD
+        </li>
+        <li>
+          <i className="an-key-redeem" />
+          redemption value: what redeeming 1 imdUSD returns at IMD's market price{redeem ? "" : " (reading…)"}
         </li>
         <li>
           <i className="an-key-band" />
@@ -463,7 +476,7 @@ function PegPanel({ peg, feeds, now, pegNow, lanes }: { peg: Load<Awaited<Return
         <Fig k="Swaps" v={st ? whole(st.inside.length) : "…"} />
         {(price || !feeds) && <Fig k="Price feed fresh" v={price && st ? `${freshShare(price, t0, now)}%` : "…"} />}
       </dl>
-      <p className="an-src">Swap logs of the imdUSD/USDC pool {short(pointsConfig.pegPools[1]?.poolId ?? "0x0000000000")} · ValueUpdated logs of the price and spot feeds</p>
+      <p className="an-src">Swap logs of the imdUSD/USDC pool {short(pointsConfig.pegPools[1]?.poolId ?? "0x0000000000")} · ValueUpdated logs of the price and spot feeds · the vault's payout price, fee and backing, sampled hourly (4-hourly before the last 3 days)</p>
     </section>
   );
 }

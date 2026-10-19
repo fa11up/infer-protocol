@@ -9,9 +9,9 @@ import rpcUrls from "./ens-rpc.json";
 // mainnet ETH/USD. It is what the next price update would bring the vault's price towards. It is display
 // only: the vault never reads it, and a pool can be pushed within a block, which is why the vault uses
 // attested window medians instead.
-const POOL_MANAGER = "0x000000000004444c5dc75cB358380D2e3dE08A90";
+export const POOL_MANAGER = "0x000000000004444c5dc75cB358380D2e3dE08A90";
 const IMD_POOL_ID = "0xb07d640fd9e2eb9dc81b953c8e4fd006bdfeaf276010fb5418eb763ca15abfb3";
-const ETH_USD = "0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419";
+export const ETH_USD = "0x5f4eC3Df9cbd43714FE2740f5E3616155c5b8419";
 const POLL_MS = 30_000;
 
 const client = createReadClient({
@@ -27,7 +27,7 @@ const abi = parseAbi([
 export type Market = { imdEth: bigint; imdUsd: bigint; ethUsd: bigint; readAt: number };
 
 /** The pool's slot0 lives at keccak256(abi.encode(poolId, 6)); its low 160 bits are sqrtPriceX96. */
-const SLOT0 = keccak256(encodeAbiParameters([{ type: "bytes32" }, { type: "uint256" }], [IMD_POOL_ID, 6n]));
+export const SLOT0 = keccak256(encodeAbiParameters([{ type: "bytes32" }, { type: "uint256" }], [IMD_POOL_ID, 6n]));
 
 export async function readMarket(): Promise<Market> {
   const [word, round] = await Promise.all([
