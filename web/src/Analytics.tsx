@@ -412,6 +412,9 @@ function redeemLine(hist: RedeemPoint[] | undefined, live: number | undefined, n
 }
 function PegPanel({ peg, feeds, now, pegNow, lanes, redeem }: { peg: Load<Awaited<ReturnType<typeof pegHistory>>>; feeds?: FeedUpdates[]; now: number; pegNow?: number; lanes: number; redeem?: RedeemPoint[] }) {
   const [range, setRange] = useState(readRange);
+  // The redemption line is off until asked for: it sits far under the peg while the payout price catches up, and
+  // drawn by default it reads as the price of imdUSD. Its legend key turns it on and off.
+  const [showRedeem, setShowRedeem] = useState(false);
   const pick = (id: string) => {
     setRange(id);
     try {
@@ -444,7 +447,7 @@ function PegPanel({ peg, feeds, now, pegNow, lanes, redeem }: { peg: Load<Awaite
         <ChartWait scroll w={PEG_CHART_W} h={pegChartHeight(lanes)} note={peg.error ? `Could not read the peg pool: ${peg.error}` : "Reading the peg pool…"} />
       ) : (
         <div className="an-chart" tabIndex={0} role="region" aria-label="Peg chart, scrolls sideways on small screens">
-          <PegChart points={points} feeds={feeds ?? []} t0={t0} t1={now} now={pegNow ?? st.now} minLanes={feeds ? 0 : lanes} redeem={redeem} />
+          <PegChart points={points} feeds={feeds ?? []} t0={t0} t1={now} now={pegNow ?? st.now} minLanes={feeds ? 0 : lanes} redeem={showRedeem ? redeem : undefined} />
         </div>
       )}
       <ul className="an-legend">
@@ -453,8 +456,10 @@ function PegPanel({ peg, feeds, now, pegNow, lanes, redeem }: { peg: Load<Awaite
           pool price, USDC per imdUSD
         </li>
         <li>
-          <i className="an-key-redeem" />
-          redemption value: what redeeming 1 imdUSD returns at IMD's market price{redeem ? "" : " (reading…)"}
+          <button type="button" className="an-legend-toggle" aria-pressed={showRedeem} onClick={() => setShowRedeem((v) => !v)} title={showRedeem ? "Hide the redemption line" : "Show the redemption line"}>
+            <i className="an-key-redeem" />
+            redemption value: what redeeming 1 imdUSD returns at IMD's market price{showRedeem && !redeem ? " (reading…)" : ""}
+          </button>
         </li>
         <li>
           <i className="an-key-band" />

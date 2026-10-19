@@ -4911,6 +4911,22 @@ dialog:focus-visible {
 .an-key-line,
 .an-key-ink { background: var(--text); }
 .an-key-muted { background: var(--muted); opacity: 0.45; }
+.an-legend-toggle {
+  font: inherit;
+  line-height: inherit;
+  white-space: nowrap;
+  min-height: 0;
+  height: auto;
+  color: inherit;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+}
+.an-legend-toggle[aria-pressed="false"] { opacity: 0.4; }
+.an-legend-toggle:hover { opacity: 1; }
+.an-legend-toggle:focus-visible { outline: 1px solid var(--text); outline-offset: 2px; }
 .an-key-redeem { height: 0 !important; border-top: 2px dashed var(--caution); vertical-align: 3px !important; }
 .an-key-band { background: var(--surface); box-shadow: inset 0 0 0 10px color-mix(in srgb, var(--healthy) 12%, transparent); outline: 1px solid var(--healthy); }
 .an-key-fresh { background: var(--healthy); }
