@@ -4836,6 +4836,10 @@ dialog:focus-visible {
 .an-sev-off .an-pill { color: var(--muted); border-color: var(--rule); }
 .an-panel {
   display: grid;
+  /* One column that never grows past the panel: a wide chart (560px minimum) scrolls inside its own frame
+     instead of widening the panel and, on a phone, the whole page (which then slid under a finger on the
+     stress slider). */
+  grid-template-columns: minmax(0, 1fr);
   gap: 12px;
   min-width: 0;
   padding: 16px 18px 18px;
@@ -4886,6 +4890,8 @@ dialog:focus-visible {
 }
 .an-chart {
   overflow-x: auto;
+  /* A sideways swipe on a chart scrolls the chart and stops there; it never drags the page. */
+  overscroll-behavior-x: contain;
 }
 .an-svg {
   display: block;
@@ -4965,7 +4971,8 @@ dialog:focus-visible {
 .an-legend-toggle {
   font: inherit;
   line-height: inherit;
-  white-space: nowrap;
+  /* The redemption key is a sentence: it wraps on a phone rather than running off the panel. */
+  white-space: normal;
   min-height: 0;
   height: auto;
   color: inherit;
@@ -5020,7 +5027,13 @@ dialog:focus-visible {
   gap: 12px;
 }
 .an-stress-ctl label { color: var(--muted); font-size: 12px; }
-.an-stress-ctl input { width: 100%; accent-color: var(--text); }
+.an-stress-ctl input {
+  width: 100%;
+  accent-color: var(--text);
+  /* Sideways drags move the slider, up-and-down still scrolls the page; and a finger-sized target. */
+  touch-action: pan-y;
+  min-height: 44px;
+}
 .an-stress-ctl output { min-width: 5ch; text-align: right; font-size: 17px; }
 .an-table { width: 100%; border-collapse: collapse; font-size: 12px; }
 .an-table th,
