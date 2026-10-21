@@ -3953,6 +3953,16 @@ html.app-terminal body:has(> .vibe-canvas:not([hidden])) :is(input, textarea) {
   color: var(--muted);
   white-space: nowrap;
 }
+/* The ticker is a link to DexScreener: it keeps the ticker's colours, and underlines only on hover/focus. */
+.infer-ticker-link {
+  color: inherit;
+  text-decoration: none;
+}
+.infer-ticker-link:hover,
+.infer-ticker-link:focus-visible {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
 /* The network chips, side by side just before the theme and background buttons. */
 .chips {
   display: flex;

@@ -35,10 +35,9 @@ export const X_ACCOUNT = "https://x.com/imdusd";
 export const SOURCE_REPO = "https://github.com/fa11up/infer-protocol";
 /** IdentityMD, the agent network whose panels price imdUSD. */
 export const IDENTITYMD = "https://imd.fun";
-/** INFER's launch pool (INFER/IMD, Uniswap v4) on DexScreener. The pool, not the token: a stranger's
- * INFER/USDC pool exists, and a token link lets DexScreener pick which pair to show. */
-export const INFER_DEXSCREENER =
-  "https://dexscreener.com/ethereum/0x1f03dd2c202cf17b58305b73ae2f8b3143e9c056ed9c9e8dbd4924b350431e95";
+// INFER's launch pool on DexScreener: in its own module so infer.imdusd.com can link it without this file.
+import { INFER_DEXSCREENER } from "./infer-dexscreener";
+export { INFER_DEXSCREENER };
 
 /** The footer's link to imdUSD on X: the X mark, in the text colour, named for screen readers. */
 export function XLink() {
