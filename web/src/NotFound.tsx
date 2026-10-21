@@ -1,4 +1,4 @@
-import { SiteHeader, WHITEPAPER, INFER_SITE, TERMINAL, href, XLink, DexLink } from "./site";
+import { SiteFooter, SiteHeader, TERMINAL, href } from "./site";
 
 /** The public site's not-found page (404.html). The host serves it at any unknown path, so every
  * link resolves from the site root (the build rewrites this page's URLs to absolute ones). */
@@ -18,23 +18,7 @@ export function NotFound() {
           <a href={href("docs/")}>Docs</a>
         </nav>
       </main>
-      <footer className="site-footer">
-        <nav aria-label="Footer">
-          {TERMINAL && <a href={href("terminal/")}>Terminal</a>}
-          {TERMINAL && <a href={href("stats/")}>Stats</a>}
-          <a href={href("docs/")}>Docs</a>
-          <a href={href("links/")}>Links</a>
-          <a href={INFER_SITE} target="_blank" rel="noreferrer">
-            INFER ↗
-          </a>
-          <a href={WHITEPAPER} target="_blank" rel="noreferrer">
-            Whitepaper ↗
-          </a>
-          <XLink />
-          <DexLink />
-        </nav>
-        <span>imdUSD · built on IdentityMD</span>
-      </footer>
+      <SiteFooter />
     </div>
   );
 }

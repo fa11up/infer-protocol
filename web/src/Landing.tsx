@@ -1,5 +1,5 @@
 import { lazy, Suspense, type ReactNode } from "react";
-import { SiteHeader, href, WHITEPAPER, INFER_SITE, TERMINAL, XLink, DexLink } from "./site";
+import { SiteFooter, SiteHeader, href, WHITEPAPER, TERMINAL } from "./site";
 import { MarketCap } from "./MarketCap";
 // The live homepage (chain reads, viem, the deployment file) lives in its own module, loaded after the page
 // is drawn: the page paints with the live panel's frame (LivePanel below) and the figures fill it in. The
@@ -263,23 +263,7 @@ export function Page({
           {contracts}
         </section>
       </main>
-      <footer className="site-footer">
-        <nav aria-label="Footer">
-          {TERMINAL && <a href={href("terminal/")}>Terminal</a>}
-          {TERMINAL && <a href={href("stats/")}>Stats</a>}
-          <a href={href("docs/")}>Docs</a>
-          <a href={href("links/")}>Links</a>
-          <a href={INFER_SITE} target="_blank" rel="noreferrer">
-            INFER ↗
-          </a>
-          <a href={WHITEPAPER} target="_blank" rel="noreferrer">
-            Whitepaper ↗
-          </a>
-          <XLink />
-          <DexLink />
-        </nav>
-        <span>imdUSD · built on IdentityMD</span>
-      </footer>
+      <SiteFooter />
     </div>
   );
 }

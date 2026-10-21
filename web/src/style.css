@@ -2205,33 +2205,66 @@ html.app-page body {
   border-bottom: 1px solid var(--rule);
 }
 .site-footer {
-  display: flex;
-  /* Overrides the generic footer rule (the terminal's status bar), which stacks in a column:
-     links on the left, the credit on the right, on one line. */
-  flex-direction: row;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 16px;
-  flex-wrap: wrap;
-  padding-block: 18px 28px;
+  /* Overrides the generic footer rule (the terminal's status bar): the wordmark on the left, three short link
+     columns on the right, one hairline above. */
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 24px 48px;
+  padding-block: 28px 40px;
   border-top: 1px solid var(--rule);
-  font-size: 11px;
+  font-size: 12px;
   color: var(--muted);
 }
-.site-footer nav {
+.site-footer .foot-brand {
   display: flex;
-  gap: 18px;
-  /* Four links and the X mark are wider than a 320px phone: wrap rather than scroll the page sideways. */
-  flex-wrap: wrap;
-  row-gap: 0;
+  flex-direction: column;
+  gap: 8px;
 }
-.site-footer a {
-  /* Inline-block with vertical padding, so an 11px link is still a 24px-plus target. */
-  display: inline-block;
-  padding-block: 6px;
+.site-footer .foot-brand .wordmark {
+  padding: 0;
+  font-size: 16px;
   color: var(--text);
 }
-/* The X mark: an icon-only link, padded to a 24px target and centred on the text line. */
+.site-footer .foot-cols {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(96px, auto));
+  gap: 0 56px;
+}
+.site-footer .foot-col {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+.site-footer .foot-h {
+  margin-bottom: 6px;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.site-footer a {
+  /* Inline-block with vertical padding, so a 12px link is still a 24px-plus target. */
+  display: inline-block;
+  padding-block: 5px;
+  color: var(--text);
+  text-decoration: none;
+}
+.site-footer a:hover,
+.site-footer a:focus-visible {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.site-footer .foot-icons {
+  display: flex;
+  gap: 14px;
+  padding-top: 4px;
+}
+/* In the column the marks line up with the links' left edge (still a 24px target, padded to the right). */
+.site-footer .foot-icons .x-link {
+  justify-content: flex-start;
+}
+/* The X and DexScreener marks: icon-only links, padded to a 24px target. */
 .site-footer .x-link {
   display: inline-flex;
   align-items: center;
@@ -2239,7 +2272,15 @@ html.app-page body {
   min-width: 24px;
   min-height: 24px;
   padding: 0;
-  align-self: center;
+}
+@media (max-width: 720px) {
+  .site-footer {
+    grid-template-columns: 1fr;
+  }
+  .site-footer .foot-cols {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px 24px;
+  }
 }
 .docs-placeholder,
 .not-found {

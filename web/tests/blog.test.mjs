@@ -87,9 +87,13 @@ test("the plate is deterministic per slug and carries no inline style", () => {
   assert.ok(!/style=/.test(plate("a")));
 });
 
-test("both sites link the blog: the shared header and footer, and the docs pages' footer", () => {
+test("both sites link the blog from the shared footer and the docs pages' footer, not the header", () => {
   const site = readFileSync(resolve(content, "../../src/site.tsx"), "utf8");
   assert.match(site, /export const BLOG = "https:\/\/blog\.imdusd\.com\/"/);
-  assert.match(site, />\s*Blog\s*<\/a>/);
+  const header = site.slice(site.indexOf("export function SiteHeader"), site.indexOf("export function SiteFooter"));
+  const footer = site.slice(site.indexOf("export function SiteFooter"));
+  assert.doesNotMatch(header, />\s*(Blog|Whitepaper ↗)\s*<\/a>/, "header carries neither a Blog nor a Whitepaper link");
+  assert.match(footer, />\s*Blog\s*<\/a>/);
+  assert.match(footer, /Whitepaper ↗/);
   assert.match(readFileSync(resolve(content, "../../scripts/docs-pages.mjs"), "utf8"), /https:\/\/blog\.imdusd\.com\/">Blog</);
 });

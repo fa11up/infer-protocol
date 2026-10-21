@@ -100,16 +100,9 @@ export function SiteHeader({
           {TERMINAL && link("terminal", "terminal/", "Terminal")}
           {TERMINAL && link("analytics", "stats/", "Stats")}
           {link("docs", "docs/", "Docs")}
-          {/* The blog is its own site: from imdusd.com an ordinary link (soft navigation hands other origins
-              to the browser), and on the blog its own home. */}
-          <a href={BLOG_BUILD ? href() : BLOG} aria-current={page === "blog" ? "page" : undefined}>
-            Blog
-          </a>
+          {/* Blog and Whitepaper live in the footer (user, 2026-10-21: a cleaner header). */}
           <a href={INFER_SITE} target="_blank" rel="noreferrer">
             INFER ↗
-          </a>
-          <a href={WHITEPAPER} target="_blank" rel="noreferrer">
-            Whitepaper ↗
           </a>
         </nav>
       </div>
@@ -133,26 +126,43 @@ export function SiteHeader({
   );
 }
 
-/** The footer every React-rendered page shares (the docs pages render the same links in scripts/docs-pages.mjs). */
+/** The footer every page shares, in three short columns beside the wordmark (the docs pages render the same
+ *  markup in scripts/docs-pages.mjs). Blog and Whitepaper live here rather than in the header. */
 export function SiteFooter() {
   return (
     <footer className="site-footer">
-      <nav aria-label="Footer">
-        {TERMINAL && <a href={siteHref("terminal/")}>Terminal</a>}
-        {TERMINAL && <a href={siteHref("stats/")}>Stats</a>}
-        <a href={siteHref("docs/")}>Docs</a>
-        <a href={BLOG_BUILD ? href() : BLOG}>Blog</a>
-        <a href={siteHref("links/")}>Links</a>
-        <a href={INFER_SITE} target="_blank" rel="noreferrer">
-          INFER ↗
+      <div className="foot-brand">
+        <a className="wordmark" href={siteHref()} aria-label="imdUSD home">
+          imd<b>USD</b>
         </a>
-        <a href={WHITEPAPER} target="_blank" rel="noreferrer">
-          Whitepaper ↗
-        </a>
-        <XLink />
-        <DexLink />
+        <span>Built on IdentityMD</span>
+      </div>
+      <nav className="foot-cols" aria-label="Footer">
+        <div className="foot-col">
+          <span className="foot-h">Protocol</span>
+          {TERMINAL && <a href={siteHref("terminal/")}>Terminal</a>}
+          {TERMINAL && <a href={siteHref("stats/")}>Stats</a>}
+          <a href={siteHref("docs/")}>Docs</a>
+        </div>
+        <div className="foot-col">
+          <span className="foot-h">Read</span>
+          <a href={BLOG_BUILD ? href() : BLOG}>Blog</a>
+          <a href={WHITEPAPER} target="_blank" rel="noreferrer">
+            Whitepaper ↗
+          </a>
+        </div>
+        <div className="foot-col">
+          <span className="foot-h">Ecosystem</span>
+          <a href={INFER_SITE} target="_blank" rel="noreferrer">
+            INFER ↗
+          </a>
+          <a href={siteHref("links/")}>Links</a>
+          <span className="foot-icons">
+            <XLink />
+            <DexLink />
+          </span>
+        </div>
       </nav>
-      <span>imdUSD · built on IdentityMD</span>
     </footer>
   );
 }
