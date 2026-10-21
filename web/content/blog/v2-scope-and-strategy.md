@@ -13,7 +13,7 @@ changelog at the end lists every change. Nothing here is live until it is deploy
 ## The short version
 
 imdUSD v1 proved the idea: a dollar borrowed against staked IMD and priced by the swarm, running on Ethereum
-mainnet since 11 October 2026, its price set by the swarm rather than by a team. v2 is the version built to grow:
+mainnet since 11 October 2026. v2 is the version built to grow:
 
 - **Many collaterals, not one.** sIMD, ETH, wstETH, BTC, yield-bearing stablecoins, imdUSD v1 itself, and
   identity.md seats.
