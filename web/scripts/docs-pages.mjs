@@ -160,6 +160,7 @@ export function renderDocs({ outDir, contentDir, terminal, site }) {
       `<footer class="site-footer"><nav aria-label="Footer">` +
       (terminal ? `<a href="${root}/terminal/">Terminal</a><a href="${root}/stats/">Stats</a>` : "") +
       `<a href="${linkBetween(currentDir, "docs")}">Docs</a>` +
+      `<a href="https://blog.imdusd.com/">Blog</a>` +
       `<a href="${root}/links/">Links</a>` +
       `<a href="https://infer.imdusd.com" target="_blank" rel="noreferrer">INFER ↗</a>` +
       `<a href="https://whitepaper.imdusd.com" target="_blank" rel="noreferrer">Whitepaper ↗</a>` +

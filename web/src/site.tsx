@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { ThemeToggle } from "./theme";
 import { Vibe } from "./vibe";
 import { IMDUSD_VIBES } from "./vibe-imdusd";
+import { BLOG_VIBES } from "./vibe-blog";
 import { IMDUSD_SOUND_KEY } from "./sound-key";
 import { PegTicker } from "./peg-price";
 import { OracleChip } from "./oracle-chip";
@@ -20,6 +21,13 @@ export function appRoot(): URL {
   return new URL(meta?.content || "./", document.baseURI);
 }
 export const href = (path = "") => new URL(path, appRoot()).href;
+/** blog.imdusd.com is its own build (vite --mode blog) on its own host: its header and footer link the main
+ *  site's pages by their full address, while everything inside the blog still resolves from its own root. */
+export const BLOG_BUILD = import.meta.env.MODE === "blog";
+export const MAIN_SITE = "https://imdusd.com/";
+export const BLOG = "https://blog.imdusd.com/";
+/** A link to one of imdusd.com's own pages: relative on imdusd.com, absolute from the blog. */
+const siteHref = (path = "") => (BLOG_BUILD ? new URL(path, MAIN_SITE).href : href(path));
 /**
  * Whether this build serves the terminal. `vite build --mode public` makes the public site that goes on
  * imdusd.com: the homepage and docs only, with every terminal link replaced, so nothing links to a page
@@ -62,7 +70,7 @@ export function DexLink() {
   );
 }
 
-type Page = "home" | "terminal" | "analytics" | "docs" | "links";
+type Page = "home" | "terminal" | "analytics" | "docs" | "links" | "blog";
 /** One header for every page: brand and navigation on the left; the network chip, theme, background and a
  * page-specific end on the right. */
 export function SiteHeader({
@@ -78,20 +86,25 @@ export function SiteHeader({
   children?: ReactNode;
 }) {
   const link = (to: Page, path: string, text: string) => (
-    <a href={href(path)} aria-current={page === to ? "page" : undefined}>
+    <a href={siteHref(path)} aria-current={page === to ? "page" : undefined}>
       {text}
     </a>
   );
   return (
     <header className="topbar">
       <div className="brand">
-        <a className="wordmark" href={href()} aria-label="imdUSD home">
+        <a className="wordmark" href={siteHref()} aria-label="imdUSD home">
           imd<b>USD</b>
         </a>
         <nav className="site-nav" aria-label="Site">
           {TERMINAL && link("terminal", "terminal/", "Terminal")}
           {TERMINAL && link("analytics", "stats/", "Stats")}
           {link("docs", "docs/", "Docs")}
+          {/* The blog is its own site: from imdusd.com an ordinary link (soft navigation hands other origins
+              to the browser), and on the blog its own home. */}
+          <a href={BLOG_BUILD ? href() : BLOG} aria-current={page === "blog" ? "page" : undefined}>
+            Blog
+          </a>
           <a href={INFER_SITE} target="_blank" rel="noreferrer">
             INFER ↗
           </a>
@@ -101,7 +114,7 @@ export function SiteHeader({
         </nav>
       </div>
       <div className="wallet-bar">
-        {TERMINAL && network && !mainnet ? (
+        {BLOG_BUILD ? null : TERMINAL && network && !mainnet ? (
           <span className="chip">{`${network} · testnet`}</span>
         ) : (
           <span className="chips">
@@ -112,7 +125,7 @@ export function SiteHeader({
           </span>
         )}
         <ThemeToggle />
-        <Vibe suite={IMDUSD_VIBES} />
+        <Vibe suite={BLOG_BUILD ? BLOG_VIBES : IMDUSD_VIBES} />
         <LazySound />
         {children}
       </div>
@@ -125,10 +138,11 @@ export function SiteFooter() {
   return (
     <footer className="site-footer">
       <nav aria-label="Footer">
-        {TERMINAL && <a href={href("terminal/")}>Terminal</a>}
-        {TERMINAL && <a href={href("stats/")}>Stats</a>}
-        <a href={href("docs/")}>Docs</a>
-        <a href={href("links/")}>Links</a>
+        {TERMINAL && <a href={siteHref("terminal/")}>Terminal</a>}
+        {TERMINAL && <a href={siteHref("stats/")}>Stats</a>}
+        <a href={siteHref("docs/")}>Docs</a>
+        <a href={BLOG_BUILD ? href() : BLOG}>Blog</a>
+        <a href={siteHref("links/")}>Links</a>
         <a href={INFER_SITE} target="_blank" rel="noreferrer">
           INFER ↗
         </a>

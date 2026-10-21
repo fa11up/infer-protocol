@@ -5295,3 +5295,528 @@ dialog.links-qr :focus-visible {
     gap: 28px;
   }
 }
+
+/* ---------------------------------------------------------------- blog.imdusd.com
+   Same family as imdusd.com (tokens, the mono labels, the serif display, the engraved backgrounds) with its own
+   face: a banknote masthead with the issue set like a serial, a ledger of publications, a guilloché plate per
+   post, and the "Folio" background (vibe-blog.tsx). Reading comes first: running text always sits on a solid
+   sheet (never on the pattern), at 18px with a 1.7 line height and about 68 characters to the line. */
+.blog-site {
+  --serif: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Palatino, Georgia, serif;
+}
+.blog {
+  padding-block: 32px 72px;
+}
+.blog-masthead {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 0;
+  margin-bottom: 36px;
+  border-top: 3px double var(--text);
+  border-bottom: 1px solid var(--text);
+}
+.blog-mark {
+  display: inline-flex;
+  color: var(--text);
+}
+.blog-kicker,
+.blog-masthead-note,
+.post-serial,
+.post-toc-title,
+.entry-meta,
+.ledger-foot,
+.post-end {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+}
+.blog-kicker {
+  margin: 0;
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.blog-name {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: 26px;
+  line-height: 1.1;
+  letter-spacing: 0.01em;
+}
+.blog-masthead-note {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  text-align: right;
+}
+
+/* The ledger: one entry per publication, newest first. */
+.ledger {
+  padding: 28px 32px 24px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+}
+.ledger-title {
+  margin: 0 0 8px;
+  font-family: var(--serif);
+  font-size: 15px;
+  font-weight: 400;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.entries {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.entry {
+  border-top: 1px solid var(--rule);
+}
+.entry:last-child {
+  border-bottom: 1px solid var(--rule);
+}
+.entry-link {
+  display: grid;
+  grid-template-columns: 170px minmax(0, 1fr) 88px;
+  gap: 28px;
+  align-items: start;
+  padding: 22px 0;
+  color: var(--text);
+  text-decoration: none;
+}
+.entry-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding-top: 5px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.entry-no {
+  color: var(--text);
+  letter-spacing: 0.08em;
+}
+.entry-living {
+  font-size: 11px;
+}
+.entry-text {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.entry-title {
+  font-family: var(--serif);
+  font-size: 24px;
+  line-height: 1.25;
+}
+.entry-link:hover .entry-title,
+.entry-link:focus-visible .entry-title {
+  text-decoration: underline;
+  text-underline-offset: 4px;
+  text-decoration-thickness: 1px;
+}
+.entry-summary {
+  font-family: var(--serif);
+  font-size: 17px;
+  line-height: 1.6;
+  color: var(--muted);
+  max-width: 62ch;
+}
+.plate {
+  color: var(--text);
+  opacity: 0.85;
+}
+.entry-plate {
+  width: 88px;
+  height: 88px;
+}
+.ledger-foot {
+  margin: 16px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.ledger-foot a,
+.post-end a {
+  color: var(--text);
+}
+
+/* A post: the sheet holds the text; the table of contents rides in the margin on wide screens. */
+.post-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 40px;
+  justify-content: center;
+}
+.post-layout.has-toc {
+  grid-template-columns: minmax(0, 760px) 220px;
+}
+.post {
+  min-width: 0;
+  padding: 40px 56px 32px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  font-family: var(--serif);
+  font-size: 18px;
+  line-height: 1.7;
+  color: var(--text);
+}
+.post-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 96px;
+  column-gap: 24px;
+  padding-bottom: 24px;
+  margin-bottom: 28px;
+  border-bottom: 1px solid var(--rule);
+}
+.post-head > :not(.post-plate) {
+  grid-column: 1;
+}
+.post-plate {
+  grid-column: 2;
+  grid-row: 1 / span 4;
+  width: 96px;
+  height: 96px;
+}
+.post-serial {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 18px;
+  margin: 0 0 14px;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.post-serial span:first-child {
+  color: var(--text);
+}
+.post h1 {
+  margin: 0 0 14px;
+  font-size: 40px;
+  line-height: 1.12;
+  letter-spacing: -0.01em;
+  font-weight: 600;
+}
+.post-summary {
+  margin: 0 0 14px;
+  font-size: 20px;
+  line-height: 1.55;
+  color: var(--muted);
+}
+.post-living {
+  margin: 0;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+  color: var(--muted);
+}
+.post-living a {
+  color: var(--text);
+}
+.post-living-tag {
+  display: inline-block;
+  margin-right: 10px;
+  padding: 1px 7px;
+  border: 1px solid var(--healthy);
+  color: var(--healthy);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-size: 10px;
+}
+.post-body > * {
+  max-width: 68ch;
+}
+.post-body > .table-wrap {
+  max-width: none;
+}
+.post-body p,
+.post-body ul,
+.post-body ol {
+  margin: 0 0 18px;
+}
+.post-body ul,
+.post-body ol {
+  padding-left: 24px;
+}
+.post-body li + li {
+  margin-top: 6px;
+}
+.post-body h2 {
+  position: relative;
+  margin: 48px 0 14px;
+  padding-top: 18px;
+  border-top: 1px solid var(--rule);
+  font-size: 28px;
+  line-height: 1.2;
+  font-weight: 600;
+}
+.post-body h3 {
+  position: relative;
+  margin: 32px 0 8px;
+  font-size: 21px;
+  line-height: 1.3;
+  font-weight: 600;
+}
+.post-body .anchor {
+  position: absolute;
+  left: -0.9em;
+  color: var(--muted);
+  text-decoration: none;
+  opacity: 0;
+}
+.post-body h2 .anchor {
+  top: 18px;
+}
+.post-body :is(h2, h3):hover .anchor,
+.post-body .anchor:focus-visible {
+  opacity: 1;
+}
+.post-body a {
+  color: var(--text);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+}
+.post-body strong {
+  font-weight: 600;
+}
+.post-body em {
+  font-style: italic;
+}
+.post-body > p:first-child em:only-child {
+  color: var(--muted);
+}
+.post-body code {
+  padding: 1px 5px;
+  border: 1px solid var(--rule);
+  background: var(--bg);
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.8em;
+  overflow-wrap: break-word;
+}
+.post-body pre {
+  margin: 0 0 18px;
+  padding: 14px 16px;
+  overflow-x: auto;
+  border: 1px solid var(--rule);
+  background: var(--bg);
+  font-size: 14px;
+  line-height: 1.55;
+}
+.post-body pre code {
+  padding: 0;
+  border: 0;
+  background: none;
+}
+.post-body blockquote {
+  margin: 0 0 18px;
+  padding: 2px 0 2px 16px;
+  border-left: 2px solid var(--text);
+  color: var(--muted);
+}
+.post-body table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 14px;
+  line-height: 1.55;
+}
+.post-body th,
+.post-body td {
+  padding: 11px 16px 11px 0;
+  border-bottom: 1px solid var(--rule);
+  text-align: left;
+  vertical-align: top;
+}
+.post-body thead th {
+  padding-block: 0 9px;
+  border-bottom: 1px solid var(--text);
+  font-size: 11px;
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.post-body tbody tr:nth-child(even) {
+  background: color-mix(in srgb, var(--bg) 70%, transparent);
+}
+.post-body :is(th, td).num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.post-body :is(th, td).ta-center {
+  text-align: center;
+}
+.post-body :is(th, td).ta-right {
+  text-align: right;
+}
+.post-body td code {
+  overflow-wrap: normal;
+}
+.post-end {
+  margin: 40px 0 0;
+  padding-top: 16px;
+  border-top: 1px solid var(--rule);
+  font-size: 13px;
+}
+.post-toc {
+  position: sticky;
+  top: 24px;
+  align-self: start;
+  max-height: calc(100vh - 48px);
+  overflow: auto;
+  padding: 16px 18px;
+  background: var(--surface);
+  border: 1px solid var(--rule);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.post-toc-title {
+  margin: 0 0 10px;
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.post-toc ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.post-toc li + li {
+  margin-top: 6px;
+}
+.post-toc ul ul {
+  margin: 6px 0 0 10px;
+  padding-left: 8px;
+  border-left: 1px solid var(--rule);
+}
+.post-toc a {
+  color: var(--muted);
+  text-decoration: none;
+}
+.post-toc a:hover,
+.post-toc a:focus-visible {
+  color: var(--text);
+  text-decoration: underline;
+}
+/* The sheet stays solid over the background: the reading never sits on the pattern. */
+body:has(> .vibe-canvas:not([hidden])) :is(.post, .ledger, .post-toc) {
+  background: var(--surface);
+}
+body:has(> .vibe-canvas:not([hidden])) .blog-masthead {
+  background: color-mix(in srgb, var(--bg) 88%, transparent);
+}
+@media (max-width: 1100px) {
+  .post-layout.has-toc {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .post-toc {
+    display: none;
+  }
+}
+@media (max-width: 760px) {
+  .blog {
+    padding-block: 20px 48px;
+  }
+  .blog-masthead {
+    grid-template-columns: auto 1fr;
+    margin-bottom: 20px;
+  }
+  .blog-masthead-note {
+    display: none;
+  }
+  .ledger {
+    padding: 18px 16px;
+  }
+  .entry-link {
+    grid-template-columns: minmax(0, 1fr) 56px;
+    gap: 6px 14px;
+  }
+  .entry-meta {
+    grid-column: 1 / -1;
+    flex-direction: row;
+    flex-wrap: wrap;
+    gap: 4px 12px;
+    padding-top: 0;
+  }
+  .entry-plate {
+    width: 56px;
+    height: 56px;
+  }
+  .entry-title {
+    font-size: 21px;
+  }
+  .entry-summary {
+    font-size: 16px;
+  }
+  .post {
+    padding: 22px 16px 20px;
+    font-size: 17px;
+  }
+  .post-head {
+    grid-template-columns: minmax(0, 1fr) 56px;
+    column-gap: 12px;
+  }
+  .post-plate {
+    width: 56px;
+    height: 56px;
+  }
+  .post h1 {
+    font-size: 30px;
+  }
+  .post-summary {
+    font-size: 18px;
+  }
+  .post-body h2 {
+    font-size: 24px;
+  }
+  .post-body h3 {
+    font-size: 19px;
+  }
+  .post-body .anchor {
+    display: none;
+  }
+  /* Tables become stacked cards on a phone, each value under its column's name, as in the docs. */
+  .post-body table,
+  .post-body tbody,
+  .post-body tr,
+  .post-body td {
+    display: block;
+    width: 100%;
+  }
+  .post-body thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+  }
+  .post-body tr {
+    padding: 10px 0;
+    border-bottom: 1px solid var(--rule);
+  }
+  .post-body tbody tr:nth-child(even) {
+    background: none;
+  }
+  .post-body td {
+    padding: 3px 0;
+    border: 0;
+    text-align: left;
+  }
+  .post-body td.num {
+    text-align: left;
+  }
+  .post-body td[data-label]:not([data-label=""])::before {
+    content: attr(data-label);
+    display: block;
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+}

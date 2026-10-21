@@ -1,0 +1,22 @@
+// blog.imdusd.com: imdUSD's publications, a static export (vite build --mode blog, dist-blog/) served by its own
+// Worker, as whitepaper.imdusd.com is. Build and deploy with `npm run deploy:blog`.
+{
+  "name": "blog-imdusd",
+  "compatibility_date": "2026-10-01",
+  // The same tiny Worker as infer.imdusd.com (http -> https, then the assets). With run_worker_first false it never
+  // runs for a page: every file is served straight from Cloudflare's cache, with no request cap.
+  "main": "worker/infer.js",
+  "assets": {
+    "directory": "../dist-blog",
+    "binding": "ASSETS",
+    "run_worker_first": false,
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "404-page"
+  },
+  // No *.workers.dev copy: the blog answers only on its own hostname, where the zone's HTTPS rules apply.
+  "workers_dev": false,
+  "limits": { "cpu_ms": 50 },
+  // A Workers custom domain: the first deploy creates the blog.imdusd.com DNS record and certificate in the
+  // imdusd.com zone (it fails if a DNS record for blog.imdusd.com already exists: delete that first).
+  "routes": [{ "pattern": "blog.imdusd.com", "custom_domain": true }]
+}

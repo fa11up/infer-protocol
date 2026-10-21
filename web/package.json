@@ -8,7 +8,7 @@
     "typecheck": "tsc --noEmit",
     "build": "npm run typecheck && vite build && node scripts/manifest.mjs",
     "check:export": "node scripts/manifest.mjs --check",
-    "test": "node --test tests/math.test.mjs tests/explain.test.mjs tests/names.test.mjs tests/priceUpdate.test.mjs tests/governance.test.mjs tests/swarm.test.mjs tests/theme.test.mjs tests/history.test.mjs tests/infer.test.mjs tests/infer-worker.test.mjs tests/rpc-cache.test.mjs tests/rpc-archive.test.mjs tests/moon.test.mjs tests/swap.unit.test.mjs tests/swap.fork.test.mjs tests/leverage.unit.test.mjs tests/loop.fork.test.mjs tests/lp.unit.test.mjs tests/lp.fork.test.mjs tests/season.test.mjs tests/swap0x.unit.test.mjs tests/swap0x.worker.test.mjs tests/history-api.test.mjs tests/history-index.test.mjs",
+    "test": "node --test tests/math.test.mjs tests/explain.test.mjs tests/names.test.mjs tests/priceUpdate.test.mjs tests/governance.test.mjs tests/swarm.test.mjs tests/theme.test.mjs tests/history.test.mjs tests/infer.test.mjs tests/blog.test.mjs tests/infer-worker.test.mjs tests/rpc-cache.test.mjs tests/rpc-archive.test.mjs tests/moon.test.mjs tests/swap.unit.test.mjs tests/swap.fork.test.mjs tests/leverage.unit.test.mjs tests/loop.fork.test.mjs tests/lp.unit.test.mjs tests/lp.fork.test.mjs tests/season.test.mjs tests/swap0x.unit.test.mjs tests/swap0x.worker.test.mjs tests/history-api.test.mjs tests/history-index.test.mjs",
     "test:browser": "node tests/browser.mjs",
     "test:soft": "node tests/soft.mjs",
     "test:disconnect": "node tests/disconnect-redraw.mjs",
@@ -22,6 +22,9 @@
     "deploy:launch": "npm run build:launch && npx -y wrangler@4 deploy",
     "build:infer": "npm run typecheck && vite build --mode infer && node scripts/infer-check.mjs",
     "deploy:infer": "npm run build:infer && npx -y wrangler@4 deploy -c wrangler.infer.jsonc",
+    "build:blog": "npm run typecheck && vite build --mode blog && node scripts/blog-check.mjs",
+    "deploy:blog": "npm run build:blog && npx -y wrangler@4 deploy -c wrangler.blog.jsonc",
+    "preview:blog": "node scripts/blog-preview.mjs",
     "deploy:whitepaper": "node whitepaper/stage.mjs && npx -y wrangler@4 deploy -c wrangler.whitepaper.jsonc",
     "test:loop": "node tests/loop-e2e.mjs"
   },

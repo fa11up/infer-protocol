@@ -12,6 +12,8 @@ import { createHash } from "node:crypto";
 import { renderDocs, socialTags } from "./scripts/docs-pages.mjs";
 // @ts-expect-error plain ESM build script without types
 import { inferLlms } from "./scripts/infer-llms.mjs";
+// @ts-expect-error plain ESM build script without types
+import { renderBlog } from "./scripts/blog-pages.mjs";
 import react from "@vitejs/plugin-react";
 import { resolve } from "node:path";
 // Three static pages: the landing page, the terminal and the docs. Plain files at /, /terminal/
@@ -429,6 +431,49 @@ function inferSite(): Plugin {
   };
 }
 
+/**
+ * blog.imdusd.com (`vite build --mode blog`, root web/blog): publications, its own export in dist-blog/ and its
+ * own Worker (wrangler.blog.jsonc), like infer.imdusd.com. Vite builds the shell (the header and the theme
+ * bootstrap); scripts/blog-pages.mjs writes every post, the index, the 404, the feed and the sitemap around it.
+ * It reads no chain, so its Content-Security-Policy connects only to itself and Cloudflare Web Analytics.
+ */
+function blogSite(): Plugin {
+  let dir = resolve(import.meta.dirname, "../dist-blog");
+  return {
+    name: "imdusd-blog-site",
+    apply: "build",
+    writeBundle(options) {
+      dir = options.dir ?? dir;
+      // imdusd.com's ABIs and links-page files belong to imdusd.com, not here.
+      rmSync(resolve(dir, "abi"), { recursive: true, force: true });
+      rmSync(resolve(dir, "links"), { recursive: true, force: true });
+      const file = resolve(dir, "manifest.webmanifest");
+      const manifest = JSON.parse(readFileSync(file, "utf8"));
+      manifest.name = "imdUSD blog";
+      manifest.short_name = "imdUSD blog";
+      manifest.start_url = "./";
+      manifest.description = "Publications from imdUSD: protocol strategy, releases and research.";
+      writeFileSync(file, JSON.stringify(manifest, null, 2) + "\n");
+      const posts = renderBlog({ outDir: dir, contentDir: resolve(import.meta.dirname, "content/blog") });
+      this.info(`rendered ${posts.length} blog posts`);
+    },
+    closeBundle() {
+      const hashes = new Set<string>();
+      for (const file of walk(dir).filter((f) => f.endsWith(".html"))) {
+        const page = readFileSync(file, "utf8");
+        if (!page.includes('<meta name="build"')) writeFileSync(file, page.replace("</head>", `${buildMeta}</head>`));
+        for (const [, script] of readFileSync(file, "utf8").matchAll(/<script>([\s\S]*?)<\/script>/g))
+          hashes.add(createHash("sha256").update(script).digest("base64"));
+      }
+      if (hashes.size !== 1) throw new Error(`expected one inline script across the blog pages, found ${hashes.size}`);
+      writeFileSync(
+        resolve(dir, "_headers"),
+        publicHeaders([...hashes], ["'self'", CF_ANALYTICS.report], [], false, [CF_ANALYTICS.script]),
+      );
+    },
+  };
+}
+
 /** Static docs pages from web/content/docs, written beside the built docs shell. */
 /**
  * Holds each page's first paint until its script has run, so the background (vibe.tsx, started as the
@@ -499,6 +544,34 @@ function docsPages(terminal: boolean, site?: string): Plugin {
 
 export default defineConfig(({ mode }) => {
   const site = mode === "public";
+  if (mode === "blog") {
+    const blog: UserConfig = {
+      root: resolve(import.meta.dirname, "blog"),
+      publicDir: resolve(import.meta.dirname, "public"),
+      plugins: [react(), renderBlocking(), blogSite()],
+      base: "./",
+      build: {
+        outDir: resolve(import.meta.dirname, "../dist-blog"),
+        emptyOutDir: true,
+        sourcemap: false,
+        rollupOptions: {
+          output: {
+            codeSplitting: {
+              groups: [
+                {
+                  name: "boot",
+                  test: /\/src\/(boot-blog|theme-core|vibe-core|vibe-imdusd|vibe-blog)\.tsx?$|vite\/(preload-helper|modulepreload-polyfill)|react\/jsx-runtime|react\/cjs\/react-jsx-runtime/,
+                },
+                { name: "react", test: /node_modules\/(react|react-dom|scheduler)\// },
+              ],
+            },
+          },
+          input: { index: resolve(import.meta.dirname, "blog/index.html") },
+        },
+      },
+    };
+    return blog;
+  }
   if (mode === "infer") {
     const infer: UserConfig = {
       root: resolve(import.meta.dirname, "infer"),
