@@ -321,6 +321,8 @@ export async function snapshot(
       ...jobs.map((fn) => safe(fn, () => read(r, vault, fn, [], bn))),
       safe("fee", () => read(r, vault, "redemptionFeeBps", [0n], bn)),
       safe("supply", () => read(r, targets.stablecoin, "totalSupply", [], bn)),
+      // The collateral the vault holds (sIMD): with the collateral price, the homepage's TVL.
+      safe("vaultGem", () => read(r, targets.gem, "balanceOf", [vault.address], bn)),
       // Only the testnet faucet token answers deployer(); real collateral (sIMD) does not, and that is no failure.
       read(r, targets.gem, "deployer", [], bn).then(
         (d) => (v.imdDeployer = d),

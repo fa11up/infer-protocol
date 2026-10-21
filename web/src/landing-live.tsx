@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { formatUnits } from "viem";
 import { loadConfig, type Runtime } from "./config";
-import { snapshot, feedsReady, shownReserve, type Snapshot } from "./state";
+import { snapshot, feedsReady, type Snapshot } from "./state";
+import { SIGN } from "./unit";
 import { TERMINAL } from "./site";
 import { AddressLink } from "./actions";
 import { compact } from "./MarketCap";
@@ -79,7 +80,10 @@ function LiveFigures({ s, error }: { s?: Snapshot; error: string }) {
           ? "not reported"
           : `$\u00a0${fmt(v.backingPerUnit < WAD ? v.backingPerUnit : WAD)}`,
     },
-    { value: usd(shownReserve(v).value) },
+    // imdUSD in circulation (totalSupply), in its own sign.
+    { value: v.supply === undefined ? "—" : `${SIGN}\u00a0${compact.format(Number(formatUnits(v.supply, 18)))}` },
+    // Total value locked: the collateral (sIMD) the vault holds, at the vault's collateral price.
+    { value: v.vaultGem === undefined || !s.feeds.Collateral ? "—" : usd((v.vaultGem * s.feeds.Collateral.value) / WAD) },
     {
       value: price
         ? `$\u00a0${fmt(price.value, 18, 2)} · ${price.stale ? "stale" : age(price.updated, now)}`
