@@ -2,6 +2,7 @@ out/
 cache/
 broadcast/
 oracle/node_modules/
+pilot/node_modules/
 oracle/relayer.config.js
 
 # The keeper moved to its own private repository (fa11up/imd-keeper). If a copy is ever cloned
