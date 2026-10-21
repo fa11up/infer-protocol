@@ -19,7 +19,6 @@ import { ceilingState } from "./Panes";
 import { PriceStatus } from "./PriceStatus";
 import { PERMIT2, UNIVERSAL_ROUTER } from "./infer/swap";
 import {
-  DOWN_PATH,
   ERC20,
   IMD,
   IMDUSD,
@@ -30,7 +29,11 @@ import {
   SHARE,
   STATE_VIEW,
   UNISWAP,
-  UP_PATH,
+  ROUTES_UP,
+  ROUTES_DOWN,
+  bestRoute,
+  type PathKey,
+  type Route,
   WAD,
   crForLeverage,
   encodePathSwap,
@@ -59,7 +62,7 @@ const x = (l: bigint | undefined) => (l === undefined ? "—" : `${(Number(l) / 
 const pctText = (bps: bigint) => `${(Number(bps < 0n ? -bps : bps) / 100).toFixed(2)}%`;
 /** A target: a ratio in whole percent, or undefined for no debt (1×). */
 type Target = { key: string; label: string; cr?: bigint };
-type Plan = TargetPlan & { up: boolean; costBps: bigint; pegNow?: bigint; pegEnd?: bigint };
+type Plan = TargetPlan & { up: boolean; costBps: bigint; route: Route; pegNow?: bigint; pegEnd?: bigint };
 
 export function LoopWindow({
   r,
@@ -141,27 +144,31 @@ export function LoopWindow({
       const first = planToTarget({ ...base, costBps: 100n });
       const up = target.cr !== undefined && (debt === 0n || value! * 100n > target.cr * debt!);
       if (first.rounds === 0) throw Error("Nothing to do: the vault's limits leave no room for a round toward this target.");
+      const quotePath = async (currency: Address, path: readonly PathKey[], amount: bigint) =>
+        (
+          await r.client.readContract({
+            address: UNISWAP.quoter,
+            abi: QUOTER_PATH,
+            functionName: "quoteExactInput",
+            args: [{ exactCurrency: currency, path: [...path], exactAmount: amount }],
+          })
+        )[0];
       let costBps: bigint;
+      let route: Route;
       if (up) {
         const amount = ceiling && ceiling.left < first.stable ? ceiling.left : first.stable;
         if (amount <= 0n) throw Error("The borrowing cap is reached: no new debt until borrowers repay or governance raises it.");
-        const [imdOut] = await r.client.readContract({
-          address: UNISWAP.quoter,
-          abi: QUOTER_PATH,
-          functionName: "quoteExactInput",
-          args: [{ exactCurrency: IMDUSD, path: [...UP_PATH], exactAmount: amount }],
-        });
-        const got = (imdOut * imdUsd!) / WAD;
+        const best = await bestRoute((path, a) => quotePath(IMDUSD, path, a), ROUTES_UP, amount);
+        if (!best) throw Error(`No pool can swap this much ${unit()} for IMD right now.`);
+        route = best.route;
+        const got = (best.out * imdUsd!) / WAD;
         costBps = ((amount - got) * 10_000n) / amount;
       } else {
         const imdIn = (first.value * WAD) / imdUsd!;
-        const [out] = await r.client.readContract({
-          address: UNISWAP.quoter,
-          abi: QUOTER_PATH,
-          functionName: "quoteExactInput",
-          args: [{ exactCurrency: IMD, path: [...DOWN_PATH], exactAmount: imdIn }],
-        });
-        costBps = ((first.value - out) * 10_000n) / first.value;
+        const best = await bestRoute((path, a) => quotePath(IMD, path, a), ROUTES_DOWN, imdIn);
+        if (!best) throw Error(`No pool can swap this much IMD for ${unit()} right now.`);
+        route = best.route;
+        costBps = ((first.value - best.out) * 10_000n) / first.value;
       }
       // A round deposits (or repays with) the swap's guaranteed minimum, SLIPPAGE_BPS under its quote. A swap that
       // gains (imdUSD above $1 on the way up, under it on the way down) is planned as free: rounds counted on a gain
@@ -169,7 +176,8 @@ export function LoopWindow({
       const planned = planToTarget({ ...base, costBps: planCost(costBps) });
       let pegNow: bigint | undefined;
       let pegEnd: bigint | undefined;
-      if (up) {
+      // Only a route through the peg pool sells imdUSD there.
+      if (up && route.viaPeg) {
         const [slot0, end] = await Promise.all([
           r.client.readContract({ address: UNISWAP.stateView, abi: STATE_VIEW, functionName: "getSlot0", args: [PEG_POOL_ID] }),
           pegMarginalSell(pegQuoter(r.client), planned.stable),
@@ -177,7 +185,7 @@ export function LoopWindow({
         pegNow = usdAtSqrt(slot0[0]);
         pegEnd = end;
       }
-      if (live) setPlan({ ...planned, up, costBps, pegNow, pegEnd });
+      if (live) setPlan({ ...planned, up, costBps, route, pegNow, pegEnd });
     })().catch((e) => live && setPlanError(message(e)));
     return () => {
       live = false;
@@ -185,7 +193,7 @@ export function LoopWindow({
     // Re-plan when the target or the position changes, not on every 15-second snapshot.
   }, [choice, held, debt, !!sized, noop, running]);
 
-  const depeg = !!plan?.up && ((plan.pegNow ?? WAD) < PEG_FLOOR_USD || (plan.pegEnd ?? 0n) < PEG_FLOOR_USD);
+  const depeg = !!plan?.up && plan.route.viaPeg && ((plan.pegNow ?? WAD) < PEG_FLOOR_USD || (plan.pegEnd ?? 0n) < PEG_FLOOR_USD);
   const heldAfter = plan && price ? (plan.valueAfter * WAD) / price : undefined;
   const liqAfter = plan && mat !== undefined && heldAfter !== undefined ? perImd(liquidationPrice(heldAfter, plan.debtAfter, mat)) : undefined;
   const blocked = !sized
@@ -254,7 +262,7 @@ export function LoopWindow({
       await settled();
       await live.current.sequence!("loop", { calls, batch: !!live.current.atomic });
     };
-    const quote = async (currency: Address, path: typeof UP_PATH, amount: bigint) =>
+    const quote = async (currency: Address, path: readonly PathKey[], amount: bigint) =>
       (await read<readonly [bigint, bigint]>({
         address: UNISWAP.quoter,
         abi: QUOTER_PATH,
@@ -278,9 +286,11 @@ export function LoopWindow({
           const cap = ceilingState(snap.current?.v ?? {});
           const borrow = cap && cap.left < next.stable ? cap.left : next.stable;
           if (borrow < WAD) break;
-          const imdOut = await quote(IMDUSD, UP_PATH, borrow);
-          const minImd = (imdOut * (10_000n - SLIPPAGE_BPS)) / 10_000n;
-          const swap = encodePathSwap({ currencyIn: IMDUSD, path: UP_PATH, amountIn: borrow, minOut: minImd });
+          // Each round re-picks the route: a round moves the direct pool, and the other may then pay more.
+          const best = await bestRoute((path, a) => quote(IMDUSD, path, a), ROUTES_UP, borrow);
+          if (!best) throw Error(`No pool can swap ${fmt(borrow, 18, 2)} ${unit()} for IMD right now.`);
+          const minImd = (best.out * (10_000n - SLIPPAGE_BPS)) / 10_000n;
+          const swap = encodePathSwap({ currencyIn: IMDUSD, path: best.route.path, amountIn: borrow, minOut: minImd });
           const imdAllowance = await read<bigint>({ address: IMD, abi: ERC20, functionName: "allowance", args: [me, vault.address] });
           setProgress(`${of}: borrow ${fmt(borrow, 18, 2)} ${unit()}, swap it to IMD, deposit.`);
           await send([
@@ -299,11 +309,12 @@ export function LoopWindow({
           await send([{ target: vault, fn: "free", args: [withdraw], label: `Withdraw ${fmtGem(withdraw)} ${gemUnit()}` }]);
           const gem = snap.current!.targets.gem.address;
           const imdIn = await read<bigint>({ address: gem, abi: SHARE, functionName: "previewRedeem", args: [withdraw] });
-          const out = await quote(IMD, DOWN_PATH, imdIn);
-          const minOut = (out * (10_000n - SLIPPAGE_BPS)) / 10_000n;
+          const best = await bestRoute((path, a) => quote(IMD, path, a), ROUTES_DOWN, imdIn);
+          if (!best) throw Error(`No pool can swap ${fmt(imdIn, 18, 4)} IMD for ${unit()} right now.`);
+          const minOut = (best.out * (10_000n - SLIPPAGE_BPS)) / 10_000n;
           const owed = await read<bigint>({ ...vault, functionName: "debtOf", args: [me] });
           const repay = minOut < owed ? minOut : owed;
-          const swap = encodePathSwap({ currencyIn: IMD, path: DOWN_PATH, amountIn: imdIn, minOut });
+          const swap = encodePathSwap({ currencyIn: IMD, path: best.route.path, amountIn: imdIn, minOut });
           setProgress(`${of}: unstake, swap to ${unit()}, repay ${fmt(repay, 18, 2)}.`);
           await send([
             { target: { address: gem, abi: SHARE }, fn: "redeem", args: [withdraw, me, me], label: `Unstake ${fmtGem(withdraw)} ${gemUnit()} to IMD` },
@@ -406,6 +417,12 @@ export function LoopWindow({
             <span className={plan.costBps > COSTLY_BPS ? "danger-text" : undefined}>
               {pctText(plan.costBps)} ≈ ${fmt(((plan.up ? plan.stable : plan.value) * (plan.costBps < 0n ? -plan.costBps : plan.costBps)) / 10_000n, 18, 2)}
             </span>
+          </Row>
+          <Row
+            label="Route"
+            info={`Quoted each round: the direct ${unit()}/IMD pool (0.3%), or ${unit()} → USDC → ETH → IMD through the peg pool. The one that pays more is used.`}
+          >
+            {plan.route.name === "direct" ? `Direct ${unit()}/IMD pool` : `Via USDC and ETH`}
           </Row>
           <Row label="Rounds">
             {plan.rounds} {actions.atomic ? "(one signature each)" : "(a few wallet prompts each)"}

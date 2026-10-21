@@ -3,8 +3,10 @@
 //
 // One round up: Borrow (`draw`) imdUSD, swap it for IMD, Deposit (`lockIMD`, the vault stakes it as sIMD).
 // One round down: Withdraw (`free`) sIMD, unstake it to IMD, swap that for imdUSD, Repay (`wipe`).
-// There is no imdUSD/IMD pool, so a swap crosses three Uniswap v4 pools in one Universal Router call:
-//   imdUSD/USDC (the peg pool, PegFeeHook) -> USDC/ETH (0.05%) -> ETH/IMD (1%, the pool the feeds read).
+// Each swap takes the better of two routes, quoted every round (bestRoute):
+//   direct: the imdUSD/IMD pool (0.3%, no hook; the Treasury's liquidity, opened 2026-10-21);
+//   via USDC and ETH, three Uniswap v4 pools in one Universal Router call:
+//     imdUSD/USDC (the peg pool, PegFeeHook) -> USDC/ETH (0.05%) -> ETH/IMD (1%, the pool the feeds read).
 // Mainnet only: every address below is chain 1, and the peg pool is keyed to the deployed imdUSD.
 import {
   encodeAbiParameters,
@@ -36,7 +38,7 @@ export const ETH_USDC_KEY: PoolKey = { currency0: NATIVE, currency1: USDC, fee: 
 /** ETH/IMD 1%: the pool the price feeds read (DeploymentConfig IMD_POOL_ID). */
 export const ETH_IMD_KEY: PoolKey = { currency0: NATIVE, currency1: IMD, fee: 10_000, tickSpacing: 200, hooks: NATIVE };
 
-type PathKey = { intermediateCurrency: Address; fee: number; tickSpacing: number; hooks: Address; hookData: Hex };
+export type PathKey = { intermediateCurrency: Address; fee: number; tickSpacing: number; hooks: Address; hookData: Hex };
 const hop = (to: Address, k: PoolKey): PathKey => ({
   intermediateCurrency: to,
   fee: k.fee,
@@ -48,6 +50,35 @@ const hop = (to: Address, k: PoolKey): PathKey => ({
 export const UP_PATH: readonly PathKey[] = [hop(USDC, PEG_KEY), hop(NATIVE, ETH_USDC_KEY), hop(IMD, ETH_IMD_KEY)];
 /** IMD -> ETH -> USDC -> imdUSD. */
 export const DOWN_PATH: readonly PathKey[] = [hop(NATIVE, ETH_IMD_KEY), hop(USDC, ETH_USDC_KEY), hop(IMDUSD, PEG_KEY)];
+
+/** imdUSD/IMD 0.3%, no hook: one hop each way, and it never touches the peg pool. */
+export const DIRECT_KEY: PoolKey = { currency0: IMDUSD, currency1: IMD, fee: 3_000, tickSpacing: 60, hooks: NATIVE };
+export const DIRECT_POOL_ID: Hex = "0x5e0b6d80edc2843617e05c203e581f32dadb2aed8cb9a9a6e6c718467d736c8e";
+export type Route = { name: "direct" | "via USDC and ETH"; path: readonly PathKey[]; viaPeg: boolean };
+export const ROUTES_UP: readonly Route[] = [
+  { name: "direct", path: [hop(IMD, DIRECT_KEY)], viaPeg: false },
+  { name: "via USDC and ETH", path: UP_PATH, viaPeg: true },
+];
+export const ROUTES_DOWN: readonly Route[] = [
+  { name: "direct", path: [hop(IMDUSD, DIRECT_KEY)], viaPeg: false },
+  { name: "via USDC and ETH", path: DOWN_PATH, viaPeg: true },
+];
+/**
+ * The route that pays the most for `amount`, from a quote per route. A route whose quote fails (a pool out of range,
+ * too thin to fill it) is skipped; undefined when none can fill it. Ties go to the earlier route (direct).
+ */
+export async function bestRoute(
+  quote: (path: readonly PathKey[], amount: bigint) => Promise<bigint>,
+  routes: readonly Route[],
+  amount: bigint,
+): Promise<{ route: Route; out: bigint } | undefined> {
+  const outs = await Promise.all(routes.map((r) => quote(r.path, amount).catch(() => undefined)));
+  let best: { route: Route; out: bigint } | undefined;
+  outs.forEach((out, i) => {
+    if (out !== undefined && out > 0n && (!best || out > best.out)) best = { route: routes[i], out };
+  });
+  return best;
+}
 
 const PATH_COMPONENTS = [
   { name: "intermediateCurrency", type: "address" },
@@ -198,6 +229,7 @@ export function pegQuoter(
       });
 }
 export const PEG_POOL_CHECK = () => poolId(PEG_KEY) === PEG_POOL_ID;
+export const DIRECT_POOL_CHECK = () => poolId(DIRECT_KEY) === DIRECT_POOL_ID;
 
 // ---- Position arithmetic (mirrors math.ts: CR% = collateral * price / (debt * 1e16)) ----------------------
 const CR = 10n ** 16n;

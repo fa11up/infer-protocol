@@ -1,7 +1,7 @@
 // The leverage window's round sizing, offline: the limits it promises hold for the sizes it suggests.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { crOf, downRound, leverageAt, maxDown, maxUp, pegSellCap, upRound } from "../src/leverage.ts";
+import { DIRECT_POOL_CHECK, ROUTES_DOWN, ROUTES_UP, bestRoute, crOf, downRound, leverageAt, maxDown, maxUp, pegSellCap, upRound } from "../src/leverage.ts";
 
 const E18 = 10n ** 18n;
 // 100 IMD of sIMD (24 decimals, 1 sIMD = 10 IMD), IMD at $10: $1,000 of collateral.
@@ -82,4 +82,25 @@ test("planToTarget: up to a ratio in rounds the vault allows, down to a ratio or
   const greedy = planToTarget({ value: 1000n * E, debt: 0n, target: 200n, floorBetween: 180n, costBps: -16_000n });
   const free = planToTarget({ value: 1000n * E, debt: 0n, target: 200n, floorBetween: 180n, costBps: 0n });
   assert.deepEqual([greedy.stable, greedy.rounds], [free.stable, free.rounds]);
+});
+
+test("the direct imdUSD/IMD key hashes to the live pool id, one hop each way", () => {
+  assert.ok(DIRECT_POOL_CHECK());
+  assert.equal(ROUTES_UP[0].path.length, 1);
+  assert.equal(ROUTES_DOWN[0].path.length, 1);
+  assert.equal(ROUTES_UP[0].viaPeg, false);
+  assert.equal(ROUTES_UP[1].viaPeg, true);
+});
+
+test("bestRoute takes the route that pays most, skips failed quotes, ties to direct", async () => {
+  const by = (outs) => (path) => {
+    const o = outs[path.length === 1 ? 0 : 1];
+    return o instanceof Error ? Promise.reject(o) : Promise.resolve(o);
+  };
+  assert.equal((await bestRoute(by([5n, 7n]), ROUTES_UP, 1n)).route.name, "via USDC and ETH");
+  assert.equal((await bestRoute(by([9n, 7n]), ROUTES_UP, 1n)).route.name, "direct");
+  assert.equal((await bestRoute(by([7n, 7n]), ROUTES_UP, 1n)).route.name, "direct");
+  assert.equal((await bestRoute(by([Error("out of range"), 7n]), ROUTES_UP, 1n)).out, 7n);
+  assert.equal(await bestRoute(by([Error("x"), Error("y")]), ROUTES_DOWN, 1n), undefined);
+  assert.equal(await bestRoute(by([0n, Error("y")]), ROUTES_DOWN, 1n), undefined);
 });

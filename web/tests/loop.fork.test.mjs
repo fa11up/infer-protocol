@@ -10,6 +10,10 @@ import { mainnet } from "viem/chains";
 import { encodeSwap, minimumOut, NATIVE, PERMIT2, QUOTER, UNIVERSAL_ROUTER } from "../src/infer/swap.ts";
 import {
   DOWN_PATH,
+  DIRECT_POOL_CHECK,
+  ROUTES_DOWN,
+  ROUTES_UP,
+  bestRoute,
   ERC20,
   ETH_IMD_KEY,
   IMD,
@@ -204,4 +208,45 @@ test("one round up and one round down through the deployed vault", { skip: !fork
   const afterDown = await read();
   console.log(`after down: debt ${Number(afterDown.debt) / 1e18} imdUSD (was ${Number(p.debt) / 1e18})`);
   assert.ok(afterDown.debt < p.debt);
+});
+
+test("a small swap each way takes the direct imdUSD/IMD pool, through the real router", { skip: !forked && `no mainnet fork at ${RPC}` }, async () => {
+  assert.ok(DIRECT_POOL_CHECK());
+  const SAFE = "0xbeFd108085613662356aa26A2466Ad3426DA9C32"; // the Treasury's Safe holds a few imdUSD
+  const account = privateKeyToAccount(generatePrivateKey());
+  const pub = createPublicClient({ chain: mainnet, transport: http(RPC, { timeout: 120_000 }) });
+  const wal = createWalletClient({ account, chain: mainnet, transport: http(RPC, { timeout: 120_000 }) });
+  for (const a of [account.address, SAFE]) await pub.request({ method: "anvil_setBalance", params: [a, "0x" + parseEther("10").toString(16)] });
+  await pub.request({ method: "anvil_impersonateAccount", params: [SAFE] });
+  const amount = parseEther("5");
+  const fund = await wal.writeContract({ account: SAFE, address: IMDUSD, abi: parseAbi(["function transfer(address,uint256) returns (bool)"]), functionName: "transfer", args: [account.address, amount] });
+  await pub.waitForTransactionReceipt({ hash: fund });
+  await pub.request({ method: "anvil_stopImpersonatingAccount", params: [SAFE] });
+  const send = async (req) => {
+    const receipt = await pub.waitForTransactionReceipt({ hash: await wal.writeContract(req) });
+    assert.equal(receipt.status, "success", `${req.functionName} reverted`);
+    await pub.request({ method: "evm_mine", params: [] });
+  };
+  const quote = (currency) => async (path, a) =>
+    (await pub.readContract({ address: UNISWAP.quoter, abi: QUOTER_PATH, functionName: "quoteExactInput", args: [{ exactCurrency: currency, path: [...path], exactAmount: a }] }))[0];
+  const deadline = (await pub.getBlock()).timestamp + 1800n;
+  const P2 = parseAbi(["function approve(address token, address spender, uint160 amount, uint48 expiration)"]);
+  const ROUTER = parseAbi(["function execute(bytes commands, bytes[] inputs, uint256 deadline) payable"]);
+  const swap = async (from, to, routes, a) => {
+    const best = await bestRoute(quote(from), routes, a);
+    assert.equal(best?.route.name, "direct", "a small swap should take the direct pool");
+    const minOut = (best.out * 9_900n) / 10_000n;
+    const before = await pub.readContract({ address: to, abi: ERC20, functionName: "balanceOf", args: [account.address] });
+    await send({ address: from, abi: ERC20, functionName: "approve", args: [UNISWAP.permit2, a] });
+    await send({ address: UNISWAP.permit2, abi: P2, functionName: "approve", args: [from, UNISWAP.universalRouter, a, Number(deadline)] });
+    const s = encodePathSwap({ currencyIn: from, path: best.route.path, amountIn: a, minOut });
+    await send({ address: UNISWAP.universalRouter, abi: ROUTER, functionName: "execute", args: [s.commands, s.inputs, deadline] });
+    const got = (await pub.readContract({ address: to, abi: ERC20, functionName: "balanceOf", args: [account.address] })) - before;
+    assert.ok(got >= minOut, `got ${got} < min ${minOut}`);
+    return got;
+  };
+  const imd = await swap(IMDUSD, IMD, ROUTES_UP, amount);
+  const back = await swap(IMD, IMDUSD, ROUTES_DOWN, imd);
+  // Two 0.3% fees and a little price impact: most of the 5 imdUSD comes back.
+  assert.ok(back > (amount * 98n) / 100n && back < amount, `round trip returned ${back}`);
 });
