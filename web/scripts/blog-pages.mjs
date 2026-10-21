@@ -221,17 +221,20 @@ const masthead = (mark, link = true) =>
   `<p class="blog-masthead-note">Protocol strategy, releases and research</p>` +
   `</div>`;
 
+// The same three-column footer as imdusd.com (src/site.tsx SiteFooter), with RSS in the Read column.
 const footer = () =>
-  `<footer class="site-footer"><nav aria-label="Footer">` +
-  `<a href="https://imdusd.com/">imdusd.com</a>` +
-  `<a href="https://imdusd.com/docs/">Docs</a>` +
-  `<a href="/">Blog</a>` +
-  `<a href="/feed.xml">RSS</a>` +
-  `<a href="https://infer.imdusd.com" target="_blank" rel="noreferrer">INFER ↗</a>` +
-  `<a href="https://whitepaper.imdusd.com" target="_blank" rel="noreferrer">Whitepaper ↗</a>` +
-  `<a class="x-link" href="https://x.com/imdusd" target="_blank" rel="noreferrer" aria-label="imdUSD on X" title="imdUSD on X">` +
-  `<svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" focusable="false"><path fill="currentColor" d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg></a>` +
-  `</nav><span>imdUSD · built on IdentityMD</span></footer>`;
+  `<footer class="site-footer">` +
+  `<div class="foot-brand"><a class="wordmark" href="https://imdusd.com/" aria-label="imdUSD home">imd<b>USD</b></a><span>Built on IdentityMD</span></div>` +
+  `<nav class="foot-cols" aria-label="Footer">` +
+  `<div class="foot-col"><span class="foot-h">Protocol</span><a href="https://imdusd.com/terminal/">Terminal</a>` +
+  `<a href="https://imdusd.com/stats/">Stats</a><a href="https://imdusd.com/docs/">Docs</a></div>` +
+  `<div class="foot-col"><span class="foot-h">Read</span><a href="/">Blog</a><a href="/feed.xml">RSS</a>` +
+  `<a href="https://whitepaper.imdusd.com" target="_blank" rel="noreferrer">Whitepaper ↗</a></div>` +
+  `<div class="foot-col"><span class="foot-h">Ecosystem</span>` +
+  `<a href="https://infer.imdusd.com" target="_blank" rel="noreferrer">INFER ↗</a><a href="https://imdusd.com/links/">Links</a>` +
+  `<span class="foot-icons"><a class="x-link" href="https://x.com/imdusd" target="_blank" rel="noreferrer" aria-label="imdUSD on X" title="imdUSD on X">` +
+  `<svg viewBox="0 0 24 24" width="12" height="12" aria-hidden="true" focusable="false"><path fill="currentColor" d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg></a></span></div>` +
+  `</nav></footer>`;
 
 /**
  * Writes /<slug>/index.html for every post, the index (over the built shell at <out>/index.html), the 404's
