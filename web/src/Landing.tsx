@@ -83,7 +83,6 @@ export function Landing() {
  *  the first paint and nothing below it moves when the figures arrive. */
 export const LIVE_ROWS = [
   "Backing per imdUSD",
-  "imdUSD supply",
   "TVL",
   "IMD / USD",
   "Minimum collateral ratio",

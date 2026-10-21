@@ -333,9 +333,7 @@ try {
     .getByRole("heading", { level: 1, name: /A dollar the swarm/ })
     .waitFor();
   const live = page.locator(".live-panel");
-  await expectText(live, "imdUSD supply");
   await expectText(live, "TVL");
-  await expectText(live, "\u0197\u00a010K"); // the fixture's supply, in imdUSD's sign
   await expectText(live, "$\u00a020K"); // its collateral at the collateral price
   await expectText(live, "$\u00a010K");
   await expectText(live, "Price actions");
