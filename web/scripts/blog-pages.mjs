@@ -188,7 +188,9 @@ function toc(headings) {
     } else out += `<li><a href="#${h.id}">${escapeHtml(h.text)}</a></li>`;
   }
   if (open) out += "</ul></li>";
-  return `<nav class="post-toc" aria-label="Contents"><p class="post-toc-title">Contents</p><ul>${out}</ul></nav>`;
+  // The sticky element stays transparent and the sheet is its child: a sticky box with its own ground over the
+  // fixed background canvas left a painted block below it in Chromium.
+  return `<nav class="post-toc" aria-label="Contents"><div class="post-toc-box"><p class="post-toc-title">Contents</p><ul>${out}</ul></div></nav>`;
 }
 
 // ---------------------------------------------------------------- pages

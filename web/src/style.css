@@ -5663,17 +5663,18 @@ dialog.links-qr :focus-visible {
   border-top: 1px solid var(--rule);
   font-size: 13px;
 }
+/* No max-height/overflow here: Chromium painted the sticky scroller's ground down to its max-height below the box. */
 .post-toc {
   position: sticky;
   top: 24px;
   align-self: start;
-  max-height: calc(100vh - 48px);
-  overflow: auto;
+  font-size: 12px;
+  line-height: 1.45;
+}
+.post-toc-box {
   padding: 16px 18px;
   background: var(--surface);
   border: 1px solid var(--rule);
-  font-size: 12px;
-  line-height: 1.45;
 }
 .post-toc-title {
   margin: 0 0 10px;
@@ -5705,7 +5706,7 @@ dialog.links-qr :focus-visible {
   text-decoration: underline;
 }
 /* The sheet stays solid over the background: the reading never sits on the pattern. */
-body:has(> .vibe-canvas:not([hidden])) :is(.post, .ledger, .post-toc) {
+body:has(> .vibe-canvas:not([hidden])) :is(.post, .ledger, .post-toc-box) {
   background: var(--surface);
 }
 body:has(> .vibe-canvas:not([hidden])) .blog-masthead {

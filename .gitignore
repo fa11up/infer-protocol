@@ -29,6 +29,7 @@ deploy/mainnet/out/bodies/*.json
 docs/oracle-guards/gt_minute.json
 /dist-infer/
 /dist-whitepaper/
+/dist-blog/
 test/scratch/
 
 # The Etherscan API key for launch.sh verify: local only, never committed (this repo is public).
