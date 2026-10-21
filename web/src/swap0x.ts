@@ -216,6 +216,21 @@ export function approvalsFor(
     : [{ spender, amount: sellAmount }];
 }
 
+/** The address 0x knows a token by: native ether (address(0) in a v4 pool key) is its 0xEeee… placeholder. */
+export const zeroXAddress = (address: Address): Address => (/^0x0{40}$/.test(address) ? ETH_ADDRESS : address);
+
+/** Ask the site's own /swap/* proxy (worker/swap.js); any failure to reach it reads as "unavailable". */
+export async function askSwap(kind: "price" | "quote", q: URLSearchParams): Promise<SwapAnswer> {
+  const down = { ok: false, unavailable: true, error: "Swaps are temporarily unavailable." } as const;
+  try {
+    const res = await fetch(`/swap/${kind}?${q}`, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(12_000) });
+    if (!/json/.test(res.headers.get("content-type") ?? "")) return down;
+    return readSwapAnswer(res.status, await res.json());
+  } catch {
+    return down;
+  }
+}
+
 /** The query /swap/price and /swap/quote take. */
 export const swapQuery = (sell: Token, buy: Token, sellAmount: bigint, slippageBps: number, taker?: Address) =>
   new URLSearchParams({

@@ -12,7 +12,7 @@
     // Only the two X player cards (X may frame them) and /rpc (worker/rpc.js) run the Worker. Every other file is
     // served straight from Cloudflare's cache: no Worker invocation, so no request cap. HTTP -> HTTPS is the
     // zone's "Always Use HTTPS" setting.
-    "run_worker_first": ["/buy/*", "/97/*", "/rpc"],
+    "run_worker_first": ["/buy/*", "/97/*", "/rpc", "/swap/*"],
     "html_handling": "auto-trailing-slash",
     "not_found_handling": "404-page"
   },
@@ -25,7 +25,10 @@
   // reads, so a visitor with a few tabs open sends well under 100 requests a minute and far fewer cache misses.
   "ratelimits": [
     { "name": "RPC_REQUESTS", "namespace_id": "1001", "simple": { "limit": 300, "period": 60 } },
-    { "name": "RPC_UPSTREAM", "namespace_id": "1002", "simple": { "limit": 120, "period": 60 } }
+    { "name": "RPC_UPSTREAM", "namespace_id": "1002", "simple": { "limit": 120, "period": 60 } },
+    // The Trade pane's 0x quotes (worker/swap.js): the API key is a secret, ZEROX_API_KEY (`wrangler secret put
+    // ZEROX_API_KEY -c wrangler.infer.jsonc`); until it is set, /swap answers 503 and the pane trades on the launch pool.
+    { "name": "SWAP_REQUESTS", "namespace_id": "1006", "simple": { "limit": 60, "period": 60 } }
   ],
   // Busiest hour seen so far: 8.8 ms at p99. The cap bounds what one hostile request can cost.
   "limits": { "cpu_ms": 100 },

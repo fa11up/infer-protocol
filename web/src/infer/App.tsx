@@ -3,7 +3,21 @@ import { useEffect, useState } from "react";
 import { everyVisible, REFRESH_MS } from "./visible";
 import { formatUnits, type Address } from "viem";
 import { LAUNCH, LIVE, pct, whole } from "./config";
-import { ERC20, STAKED_INFER, DRIPPER, client, wallet, message } from "./chain";
+import { ERC20, STAKED_INFER, DRIPPER, chain, client, wallet, message } from "./chain";
+import {
+  ALLOWANCE_HOLDER,
+  APPROVE_ABI,
+  approvalsFor,
+  askSwap,
+  bestRoute,
+  feeLine,
+  minReceived,
+  routeSummary,
+  swapQuery,
+  zeroXAddress,
+  type Route,
+  type Token,
+} from "../swap0x";
 import {
   NATIVE,
   PERMIT2,
@@ -92,6 +106,15 @@ export function Trade({
     null,
   );
   const [quoteError, setQuoteError] = useState<Notice | null>(null);
+  // 0x's price for the same amount (Matcha's engine, asked through this site's /swap proxy): the pane trades on
+  // whichever of 0x and the launch pool returns more, as the imdUSD terminal's trade box does. `unavailable`
+  // (no key yet, or 0x down) just leaves the launch pool.
+  const [zx, setZx] = useState<{
+    buy: bigint;
+    forAmount: bigint;
+    route: string;
+    unavailable: boolean;
+  } | null>(null);
   const [readError, setReadError] = useState<Notice | null>(null);
   const [price, setPrice] = useState<bigint | null>(null);
   const [bal, setBal] = useState<{
@@ -110,6 +133,14 @@ export function Trade({
   const tokenOut: Address | null =
     !LIVE || !c.infer ? null : side === "buy" ? c.infer : pairToken;
   const amountIn = parseAmount(amount, 18);
+  const symbolIn = side === "buy" ? pair : "INFER";
+  const symbolOut = side === "buy" ? "INFER" : pair;
+  const sellTok: Token | null = tokenIn
+    ? { address: zeroXAddress(tokenIn), symbol: symbolIn, name: symbolIn, decimals: 18 }
+    : null;
+  const buyTok: Token | null = tokenOut
+    ? { address: zeroXAddress(tokenOut), symbol: symbolOut, name: symbolOut, decimals: 18 }
+    : null;
 
   // The pool's price, read straight from the PoolManager's storage.
   useEffect(() => {
@@ -226,6 +257,33 @@ export function Trade({
     return () => clearTimeout(t);
   }, [amountIn, tokenIn, key, tick]);
 
+  // 0x's price for the typed amount, debounced like the pool quote.
+  useEffect(() => {
+    setZx(null);
+    if (!LIVE || !sellTok || !buyTok || amountIn === 0n) return;
+    let stale = false;
+    const t = setTimeout(async () => {
+      const a = await askSwap("price", swapQuery(sellTok, buyTok, amountIn, slippage));
+      if (stale) return;
+      setZx(
+        a.ok
+          ? { buy: BigInt(a.body.buyAmount!), forAmount: amountIn, route: routeSummary(a.body), unavailable: false }
+          : { buy: 0n, forAmount: amountIn, route: "", unavailable: true },
+      );
+    }, 250);
+    return () => {
+      stale = true;
+      clearTimeout(t);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [amountIn, tokenIn, tokenOut, slippage, tick]);
+
+  const directOut = quote && quote.forAmount === amountIn ? quote.out : undefined;
+  const zxOut = zx && zx.forAmount === amountIn && !zx.unavailable ? zx.buy : undefined;
+  const route: Route | undefined = bestRoute(zxOut, directOut);
+  const out = route === "0x" ? zxOut : route === "direct" ? directOut : undefined;
+  const minOutShown = out === undefined ? undefined : minimumOut(out, slippage);
+
   const needsErc20Approve =
     bal && tokenIn && tokenIn !== NATIVE && bal.erc20ToPermit2 < amountIn;
   const needsPermit =
@@ -241,10 +299,62 @@ export function Trade({
   );
   const insufficient = typeof balanceIn === "bigint" && amountIn > balanceIn;
 
+  /** The 0x route: a firm quote for this wallet, checked, then one approval step or the swap itself. */
+  async function goZeroX(account: Address, p: NonNullable<Wallet["provider"]>) {
+    if (!sellTok || !buyTok || out === undefined) return;
+    const a = await askSwap("quote", swapQuery(sellTok, buyTok, amountIn, slippage, account));
+    if (!a.ok) {
+      setQuoteError(notice(a.error));
+      refresh();
+      return;
+    }
+    const q = a.body;
+    const tx = q.transaction;
+    if (!tx || tx.to.toLowerCase() !== ALLOWANCE_HOLDER.toLowerCase() || !/^0x[0-9a-fA-F]+$/.test(tx.data)) {
+      setQuoteError(notice("0x returned a transaction for an unexpected contract. Nothing was sent."));
+      return;
+    }
+    const value = BigInt(tx.value ?? "0");
+    if (tokenIn === NATIVE ? value !== amountIn : value !== 0n) {
+      setQuoteError(notice("0x's transaction would send a different amount of ETH than this trade. Nothing was sent."));
+      return;
+    }
+    const minOut = minReceived(BigInt(q.buyAmount!), slippage, q.minBuyAmount);
+    if (minOut < minimumOut(out, slippage)) {
+      setQuoteError(notice(`The price moved: 0x now returns at least ${tokens(minOut, 4)} ${symbolOut}. Check the quote again.`));
+      refresh();
+      return;
+    }
+    const approvals = approvalsFor(sellTok, amountIn, q.issues?.allowance);
+    if (approvals.length) {
+      const first = approvals[0];
+      await send(
+        first.amount === 0n ? `Reset the ${symbolIn} allowance first` : `Approve ${symbolIn} for 0x`,
+        async () => {
+          const { request } = await client.simulateContract({
+            account,
+            address: sellTok.address,
+            abi: APPROVE_ABI,
+            functionName: "approve",
+            args: [first.spender, first.amount],
+          });
+          return wallet(p).writeContract(request);
+        },
+      );
+      return;
+    }
+    await send(side === "buy" ? "Buy INFER via Matcha/0x" : "Sell INFER via Matcha/0x", () =>
+      wallet(p).sendTransaction({ account, chain, to: tx.to, data: tx.data, value }),
+    );
+    setAmount("");
+  }
+
   async function go() {
-    if (!w.account || !key || !tokenIn || !quote || amountIn === 0n) return;
+    if (!w.account || !key || !tokenIn || !tokenOut || out === undefined || amountIn === 0n) return;
     const account = w.account;
     const p = w.provider!;
+    if (route === "0x") return goZeroX(account, p);
+    if (!quote) return;
     // The chain's clock, read now: a 20-minute swap deadline and a 30-day permit from it.
     const { timestamp: now } = await client.getBlock({ blockTag: "latest" });
     if (needsErc20Approve) {
@@ -302,8 +412,6 @@ export function Trade({
     setAmount("");
   }
 
-  const symbolIn = side === "buy" ? pair : "INFER";
-  const symbolOut = side === "buy" ? "INFER" : pair;
   const button = !LIVE
     ? "Trading opens at launch"
     : !w.account
@@ -314,13 +422,17 @@ export function Trade({
           ? `Not enough ${symbolIn}`
           : !bal
             ? "Reading your balances…"
-            : needsErc20Approve
-              ? `Approve ${symbolIn}`
-              : needsPermit
-                ? "Permit the router"
-                : side === "buy"
-                  ? "Buy INFER"
-                  : "Sell INFER";
+            : route === "0x"
+              ? side === "buy"
+                ? "Buy INFER"
+                : "Sell INFER"
+              : needsErc20Approve
+                ? `Approve ${symbolIn}`
+                : needsPermit
+                  ? "Permit the router"
+                  : side === "buy"
+                    ? "Buy INFER"
+                    : "Sell INFER";
 
   const quick =
     side === "buy"
@@ -392,8 +504,8 @@ export function Trade({
           <span className="infer-field-k">You receive</span>
           <span className="infer-field-row">
             <output aria-live="polite" aria-label="You receive">
-              {quote && quote.forAmount === amountIn
-                ? tokens(quote.out, 4)
+              {out !== undefined
+                ? tokens(out, 4)
                 : amountIn === 0n
                   ? "0"
                   : quoteError
@@ -436,8 +548,8 @@ export function Trade({
             <Line
               k="Minimum received"
               v={
-                quote && quote.forAmount === amountIn
-                  ? `${tokens(minimumOut(quote.out, slippage), 4)} ${symbolOut}`
+                minOutShown !== undefined
+                  ? `${tokens(minOutShown, 4)} ${symbolOut}`
                   : "—"
               }
             />
@@ -468,11 +580,18 @@ export function Trade({
             <Line
               k="Route"
               v={
-                LIVE
-                  ? `Uniswap v4 · ${pair}/INFER · ${key ? `${key.fee / 10_000}% fee` : ""}`
-                  : "the launch pool"
+                !LIVE
+                  ? "the launch pool"
+                  : route === "0x"
+                    ? `Matcha/0x · ${zx?.route || "best price"}`
+                    : route === "direct"
+                      ? `Uniswap v4 · ${pair}/INFER · ${key ? `${key.fee / 10_000}% fee` : ""}`
+                      : "…"
               }
             />
+            {!compact && route === "0x" && sellTok && buyTok && (
+              <Line k="Fee" v={feeLine(sellTok.address, buyTok.address)} />
+            )}
           </dl>
         )}
         {quoteError && (
@@ -502,8 +621,7 @@ export function Trade({
             !bal ||
             amountIn === 0n ||
             insufficient ||
-            !quote ||
-            quote.forAmount !== amountIn ||
+            out === undefined ||
             tx.status === "pending"
           }
         >
@@ -548,8 +666,9 @@ export function Trade({
             />
           </dl>
           <p className="infer-fine">
-            Trades go to Uniswap's router from your wallet; this page only
-            quotes and prepares them.
+            Each trade is quoted on the launch pool and on 0x (the engine
+            behind Matcha) and goes from your wallet to whichever returns more;
+            this page only quotes and prepares it.
           </p>
         </footer>
       )}

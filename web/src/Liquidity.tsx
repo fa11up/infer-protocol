@@ -53,6 +53,7 @@ import {
   same,
   searchTokens,
   swapQuery,
+  askSwap,
 } from "./swap0x";
 import {
   BAND,
@@ -180,16 +181,6 @@ function saveCustoms(list: Token[]) {
   }
 }
 /** imdusd.com/swap/price or /quote. Anything that is not the Worker's JSON (a network failure, a page) is "unavailable". */
-async function askSwap(kind: "price" | "quote", q: URLSearchParams): Promise<SwapAnswer> {
-  const down = { ok: false, unavailable: true, error: "Swaps are temporarily unavailable." } as const;
-  try {
-    const res = await fetch(`/swap/${kind}?${q}`, { headers: { accept: "application/json" }, signal: AbortSignal.timeout(12_000) });
-    if (!/json/.test(res.headers.get("content-type") ?? "")) return down;
-    return readSwapAnswer(res.status, await res.json());
-  } catch {
-    return down;
-  }
-}
 const rateText = (amountIn: bigint, out: bigint, a: Token, b: Token) => {
   const r = Number(out) / 10 ** b.decimals / (Number(amountIn) / 10 ** a.decimals);
   return `1 ${a.symbol} = ${r.toLocaleString("en-US", { maximumSignificantDigits: 6 })} ${b.symbol}`;
