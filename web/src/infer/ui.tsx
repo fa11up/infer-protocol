@@ -861,26 +861,21 @@ export function Shell({
 }
 
 /** INFER's price and market cap in the masthead, as on the /buy/ card (launch pool × IMD's ETH pool × ETH/USD,
- * every 30 s while the page is on screen). Dashes until the first read. A link to the launch pool's DexScreener chart. */
+ * every 30 s while the page is on screen). Dashes until the first read. The market cap links to the launch pool's DexScreener chart. */
 function InferTicker() {
   const m = useInferMarket();
   return (
-    <p className="infer-ticker">
-      {/* The whole ticker opens INFER's launch pool on DexScreener (user, 2026-10-21). */}
-      <a
-        className="infer-ticker-link"
-        href={INFER_DEXSCREENER}
-        target="_blank"
-        rel="noreferrer"
-        title="INFER on DexScreener. Price here: the launch pool, IMD's ETH pool and Chainlink ETH/USD"
-      >
-        <span className="sr-only">INFER price </span>
-        <b className={m ? undefined : "infer-fig-wait"}>{m ? usdPrice(m.priceUsd) : "—"}</b>
-        <span className="infer-ticker-cap">
-          <span aria-hidden="true">{" · "}</span>MC <b className={m ? undefined : "infer-fig-wait infer-cap-wait"}>{m ? usdCompact(m.marketCapUsd) : "—"}</b>
-        </span>
-        <span className="sr-only"> (chart on DexScreener, opens in a new tab)</span>
-      </a>
+    <p className="infer-ticker" title="INFER in USD: the launch pool, IMD's ETH pool and Chainlink ETH/USD">
+      <span className="sr-only">INFER price </span>
+      <b className={m ? undefined : "infer-fig-wait"}>{m ? usdPrice(m.priceUsd) : "—"}</b>
+      <span className="infer-ticker-cap">
+        <span aria-hidden="true">{" · "}</span>
+        {/* Only the market cap links out: INFER's launch pool on DexScreener (user, 2026-10-21). */}
+        <a className="infer-ticker-link" href={INFER_DEXSCREENER} target="_blank" rel="noreferrer" title="INFER on DexScreener">
+          MC <b className={m ? undefined : "infer-fig-wait infer-cap-wait"}>{m ? usdCompact(m.marketCapUsd) : "—"}</b>
+          <span className="sr-only"> (chart on DexScreener, opens in a new tab)</span>
+        </a>
+      </span>
     </p>
   );
 }
