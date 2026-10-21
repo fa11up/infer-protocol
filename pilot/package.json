@@ -1,0 +1,10 @@
+{
+  "name": "paid-oracle-pilot-tally",
+  "private": true,
+  "type": "module",
+  "description": "Rebuilds a PaidOraclePilot epoch tally from chain + the plane's frozen work records",
+  "dependencies": {
+    "@openzeppelin/merkle-tree": "^1.0.8",
+    "viem": "^2.21.0"
+  }
+}
