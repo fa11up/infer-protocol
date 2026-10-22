@@ -49,7 +49,7 @@ contract PaidOraclePilotForkTest is Test {
 
     function setUp() public {
         if (block.chainid != 1) vm.skip(true);
-        pilot = new PaidOraclePilot(address(VAULT), poster);
+        pilot = new PaidOraclePilot(address(VAULT), poster, 1);
         vm.startPrank(SAFE);
         PARAMS.proposeWorkOracle(address(pilot));
         vm.warp(block.timestamp + 48 hours);
@@ -112,8 +112,9 @@ contract PaidOraclePilotForkTest is Test {
     }
 
     function _propose(Tree memory t, uint256 total) internal returns (uint256 epoch) {
+        uint64 from = pilot.nextFromBlock(); // read before the prank: a view is a call and would eat it
         vm.prank(poster);
-        epoch = pilot.propose(t.root, total, 26_200_000, 26_240_000, "ipfs://tally");
+        epoch = pilot.propose(t.root, total, from, from + 99, "ipfs://tally");
     }
 
     // ---------------------------------------------------------------- tests
@@ -199,8 +200,9 @@ contract PaidOraclePilotForkTest is Test {
         // The same window may be recounted after the gap.
         vm.warp(block.timestamp + 6 days);
         Tree memory t1 = _tree(1, 1e18, 1e18, 1e18);
+        assertEq(pilot.nextFromBlock(), 1, "the struck window is handed back");
         vm.prank(poster);
-        pilot.propose(t1.root, 3e18, 26_200_000, 26_240_000, "ipfs://tally-recount");
+        pilot.propose(t1.root, 3e18, 1, 100, "ipfs://tally-recount");
     }
 
     function test_vetoClosesWhenPayableOpens() public {
@@ -221,7 +223,7 @@ contract PaidOraclePilotForkTest is Test {
         vm.expectRevert(PaidOraclePilot.TooSoon.selector);
         pilot.propose(t.root, 1e18, 101, 200, "");
         vm.warp(block.timestamp + 6 days);
-        vm.expectRevert(PaidOraclePilot.WindowNotAfterPrevious.selector);
+        vm.expectRevert(abi.encodeWithSelector(PaidOraclePilot.WindowNotContiguous.selector, uint64(101)));
         pilot.propose(t.root, 1e18, 100, 200, "");
         for (uint256 i; i < 7; ++i) {
             pilot.propose(t.root, 350e18, uint64(101 + 100 * i), uint64(200 + 100 * i), "");
@@ -229,7 +231,7 @@ contract PaidOraclePilotForkTest is Test {
         }
         assertEq(pilot.totalCommitted(), 2_800e18);
         vm.expectRevert(PaidOraclePilot.OverLifetimeCap.selector);
-        pilot.propose(t.root, 200e18 + 1, 10_000, 10_100, "");
+        pilot.propose(t.root, 200e18 + 1, 801, 900, "");
         vm.stopPrank();
 
         vm.expectRevert(PaidOraclePilot.Unauthorized.selector);
@@ -239,6 +241,120 @@ contract PaidOraclePilotForkTest is Test {
         vm.prank(poster);
         vm.expectRevert(PaidOraclePilot.Unauthorized.selector);
         pilot.propose(t.root, 1e18, 20_000, 20_100, "");
+    }
+
+    // ---------------------------------------------------------------- audit 3d5324e9 regressions
+
+    /// Finding 1: a far-future or max toBlock used to brick every later propose (checked overflow).
+    function test_windowCannotEndInTheFuture() public {
+        Tree memory t = _tree(0, 1e18, 1e18, 1e18);
+        vm.startPrank(poster);
+        vm.expectRevert(PaidOraclePilot.WindowInFuture.selector);
+        pilot.propose(t.root, 3e18, 1, type(uint64).max, "");
+        vm.expectRevert(PaidOraclePilot.WindowInFuture.selector);
+        pilot.propose(t.root, 3e18, 1, uint64(block.number), "");
+        pilot.propose(t.root, 3e18, 1, uint64(block.number - 1), "");
+        vm.stopPrank();
+        assertEq(pilot.nextFromBlock(), block.number);
+    }
+
+    /// Finding 3: a window that skips blocks is refused, so no paid work falls in a hole.
+    function test_windowsAreContiguous() public {
+        Tree memory t = _tree(0, 1e18, 1e18, 1e18);
+        vm.startPrank(poster);
+        vm.expectRevert(abi.encodeWithSelector(PaidOraclePilot.WindowNotContiguous.selector, uint64(1)));
+        pilot.propose(t.root, 3e18, 2, 100, "");
+        pilot.propose(t.root, 3e18, 1, 100, "");
+        vm.warp(block.timestamp + 6 days);
+        vm.expectRevert(abi.encodeWithSelector(PaidOraclePilot.WindowNotContiguous.selector, uint64(101)));
+        pilot.propose(t.root, 3e18, 300, 400, "");
+        pilot.propose(t.root, 3e18, 101, 400, "");
+        vm.stopPrank();
+    }
+
+    /// Finding 4: two vetoes in a row (the second a narrower recount) still hand back the whole window.
+    function test_consecutiveVetoesLoseNoBlocks() public {
+        Tree memory t = _tree(0, 1e18, 1e18, 1e18);
+        vm.prank(poster);
+        pilot.propose(t.root, 3e18, 1, 100, ""); // epoch 0, live
+        vm.warp(block.timestamp + 6 days);
+        vm.prank(poster);
+        pilot.propose(t.root, 3e18, 101, 300, ""); // epoch 1
+        vm.prank(SAFE);
+        pilot.veto(1);
+        vm.warp(block.timestamp + 6 days);
+        vm.prank(poster);
+        pilot.propose(t.root, 3e18, 101, 200, ""); // epoch 2, narrower recount
+        vm.prank(SAFE);
+        pilot.veto(2);
+        assertEq(pilot.nextFromBlock(), 101, "blocks 101.. are still to be counted");
+        vm.warp(block.timestamp + 6 days);
+        vm.prank(poster);
+        pilot.propose(t.root, 3e18, 101, 300, "");
+    }
+
+    /// Finding 2: an epoch that can never be paid (here: a tree built for the wrong epoch number) can be
+    /// retired after RETIRE_AFTER, giving its cap back; a partly paid one releases only its remainder.
+    function test_retireReleasesAnUnpayableEpoch() public {
+        Tree memory wrong = _tree(1, 1e18, 1e18, 1e18); // leaves say epoch 1, posted as epoch 0
+        uint256 epoch = _propose(wrong, 3e18);
+        vm.warp(block.timestamp + 24 hours);
+        _freshFeeds();
+        vm.expectRevert(PaidOraclePilot.BadProof.selector);
+        pilot.pay(epoch, wrong.ids, wrong.amounts, wrong.proofs);
+        vm.startPrank(SAFE);
+        vm.expectRevert(PaidOraclePilot.VetoWindowClosed.selector);
+        pilot.veto(epoch);
+        vm.expectRevert(PaidOraclePilot.TooEarlyToRetire.selector);
+        pilot.retire(epoch);
+        vm.warp(block.timestamp + 30 days);
+        pilot.retire(epoch);
+        vm.expectRevert(PaidOraclePilot.EpochRetired.selector);
+        pilot.retire(epoch);
+        vm.stopPrank();
+        assertEq(pilot.totalCommitted(), 0, "the cap is given back");
+        _freshFeeds();
+        vm.expectRevert(PaidOraclePilot.EpochRetired.selector);
+        pilot.pay(epoch, wrong.ids, wrong.amounts, wrong.proofs);
+        vm.expectRevert(PaidOraclePilot.Unauthorized.selector);
+        pilot.retire(epoch);
+    }
+
+    function test_retireReleasesOnlyTheUnpaidRemainder() public {
+        Tree memory t = _tree(0, 1e18, 1e18, 1e18); // UNKNOWN's share stays unpaid
+        uint256 epoch = _propose(t, 3e18);
+        vm.warp(block.timestamp + 24 hours);
+        _freshFeeds();
+        pilot.pay(epoch, t.ids, t.amounts, t.proofs);
+        vm.warp(block.timestamp + 30 days);
+        vm.prank(SAFE);
+        pilot.retire(epoch);
+        assertEq(pilot.totalCommitted(), 2e18, "only the 1e18 never paid is released");
+    }
+
+    /// Finding 5: a malformed binding word (bits above uint8 / address) skips that share; it used to revert
+    /// the whole batch inside abi.decode.
+    function test_malformedBindingSkipsOneShareNotTheBatch() public {
+        Tree memory t = _tree(0, 1e18, 1e18, 1e18);
+        uint256 epoch = _propose(t, 3e18);
+        vm.warp(block.timestamp + 24 hours);
+        _freshFeeds();
+        address seats = 0x0000eC93127BAA929E58E97dd0095A2BFb38ec1D;
+        vm.mockCall(
+            address(pilot.ADAPTER()),
+            abi.encodeWithSignature("bindingOf(uint256)", OTHER),
+            abi.encode(uint256(256), uint256(uint160(seats)), uint256(11))
+        );
+        assertEq(pilot.controllerOf(OTHER), address(0));
+        vm.mockCall(
+            address(pilot.ADAPTER()),
+            abi.encodeWithSignature("bindingOf(uint256)", UNKNOWN),
+            abi.encode(uint256(0), uint256(uint160(seats)) | (uint256(1) << 200), uint256(11))
+        );
+        assertEq(pilot.controllerOf(UNKNOWN), address(0));
+        uint256 before = IMDUSD.balanceOf(MIYAGOD);
+        assertEq(pilot.pay(epoch, t.ids, t.amounts, t.proofs), 1e18, "only seat 1616's share is paid");
+        assertEq(IMDUSD.balanceOf(MIYAGOD) - before, 1e18);
     }
 
     function test_badProofRevertsTheWholeBatch() public {

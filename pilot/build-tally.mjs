@@ -25,20 +25,43 @@ const actionOf = (b32) => hexToString(b32, { size: 32 }).replace(/\0+$/, "");
 const REGISTRY = "0xb6d0a187b050fa5bb0b87033a203f37becf4a775";
 const RECORDS = "https://api.imd.fun/work-records/";
 const API = "https://api.imd.fun";
-const LOOKBACK = 50_000n; // a request is completed well within a week of being made
+const LOOKBACK = BigInt(process.env.LOOKBACK ?? 100_000); // ~2 weeks; a request it misses REFUSES the run
+// Intake v2 Completed status: 0 answered, 1 refused, 2 ended without a result (fees are not refunded on 1/2).
+const ANSWERED = 0;
 const CHUNK = BigInt(process.env.CHUNK ?? 5_000);
 
 const args = Object.fromEntries(
   process.argv.slice(2).reduce((a, v, i, all) => (v.startsWith("--") ? [...a, [v.slice(2), all[i + 1]]] : a), []),
 );
-for (const k of ["epoch", "from", "to"]) if (args[k] === undefined) throw new Error(`--${k} is required`);
-const epoch = BigInt(args.epoch), fromBlock = BigInt(args.from), toBlock = BigInt(args.to);
-const out = args.out ?? `epoch-${epoch}`;
+if (args.to === undefined) throw new Error("--to is required");
 // Logs come from TWO providers and must agree chunk by chunk: some public RPCs answer an old range with an
 // empty list instead of an error, which would silently drop paid work.
 const RPCS = (args.rpc ?? "https://rpc.mevblocker.io,https://gateway.tenderly.co/public/mainnet").split(",");
 const clients = RPCS.map((url) => createPublicClient({ chain: mainnet, transport: http(url, { retryCount: 2 }) }));
 const client = clients[0];
+
+// The epoch number and the window's first block come FROM THE PILOT (audit 3d5324e9: a mistyped --epoch made
+// a root no share could be paid against, and a mistyped --from left a hole of paid work no epoch could count).
+// --epoch/--from are accepted only to cross-check, or without --pilot for a labelled dry run before deployment.
+const pilotAbi = parseAbi(["function epochCount() view returns (uint256)", "function nextFromBlock() view returns (uint64)"]);
+let epoch, fromBlock, dryRun = false;
+if (args.pilot) {
+  epoch = await client.readContract({ address: args.pilot, abi: pilotAbi, functionName: "epochCount" });
+  fromBlock = BigInt(await client.readContract({ address: args.pilot, abi: pilotAbi, functionName: "nextFromBlock" }));
+  if (args.epoch !== undefined && BigInt(args.epoch) !== epoch) throw new Error(`--epoch ${args.epoch} but the pilot is at ${epoch}`);
+  if (args.from !== undefined && BigInt(args.from) !== fromBlock) throw new Error(`--from ${args.from} but the pilot expects ${fromBlock}`);
+} else {
+  if (args.epoch === undefined || args.from === undefined) throw new Error("--pilot <address>, or --epoch and --from for a dry run");
+  epoch = BigInt(args.epoch);
+  fromBlock = BigInt(args.from);
+  dryRun = true;
+  console.error("DRY RUN: epoch and window start not read from a pilot; do not post this root.");
+}
+const toBlock = BigInt(args.to);
+const head = await client.getBlockNumber();
+if (toBlock >= head) throw new Error(`--to ${toBlock} must be before the current block ${head}`);
+if (toBlock < fromBlock) throw new Error(`--to ${toBlock} is before the window start ${fromBlock}`);
+const out = args.out ?? `epoch-${epoch}`;
 
 const REQUESTED = parseAbiItem(
   "event Requested(bytes32 indexed requestId, address indexed payer, bytes32 indexed action, bytes body, address callbackTarget, bytes4 callbackSelector, address asset, uint256 amount)",
@@ -122,6 +145,7 @@ const uuidToBytes32 = (u) => ("0x" + u.replace(/-/g, "")).padEnd(66, "0");
 // ---------------------------------------------------------------- 1. paid, completed requests in the window
 
 const requests = [];
+const unproven = [];
 for (const intake of INTAKES) {
   const completed = await logs(intake, COMPLETED, fromBlock, toBlock);
   if (!completed.length) continue;
@@ -136,11 +160,15 @@ for (const intake of INTAKES) {
   for (const c of completed) {
     const r = requested.get(c.args.requestId);
     const oracleId = c.args.uri?.match(/\/oracle\/requests\/([0-9a-f-]{36})/)?.[1];
-    const skip = (why) => requests.push({ intake, intakeRequestId: c.args.requestId, oracleId, completedTx: c.transactionHash, skipped: why });
-    if (!r) { skip("no Requested event in lookback"); continue; }
+    const base = { intake, intakeRequestId: c.args.requestId, oracleId, completedTx: c.transactionHash, status: c.args.status };
+    // A skip is a DEFINITE exclusion (not paid oracle work, or not answered). Anything uncertain refuses the run.
+    const skip = (why) => requests.push({ ...base, skipped: why });
+    const refuse = (why) => unproven.push({ ...base, why });
+    if (!r) { refuse(`no Requested event within ${LOOKBACK} blocks (raise LOOKBACK)`); continue; }
     if (!actionOf(r.args.action).startsWith("oracle.request@")) continue; // not an oracle request: out of the pilot
-    if (!oracleId) { skip("uri names no oracle request"); continue; }
     if (r.args.asset.toLowerCase() !== IMD || r.args.amount === 0n) { skip("not paid in IMD"); continue; }
+    if (c.args.status !== ANSWERED) { skip(`intake status ${c.args.status} (refused or ended without a result)`); continue; }
+    if (!oracleId) { refuse("answered, but the uri names no oracle request"); continue; }
     requests.push({
       intake, intakeRequestId: c.args.requestId, oracleId, payer: r.args.payer, amount: r.args.amount.toString(),
       requestedTx: r.transactionHash, completedTx: c.transactionHash, completedBlock: c.blockNumber.toString(),
@@ -157,12 +185,16 @@ for (const intake of INTAKES) {
 
 // ---------------------------------------------------------------- 2. credited agents, from frozen documents
 
-const unproven = [];
+const seen = new Set();
 for (const q of requests) {
   if (q.skipped) continue;
+  // One bonus per oracle request, however many Intake requests name it.
+  if (seen.has(q.oracleId)) { q.skipped = "duplicate: another Intake request names the same oracle request"; continue; }
+  seen.add(q.oracleId);
+  const refuse = (why) => { unproven.push({ oracleId: q.oracleId, intakeRequestId: q.intakeRequestId, jobId: q.jobId, why }); q.unproven = true; };
   const live = await getJson(`${API}/oracle/requests/${q.oracleId}`); // lookup only: which job answered
-  if (!live?.jobId) { q.skipped = "plane names no job"; continue; }
-  if (live.status !== "attested") { q.skipped = `not attested (${live.status})`; continue; }
+  if (!live?.jobId) { refuse("the plane names no job for it (yet)"); continue; }
+  if (live.status !== "attested") { refuse(`answered on chain but the plane reads ${live.status}`); continue; }
   q.jobId = live.jobId;
   const day = (live.attestedAt ?? live.createdAt).slice(0, 10);
   let found = null;
@@ -171,11 +203,13 @@ for (const q of requests) {
     const leaf = rc?.doc.leaves.find((l) => l.jobId === live.jobId);
     if (leaf) { found = { day: d, receiptHash: rc.hash, documentHash: leaf.documentHash }; break; }
   }
-  if (!found) { unproven.push({ oracleId: q.oracleId, jobId: q.jobId, day }); continue; }
+  if (!found) { refuse(`job not in the receipts around ${day} (receipt missing?)`); continue; }
   const doc = await frozenDoc(found.documentHash);
-  const att = (doc.oracleAcceptance ?? [])[0]?.document?.oracle?.attestation;
-  if (!att || att.requestId.toLowerCase() !== uuidToBytes32(q.oracleId)) {
-    q.skipped = "frozen document answers a different request";
+  const entries = doc.oracleAcceptance ?? [];
+  // EVERY credited entry must answer this request, not just the first (audit 3d5324e9, info).
+  const want = uuidToBytes32(q.oracleId);
+  if (!entries.length || entries.some((a) => a.document?.oracle?.attestation?.requestId?.toLowerCase() !== want)) {
+    refuse("the frozen document's acceptance entries do not all answer this request");
     continue;
   }
   q.receiptDay = found.day;
@@ -190,15 +224,15 @@ for (const q of requests) {
   console.error("stage 2:", JSON.stringify(why), "unproven", unproven.length);
 }
 if (unproven.length) {
-  console.error(`${unproven.length} paid request(s) cannot be proven yet (receipt missing or job absent):`);
-  for (const u of unproven.slice(0, 20)) console.error("  ", u.day, u.oracleId, u.jobId);
+  console.error(`${unproven.length} paid request(s) in the window cannot be proven:`);
+  for (const u of unproven.slice(0, 20)) console.error("  ", u.oracleId ?? u.intakeRequestId, u.why);
   console.error("Nothing written. Post when those receipts are on chain, or end the window earlier.");
   process.exit(2);
 }
 
 // ---------------------------------------------------------------- 3. shares and the tree
 
-const paid = requests.filter((q) => !q.skipped && q.agents?.length);
+const paid = requests.filter((q) => !q.skipped && !q.unproven && q.agents?.length);
 const shares = new Map();
 for (const q of paid) {
   const each = BONUS_PER_REQUEST / BigInt(q.agents.length);
@@ -220,6 +254,7 @@ fs.mkdirSync(out, { recursive: true });
 const proofs = {};
 for (const [i, v] of tree.entries()) proofs[v[1]] = { amount: v[2], proof: tree.getProof(i) };
 const summary = {
+  dryRun, pilot: args.pilot ?? null,
   epoch: epoch.toString(), fromBlock: fromBlock.toString(), toBlock: toBlock.toString(), root: tree.root,
   total: total.toString(), scaledToCap: scaled, bonusPerRequest: BONUS_PER_REQUEST.toString(),
   paidRequests: paid.length, agents: shares.size,
