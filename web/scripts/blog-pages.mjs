@@ -169,6 +169,13 @@ function renderBody(post) {
   return { html, headings };
 }
 
+/** A post title "Series: Subtitle" sets the subtitle on its own line under the series. */
+function postTitle(title) {
+  const at = title.indexOf(": ");
+  if (at < 0) return escapeHtml(title);
+  return `${escapeHtml(title.slice(0, at + 1))} <span class="post-title-sub">${escapeHtml(title.slice(at + 2))}</span>`;
+}
+
 /** The table of contents: h2s, with their h3s beneath. Only for posts long enough to need one. */
 function toc(headings) {
   const h2 = headings.filter((h) => h.depth === 2);
@@ -286,7 +293,7 @@ export function renderBlog({ outDir, contentDir, site = BLOG_SITE }) {
       `<div class="post-layout${contents ? " has-toc" : ""}">` +
       `<article class="post">` +
       `<header class="post-head">${plate(p.slug, { size: 96, className: "plate post-plate" })}${meta}` +
-      `<h1>${escapeHtml(p.meta.title)}</h1>` +
+      `<h1>${postTitle(p.meta.title)}</h1>` +
       `<p class="post-summary">${escapeHtml(p.meta.summary)}</p>${living}</header>` +
       `<div class="post-body">${html}</div>` +
       `<p class="post-end"><a href="/">← All publications</a></p>` +

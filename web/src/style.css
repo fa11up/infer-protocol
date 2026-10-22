@@ -5555,6 +5555,9 @@ dialog.links-qr :focus-visible {
   letter-spacing: -0.01em;
   font-weight: 600;
 }
+.post h1 .post-title-sub {
+  display: block;
+}
 .post-summary {
   margin: 0 0 14px;
   font-size: 20px;

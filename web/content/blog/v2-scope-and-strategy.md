@@ -1,5 +1,5 @@
 ---
-title: "imdUSD v2: scope and strategy"
+title: "imdUSD v2: Scope and Strategy"
 date: 2026-10-21
 updated: 2026-10-22
 summary: "Where imdUSD goes next: a multi-collateral dollar with a permissionless peg, self-repaying positions, identity.md seat staking and more chains. A living document, updated as the build moves."
