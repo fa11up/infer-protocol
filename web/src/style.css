@@ -5557,6 +5557,7 @@ dialog.links-qr :focus-visible {
 }
 .post h1 .post-title-sub {
   display: block;
+  color: inherit;
 }
 .post-summary {
   margin: 0 0 14px;
