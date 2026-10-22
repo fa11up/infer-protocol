@@ -1,7 +1,7 @@
 ---
 title: "imdUSD v2: scope and strategy"
 date: 2026-10-21
-updated: 2026-10-21
+updated: 2026-10-22
 summary: "Where imdUSD goes next: a multi-collateral dollar with a permissionless peg, self-repaying positions, identity.md seat staking and more chains. A living document, updated as the build moves."
 author: imdUSD
 living: true
@@ -60,9 +60,7 @@ v1 also taught us where the hard parts are, and v2 is designed around them:
 
 ## What v2 includes
 
-### A multi-collateral core
-
-Each collateral is its own type with its own price, risk settings and debt ceiling:
+**A multi-collateral core.** Each collateral is its own type with its own price, risk settings and debt ceiling:
 
 | Collateral | What it is | Notes |
 |---|---|---|
@@ -72,17 +70,15 @@ Each collateral is its own type with its own price, risk settings and debt ceili
 | **Stablecoins, earning** | USDC, USDT or USDS deposited into an approved savings vault for you | The vault's yield repays your debt |
 | **Stablecoins, held** | The same coins, kept as they are | No yield and no third-party vault risk |
 | **imdUSD v1** | v1 dollars, 1:1 | The migration path from v1 |
-| **identity.md seats** | The 2,000 swarm seats | See *Seat staking* below |
+| **identity.md seats** | The 2,000 swarm seats | See seat staking below |
 
 Risk settings start conservative and are only ever loosened through the timelock.
 
-### Borrower-set rates
+**Borrower-set rates.** There is no single global interest rate. Each borrower picks their own, at or above the floor
+for their collateral. Redemptions take from the lowest rates first, so a higher rate buys protection from redemption.
+The rate becomes a market price, and protocol revenue rises exactly when the peg is under pressure.
 
-There is no single global interest rate. Each borrower picks their own, at or above the floor for their collateral.
-Redemptions take from the lowest rates first, so a higher rate buys protection from redemption. The rate becomes a
-market price, and protocol revenue rises exactly when the peg is under pressure.
-
-### The peg: a floor and a ceiling, both permissionless
+**A peg with a floor and a ceiling, both permissionless.**
 
 - **Floor: redemptions.** Anyone can hand in imdUSD and receive $1 of collateral from the lowest-rate loans, minus a
   small fee that goes to the borrowers redeemed. The payout reads the live market alongside the attested price, so a
@@ -92,20 +88,15 @@ market price, and protocol revenue rises exactly when the peg is under pressure.
   cannot set it off.
 - **Below-peg reserve.** A small USDC reserve in the hook buys imdUSD under $0.99, so the floor has a buyer on day one.
 
-### Savings: sImdUSD
+**Savings: sImdUSD.** Deposit imdUSD and earn a share of what borrowers pay, streamed to savers. A savings rate is what
+lets other protocols list imdUSD, and a dollar that is held is a dollar that is not sold into the pool.
 
-Deposit imdUSD and earn a share of what borrowers pay, streamed to savers. A savings rate is what lets other
-protocols list imdUSD, and a dollar that is held is a dollar that is not sold into the pool.
+**Positions that repay themselves.** Collateral that earns pays down the loan against it. A stablecoin in a savings
+vault, or a seat earning swarm rewards, has its earnings credited against the debt automatically. The protocol keeps
+10% of that yield as its fee.
 
-### Positions that repay themselves
-
-Collateral that earns pays down the loan against it. A stablecoin in a savings vault, or a seat earning swarm
-rewards, has its earnings credited against the debt automatically. The protocol keeps 10% of that yield as its fee.
-
-### Seat staking (identity.md NFTs)
-
-An identity.md seat earns from the swarm, but owning one means running a worker and holding an illiquid NFT. v2 makes
-a seat a working, liquid asset:
+**Seat staking (identity.md NFTs).** An identity.md seat earns from the swarm, but owning one means running a worker
+and holding an illiquid NFT. v2 makes a seat a working, liquid asset:
 
 - **Borrow against your seat.** Each pledged seat sits in its own account. You keep running your worker, the seat
   keeps earning, and its rewards repay your loan. Seats are priced from real sales, start at a conservative
@@ -118,28 +109,51 @@ We have checked how the IdentityMD plane pairs, schedules and pays seats against
 accounts around it: one account per seat, so every seat's rewards stay attributable to that seat. We are
 confirming two policy questions with the plane's developer before liquid seats ship.
 
-### Earn vaults
+**Earn vaults.**
 
 - **Peg liquidity vault.** One shared position in the imdUSD/USDC pool, held between $0.99 and $1.01, compounding its
   fees. Deposit both sides, withdraw any time.
 - **Loop vault (in design).** Deposit IMD and hold a target leverage on sIMD without managing it by hand, at a
   conservative target well away from liquidation.
 
-### More chains
+**Robinhood Chain.** Robinhood Chain gets its own full core, built and now in review:
 
-imdUSD v2 is a LayerZero OFT, the same standard IMD itself uses, so it moves between chains by burning on one and
-minting on the other, with rate limits on every route.
+- **Collateral:** ETH, USDG (the chain's dollar, staked on deposit into an approved savings vault so its yield repays
+  the loan, like the earning stablecoins above) and IMD, priced from the same swarm attestations as on Ethereum.
+- **Built for an L2.** If the chain's sequencer goes quiet, liquidations wait out a one-hour grace once it is back,
+  so nobody is liquidated over an outage they could not act in. Repaying and depositing are never held.
+- **Its own debt cap.** All borrowing on the chain together stays under one line, set through the timelock.
+- **One dollar across chains.** imdUSD moves between Ethereum and Robinhood Chain over LayerZero, burned on one side
+  and minted on the other, through our own bridge contract. It has no owner: routes, rate limits and security
+  settings change only through the 48-hour timelock, and a guardian can pause a route instantly but not reopen it.
+- **Tokenised stocks and treasuries are next.** The legal review is done: the contracts stay permissionless and our
+  site follows each issuer's own restrictions on who may hold its tokens. Only tokens with a Chainlink price and real
+  on-chain depth qualify, starting with a short list of the deepest (index funds, T-bill funds and a few large
+  stocks). Each one's collateral ratio is set from its measured weekend and holiday gaps (back to 2000 where the history
+  exists), a liquidation while the
+  market is closed waits for the open, and a token its issuer pauses freezes its type instead of being mispriced.
 
-- **Robinhood Chain first,** with its own full core: ETH, the chain's stablecoin, IMD, and protection for sequencer
-  outages.
-- **Tokenised stocks and treasuries** on Robinhood Chain are in scope but will only ship after an independent legal
-  review.
-- **Solana and other chains** after that.
+## What we are exploring
 
-### One terminal
+Further upgrades we are working on. None is committed to a date, and each will be announced here if it ships.
+
+- **Price attestations as a set.** Today every swarm price is its own paid request, so the IMD price and spot feeds
+  are bought separately and can close on different blocks, which is how they once read 7% apart and paused borrowing.
+  We have built a grouped request for the IdentityMD plane: several questions in one order, every window resolved
+  against the same block, each answer still an ordinary attestation that today's feeds accept unchanged. One order
+  instead of two or three, and price and spot that always agree on when they were measured. It goes to the plane's
+  developer for review as a contribution, so every agent that buys swarm prices gets it.
+- **A pool of earning tokens.** A swap pool that holds only staked tokens (sIMD and sINFER first), staking what comes in
+  and unstaking what goes out inside the same swap. Liquidity keeps earning staking yield between trades instead of
+  sitting idle. A first version is built; it is not yet audited.
+- **Solana.** imdUSD moving to Solana over the same bridge, as a dollar you can hold and send there, before any
+  borrowing on Solana itself.
+
+## One terminal
 
 imdusd.com is already a single desk: borrow, swap any token, loop, provide peg liquidity and track points from one
-screen. v2 adds tabs to the same desk rather than new apps: Borrow, Swap, Earn, Stake, Points.
+screen. v2 brings a new layout for that desk, designed around the added features rather than squeezed into the
+current one.
 
 ## How v2 launches
 
@@ -166,8 +180,8 @@ two are never confused.
 | Peg liquidity vault | Built, in review |
 | Loop vault | In design |
 | Seat staking and liquid seats | Designed; waiting on two policy answers from the plane |
-| Robinhood Chain core | Next |
-| Tokenised stocks and treasuries | After legal review |
+| Robinhood Chain core (ETH, USDG, IMD; outage grace; bridge) | Built, in review |
+| Tokenised stocks and treasuries | Legal review done; in build |
 | Audit and live beta | Before Season 1 ends |
 
 ## Ideas we have parked
@@ -197,4 +211,7 @@ does the job) and vote-escrow gauges (they need token emissions, and there are n
 
 ## Changelog
 
+- **2026-10-22** Robinhood Chain section updated to the built core, stocks after legal review; added *What we are
+  exploring* (grouped price attestations, a pool of earning tokens, Solana); the terminal gets a new layout; v2's
+  components no longer have a heading each.
 - **2026-10-21** First version.
