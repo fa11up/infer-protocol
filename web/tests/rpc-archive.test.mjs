@@ -74,6 +74,37 @@ test("old log ranges and old-block reads go to the archive secrets first; recent
   assert.ok(up.calls.every((c) => c.url === KEYED), JSON.stringify(up.calls));
 });
 
+test("an open log range reaching past the archive depth: the final part from the archive lane, cached; the last blocks from the recent lane", async () => {
+  fresh();
+  const asked = [];
+  const fetch = async (url, init) => {
+    const body = JSON.parse(init.body);
+    if (body.method === "eth_blockNumber") return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: hex(HEAD) }));
+    const f = body.params[0];
+    asked.push({ url, from: Number(f.fromBlock), to: Number(f.toBlock) });
+    return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: [{ blockNumber: f.fromBlock }] }));
+  };
+  const deps = { fetch, cache: memCache() };
+  const open = { jsonrpc: "2.0", id: 7, method: "eth_getLogs", params: [{ address: OURS, fromBlock: hex(HEAD - 2000), toBlock: hex(HEAD) }] };
+  const cut = HEAD - 96; // HEAD − 100, rounded up to a step of 32
+  const r = await post(open, deps);
+  assert.equal(r.body.id, 7);
+  assert.deepEqual(r.body.result, [{ blockNumber: hex(HEAD - 2000) }, { blockNumber: hex(cut) }], "old part first, then the recent part");
+  assert.deepEqual([...asked].sort((a, b) => a.from - b.from), [
+    { url: INFURA, from: HEAD - 2000, to: cut - 1 },
+    { url: KEYED, from: cut, to: HEAD },
+  ]);
+  // The same open range again: the final part is cached; only the recent part may go out again.
+  asked.length = 0;
+  await post({ ...open, id: 8 }, deps);
+  assert.ok(asked.every((a) => a.url !== INFURA), "no second archive call");
+  // A range that is recent, or already final, is answered whole as before.
+  asked.length = 0;
+  await post(logs(HEAD - 2000 - 1000, 1000), deps);
+  await post({ jsonrpc: "2.0", id: 9, method: "eth_getLogs", params: [{ address: OURS, fromBlock: hex(HEAD - 80), toBlock: hex(HEAD) }] }, deps);
+  assert.deepEqual(asked.map((a) => a.to - a.from + 1), [1000, 81]);
+});
+
 test("without the archive secrets, old calls go to RPC_UPSTREAMS then the keyless archive gateways", async () => {
   fresh();
   const up = upstream((url, body) => (url !== POCKET && body.method === "eth_getLogs" ? new Response("no", { status: 403 }) : undefined));

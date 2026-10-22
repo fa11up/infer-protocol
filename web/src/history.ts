@@ -174,15 +174,17 @@ export async function explorerLogs(
 }
 /**
  * Aligned windows over [from, head]: every closed window is a whole [k·size, (k+1)·size − 1], so every visitor asks
- * for the same ones and /rpc can serve them from its cache; the open window, [k·size, head], reaches back to at least
- * `tail` blocks when it is shorter (so a window just past a boundary is not a sliver that holds no logs and reads as
- * unverified). Closed windows are only listed down to `from`; the open one may start before it.
+ * for the same ones and /rpc can serve them from its cache; the open window, [k·size, head], starts one boundary
+ * earlier when it would hold fewer than `tail` blocks (so a window just past a boundary is not a sliver that holds no
+ * logs and reads as unverified). Closed windows are only listed down to `from`; the open one may start before it.
  */
 export function alignedWindows(from: bigint, head: bigint, size = historyConfig.windowSize, tail = historyConfig.tailSize): [bigint, bigint][] {
   if (head < from) return [];
-  const k = head / size;
+  let k = head / size;
+  // Too short to verify alone: it starts at the boundary before instead, so its start still moves only once per
+  // window (a start of head − tail + 1 moved every block, and /rpc could never cache the old part of the read).
+  if (head - k * size + 1n < tail && k > 0n) k -= 1n;
   const open: [bigint, bigint] = [k * size, head];
-  if (head - open[0] + 1n < tail) open[0] = head + 1n >= tail ? head - tail + 1n : 0n;
   const windows: [bigint, bigint][] = [];
   for (let j = from / size; from < open[0] && j < k; j++) {
     if (windows.length >= historyConfig.maxChunks) throw Error("History range limit");

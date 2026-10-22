@@ -98,12 +98,13 @@ test("windows are aligned to 5,000 blocks (so /rpc can cache closed ones), and t
     ranges.map((p) => [p.fromBlock, p.toBlock]),
     [
       [0n, 4999n],
-      [5000n, 9999n],
-      [8021n, 10020n],
+      [5000n, 10020n],
     ],
   );
   // A range inside the open window is one read; a long open window is not extended.
-  assert.deepEqual(alignedWindows(9990n, 10020n), [[8021n, 10020n]]);
+  assert.deepEqual(alignedWindows(9990n, 10020n), [[5000n, 10020n]]);
+  // Its start is the same from block to block, so the old part of the read is cache-identical.
+  assert.deepEqual(alignedWindows(9990n, 10021n), [[5000n, 10021n]]);
   assert.deepEqual(alignedWindows(9000n, 13000n), [[5000n, 9999n], [10000n, 13000n]]);
   assert.deepEqual(alignedWindows(5n, 300n), [[0n, 300n]]);
 });

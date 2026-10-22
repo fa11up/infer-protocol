@@ -70,6 +70,16 @@ const FINAL_MS = 30 * 86_400_000;
 // for a while, instead of first on every call; it is still tried if nothing else answers.
 const BENCH_MS = 5 * 60_000;
 const ARCHIVE_DEPTH = 100n;
+// An open log range (it reaches the head) that starts past ARCHIVE_DEPTH is split where only the archive lane can serve
+// it: [from, cut − 1] is final and is cached for everyone, and [cut, to] (at most ARCHIVE_DEPTH blocks) goes down the
+// recent lane. `cut` moves in steps of SPLIT_STEP blocks, so the archive part is asked for once per step per location,
+// not once per block: a terminal left open used to spend a keyed archive call per filter per block (~720 an hour,
+// more than Infura's free day, measured 2026-10-22). SPLIT_STEP must stay below ARCHIVE_DEPTH − FINAL_DEPTH, so the
+// archive part is always final.
+const SPLIT_STEP = 32n;
+const SPLIT_MS = Number(SPLIT_STEP) * BLOCK_MS;
+// Parts of a split range: an empty answer for one is kept until its cut moves rather than for one block.
+const splitParts = new WeakSet();
 // The terminal reads logs in aligned 5,000-block windows naming several contracts (src/config.ts historyConfig.windowSize); public RPCs refuse
 // spans above 50,000. One request may not ask a provider for more than this.
 const MAX_LOG_SPAN = 10_000n;
@@ -548,6 +558,30 @@ function kindOf(call, head) {
   return typeof at === "string" && NUMBER.test(at) && BigInt(at) + ARCHIVE_DEPTH < head ? `${call.method}:old` : call.method;
 }
 
+/** Where to split an open, old log range (see SPLIT_STEP), or null to answer it whole. */
+function splitAt(call, head) {
+  if (head === undefined) return null;
+  const f = call.params?.[0];
+  const from = block(f?.fromBlock),
+    to = block(f?.toBlock);
+  if (from === null || to === null || from + ARCHIVE_DEPTH >= head || to + FINAL_DEPTH <= head) return null;
+  const cut = ((head - ARCHIVE_DEPTH + SPLIT_STEP - 1n) / SPLIT_STEP) * SPLIT_STEP;
+  return cut > from && cut <= to ? cut : null;
+}
+
+/** An open, old log range as its final part and its recent part, answered (and cached) each on its own. */
+async function answerSplit(call, cut, env, allowed, lanes, fetcher, cache, who, opts, origin) {
+  const f = call.params[0];
+  const hex = (n) => `0x${n.toString(16)}`;
+  const old = { ...call, params: [{ ...f, toBlock: hex(cut - 1n) }] };
+  const recent = { ...call, params: [{ ...f, fromBlock: hex(cut) }] };
+  splitParts.add(old);
+  const [a, b] = await Promise.all([old, recent].map((c) => answer(c, env, allowed, lanes, fetcher, cache, who, opts, origin)));
+  const bad = [a, b].find((o) => o.body.error || !Array.isArray(o.body.result));
+  if (bad) return { body: { ...bad.body, id: call.id }, source: bad.source };
+  return { body: { jsonrpc: "2.0", id: call.id, result: [...a.body.result, ...b.body.result] }, source: `${a.source}+${b.source}` };
+}
+
 async function answer(call, env, allowed, lanes, fetcher, cache, who, opts, origin) {
   const upstreams = lanes.recent;
   const no = refusal(call, allowed, opts);
@@ -559,6 +593,8 @@ async function answer(call, env, allowed, lanes, fetcher, cache, who, opts, orig
   const limited = () => ({ body: fail(call.id, -32005, "rate limited: too many uncached calls from this address, retry in a minute"), source: "limited" });
   const numbered = call.method === "eth_getLogs" || (AT_BLOCK.has(call.method) && typeof call.params?.[1] === "string" && NUMBER.test(call.params[1]));
   const head = numbered && cache ? await latest(upstreams, fetcher, cache, origin) : undefined;
+  const split = call.method === "eth_getLogs" ? splitAt(call, head) : null;
+  if (split) return answerSplit(call, split, env, allowed, lanes, fetcher, cache, who, opts, origin);
   const ttl = shareable(call, head);
   // Non-archive providers serve only the last ~100 blocks: an older call is its own kind for the bench (a provider
   // refusing it is not cleared by the recent calls it does serve) and goes down the archive lane.
@@ -572,7 +608,8 @@ async function answer(call, env, allowed, lanes, fetcher, cache, who, opts, orig
   const key = await cacheKey(call, ttl, origin);
   // An empty log list is never kept past one block (some providers answer [] for ranges they will not serve, and a
   // month of that would hide real logs), so a final window's empty answer lives under its own one-block key.
-  const short = ttl > BLOCK_MS && call.method === "eth_getLogs" ? await cacheKey(call, BLOCK_MS, origin) : null;
+  const emptyMs = splitParts.has(call) ? SPLIT_MS : BLOCK_MS;
+  const short = ttl > BLOCK_MS && call.method === "eth_getLogs" ? await cacheKey(call, emptyMs, origin) : null;
   const hit = await lookup(short ? [key, short] : [key], cache);
   if (hit !== undefined) return { body: { jsonrpc: "2.0", id: call.id, ...JSON.parse(hit) }, source: "cache" };
   // The same call already on its way upstream in this isolate: wait for that answer instead of asking again. Like a
@@ -587,7 +624,7 @@ async function answer(call, env, allowed, lanes, fetcher, cache, who, opts, orig
     const got = await forward(call, lane, fetcher, cache, origin, kind);
     if (!got.error && got.result !== null && got.result !== undefined) {
       const empty = Array.isArray(got.result) && got.result.length === 0;
-      await store(empty && short ? short : key, empty ? Math.min(ttl, BLOCK_MS) : ttl, got, cache);
+      await store(empty && short ? short : key, empty ? Math.min(ttl, emptyMs) : ttl, got, cache);
     }
     return got;
   })();
