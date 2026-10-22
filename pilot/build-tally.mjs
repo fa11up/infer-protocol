@@ -28,6 +28,7 @@ const API = "https://api.imd.fun";
 const LOOKBACK = BigInt(process.env.LOOKBACK ?? 100_000); // ~2 weeks; a request it misses REFUSES the run
 // Intake v2 Completed status: 0 answered, 1 refused, 2 ended without a result (fees are not refunded on 1/2).
 const ANSWERED = 0;
+const REVISION_DAYS = Number(process.env.REVISION_DAYS ?? 3);
 const CHUNK = BigInt(process.env.CHUNK ?? 5_000);
 
 const args = Object.fromEntries(
@@ -197,11 +198,14 @@ for (const q of requests) {
   if (live.status !== "attested") { refuse(`answered on chain but the plane reads ${live.status}`); continue; }
   q.jobId = live.jobId;
   const day = (live.attestedAt ?? live.createdAt).slice(0, 10);
+  // A job can appear again in a later day's receipt when the plane revises its credit (split panels have been
+  // credited late since plane PR #630). Take the LATEST frozen version within REVISION_DAYS of the answer.
   let found = null;
-  for (const d of [day, addDays(day, 1), addDays(day, -1), addDays(day, 2)]) {
+  for (let k = -1; k <= REVISION_DAYS; k++) {
+    const d = addDays(day, k);
     const rc = await receipt(d);
     const leaf = rc?.doc.leaves.find((l) => l.jobId === live.jobId);
-    if (leaf) { found = { day: d, receiptHash: rc.hash, documentHash: leaf.documentHash }; break; }
+    if (leaf) found = { day: d, receiptHash: rc.hash, documentHash: leaf.documentHash };
   }
   if (!found) { refuse(`job not in the receipts around ${day} (receipt missing?)`); continue; }
   const doc = await frozenDoc(found.documentHash);

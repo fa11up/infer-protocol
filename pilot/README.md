@@ -42,6 +42,8 @@ node build-tally.mjs --pilot <PaidOraclePilot> --to <block before head> --out ep
   `--epoch`/`--from` only cross-check; without `--pilot` they make a dry run, labelled `dryRun: true`, never to post.
 - Logs are read from two RPCs (mevblocker + Tenderly public by default, `--rpc a,b` to override) and must agree
   chunk by chunk. Every document is re-hashed (RFC 8785 subset) against its anchored hash before use.
+- A job revised in a later day's receipt (late credit, e.g. split panels since plane PR #630) is read from its
+  LATEST frozen version within `REVISION_DAYS` (default 3) of its answer.
 - Counted: Intake `Completed` with status 0 (answered) of an `oracle.request@…` paid in IMD, once per oracle
   request. Excluded by definition, and listed in `skipped`: not an oracle request, not paid in IMD, status 1
   (refused) or 2 (ended without a result), a second Intake request naming the same oracle request.
