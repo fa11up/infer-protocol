@@ -20,7 +20,7 @@ import {
   type FeedUpdates,
   type RedeemPoint,
 } from "./analytics-data";
-import { DayBars, HBars, PEG_CHART_W, PegChart, pegChartHeight, ShareBar, Spark, StressPlot, utcShort, type DayCol } from "./AnalyticsCharts";
+import { DayBars, FlowBars, HBars, PEG_CHART_W, PegChart, pegChartHeight, ShareBar, Spark, StressPlot, utcShort, type DayCol, type FlowDay } from "./AnalyticsCharts";
 import { loadConfig, pointsConfig, type Runtime } from "./config";
 import { ensName, useEns } from "./ens";
 import { describePending } from "./governance";
@@ -219,6 +219,27 @@ export function Analytics() {
           </div>
         )}
         <p className="an-src">imdUSD Transfer replay{ledger.data ? ` (${whole(ledger.data.supply)} imdUSD outstanding)` : ""} · the vault's Lock and Free logs</p>
+      </Panel>
+
+      <Panel title="Minted vs burned" sub="imdUSD created and destroyed per day" load={events}>
+        {events.data && (
+          <>
+            <div className="an-chart" tabIndex={0} role="region" aria-label="Minted and burned per day, scrolls sideways on small screens">
+              <FlowBars label="imdUSD minted and burned per day" unit={(v) => (v >= 1000 ? `${(v / 1000).toFixed(v >= 10_000 ? 0 : 1)}k` : `${Math.round(v)}`)} days={flowDays(events.data, now)} />
+            </div>
+            <ul className="an-legend">
+              <li>
+                <i className="an-key-up" />
+                minted: borrowed + earned
+              </li>
+              <li>
+                <i className="an-key-down" />
+                burned: repaid + redeemed + liquidated
+              </li>
+            </ul>
+          </>
+        )}
+        <p className="an-src">The vault's Draw, Earn, Wipe, Cash and Bite logs</p>
       </Panel>
 
       <StressPanel loans={loans} mat={mat} redeemable={num(s?.v.redemptionCeilingCR) ?? 220} load={book} />
@@ -604,6 +625,33 @@ function collateralDays(events: Awaited<ReturnType<typeof vaultEvents>>, dec: nu
     }
     const last = t0 + DAY > now;
     out.push({ day: dayOf(t0), parts: [{ v: Math.max(0, level), tone: last ? "ink" : "muted", title: `${dayOf(t0)}: ${whole(level)} sIMD locked` }], label: last ? whole(level) : undefined });
+  }
+  return out;
+}
+
+const MINTS = new Set(["Draw", "Earn"]),
+  BURNS = new Set(["Wipe", "Cash", "Bite"]);
+function flowDays(events: Awaited<ReturnType<typeof vaultEvents>>, now: number): FlowDay[] {
+  // Bite's logged amount is the debt the liquidator repaid and Cash's is the imdUSD burned: both leave supply.
+  const rows = events.filter((e) => e.amount !== undefined && (MINTS.has(e.name) || BURNS.has(e.name)));
+  if (!rows.length) return [];
+  const first = Math.min(...rows.map((e) => e.t));
+  const out: FlowDay[] = [];
+  for (let t0 = Math.floor(first / DAY) * DAY; t0 <= now; t0 += DAY) {
+    const day = rows.filter((e) => e.t >= t0 && e.t < t0 + DAY);
+    const sum = (names: string[]) => day.filter((e) => names.includes(e.name)).reduce((a, e) => a + Number(e.amount) / 1e18, 0);
+    const [draw, earn, wipe, cash, bite] = ["Draw", "Earn", "Wipe", "Cash", "Bite"].map((n) => sum([n]));
+    const up = draw + earn,
+      down = wipe + cash + bite;
+    const part = (v: number, what: string) => (v > 0 ? [`${whole(v)} ${what}`] : []);
+    out.push({
+      day: dayOf(t0),
+      up,
+      down,
+      title:
+        `${dayOf(t0)}: +${whole(up)} / −${whole(down)} imdUSD` +
+        [...part(draw, "borrowed"), ...part(earn, "earned"), ...part(wipe, "repaid"), ...part(cash, "redeemed"), ...part(bite, "liquidated")].map((x) => `\n${x}`).join(""),
+    });
   }
   return out;
 }

@@ -227,6 +227,50 @@ export function DayBars({ cols, label, unit, height = 200 }: { cols: DayCol[]; l
     </svg>
   );
 }
+export type FlowDay = { day: string; up: number; down: number; title: string };
+/** Two columns per day from zero: what was minted (healthy) beside what was burned (danger). */
+export function FlowBars({ days, label, unit, height = 200 }: { days: FlowDay[]; label: string; unit: (v: number) => string; height?: number }) {
+  const W = 1060,
+    L = 46,
+    R = 1050,
+    T = 18,
+    B = height - 30;
+  const max = niceMax(Math.max(1, ...days.map((d) => Math.max(d.up, d.down))));
+  const y = (v: number) => B - (v / max) * (B - T);
+  const band = (R - L) / Math.max(1, days.length),
+    bw = Math.min(22, band * 0.32);
+  const every = Math.ceil(days.length / 12);
+  return (
+    <svg viewBox={`0 0 ${W} ${height}`} role="img" aria-label={label} className="an-svg">
+      <g className="an-grid">
+        {[0, 0.5, 1].map((f) => (
+          <g key={f}>
+            <line x1={L} x2={R} y1={y(max * f)} y2={y(max * f)} />
+            <text x={L - 6} y={y(max * f) + 4} textAnchor="end">
+              {unit(max * f)}
+            </text>
+          </g>
+        ))}
+      </g>
+      {days.map((d, i) => {
+        const mid = L + i * band + band / 2;
+        return (
+          <g key={d.day}>
+            <title>{d.title}</title>
+            <rect className="an-hit" x={mid - band / 2} y={T} width={band} height={B - T} />
+            <rect className="an-bar-up" x={mid - bw - 1} y={y(d.up)} width={bw} height={Math.max(0, B - y(d.up))} rx={2} />
+            <rect className="an-bar-down" x={mid + 1} y={y(d.down)} width={bw} height={Math.max(0, B - y(d.down))} rx={2} />
+            {(i % every === 0 || i === days.length - 1) && (
+              <text x={mid} y={B + 16} textAnchor="middle">
+                {d.day}
+              </text>
+            )}
+          </g>
+        );
+      })}
+    </svg>
+  );
+}
 function niceMax(v: number) {
   const p = Math.pow(10, Math.floor(Math.log10(v)));
   for (const m of [1, 2, 2.5, 5, 10]) if (m * p >= v) return m * p;

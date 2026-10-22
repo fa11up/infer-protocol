@@ -4938,6 +4938,8 @@ dialog:focus-visible {
 .an-bar-ink { fill: var(--text); }
 .an-bar-muted { fill: var(--muted); fill-opacity: 0.45; }
 .an-bar-danger { fill: var(--danger); }
+.an-bar-up { fill: var(--healthy); }
+.an-bar-down { fill: var(--danger); }
 .an-op1 { fill-opacity: 0.6; }
 .an-op2 { fill-opacity: 0.4; }
 .an-op3 { fill-opacity: 0.25; }
@@ -4968,6 +4970,8 @@ dialog:focus-visible {
 .an-key-line,
 .an-key-ink { background: var(--text); }
 .an-key-muted { background: var(--muted); opacity: 0.45; }
+.an-key-up { background: var(--healthy); }
+.an-key-down { background: var(--danger); }
 .an-legend-toggle {
   font: inherit;
   line-height: inherit;
