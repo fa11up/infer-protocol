@@ -59,10 +59,11 @@ if (LAUNCH) {
   if (!deployment.oracleAsker?.address) fail("the deployment names no OracleAsker");
   const ens = JSON.parse(await readFile(resolve(dirname(fileURLToPath(import.meta.url)), "../src/ens-rpc.json"), "utf8"));
   const archive = JSON.parse(await readFile(resolve(dirname(fileURLToPath(import.meta.url)), "../src/archive-rpc.json"), "utf8"))[deployment.chainId] ?? [];
+  const imdApis = JSON.parse(await readFile(resolve(dirname(fileURLToPath(import.meta.url)), "../src/imd-api.json"), "utf8"));
   const want = [
     "'self'",
     "https://cloudflareinsights.com",
-    ...new Set([...deployment.network.rpcUrls, ...ens, ...archive].map((u) => new URL(u).origin).concat("https://eth.blockscout.com", "https://api.imd.fun")),
+    ...new Set([...deployment.network.rpcUrls, ...ens, ...archive].map((u) => new URL(u).origin).concat("https://eth.blockscout.com", ...imdApis.map((u) => new URL(u).origin))),
   ].join(" ");
   if (connect !== want) fail(`connect-src is "${connect}", expected "${want}"`);
   // imdusd.com/rpc (worker/rpc.js) serves only the contracts in rpc-allow.json: every contract the deployment

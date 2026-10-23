@@ -874,7 +874,7 @@ function SwarmPanel({ swarm, imdUsd }: { swarm: Load<Awaited<ReturnType<typeof r
         </div>
       </div>
       <p className="an-quiet">Every request costs {REQUEST_IMD} IMD, so its dollar price moves with IMD. A dollar-denominated unit would hold it still.</p>
-      <p className="an-src">api.imd.fun/swarm · IMD transfers to IdentityMD's payment address {short("0x4e0fa57bde726079356537e2f34d671e9f41adbc")} · IMD market from the IMD/ETH pool and Chainlink</p>
+      <p className="an-src">IdentityMD /swarm · IMD transfers to IdentityMD's payment address {short("0x4e0fa57bde726079356537e2f34d671e9f41adbc")} · IMD market from the IMD/ETH pool and Chainlink</p>
     </Panel>
   );
 }

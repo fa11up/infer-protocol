@@ -9,13 +9,28 @@ import { ours } from "./names";
 import { ETH_USD, POOL_MANAGER, SLOT0 } from "./market";
 import { pegPoolScan } from "./peg-logs";
 import { read, type Snapshot } from "./state";
+import IMD_APIS from "./imd-api.json";
 
 /** IMD on mainnet, and IdentityMD's payment address: every paid request (API or Intake) lands there in IMD. */
 export const IMD_TOKEN: Address = "0xD34a99Bc0f67aE1bbd63C660e6d0b0dd03E263B7";
 export const SWARM_PAY_TO: Address = "0x4e0fa57bde726079356537e2f34d671e9f41adbc";
 export const USDC_TOKEN: Address = "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48";
 export const INFER_TOKEN: Address = "0x53d0eA0A685220718Dc6a0a6e4617194C6F37921";
-const SWARM_API = "https://api.imd.fun/swarm";
+// IdentityMD's control-plane servers, in the order identitymd.eth's `imd.servers` ENS record lists them (the dev's tx
+// 0xb771f997…). One file feeds both this fetch and the launch CSP's connect-src (vite.config.ts), so a server can only
+// be tried if the page is allowed to reach it. 2026-10-23: imd.fun was on a registrar hold for ten hours.
+/** The first server whose /swarm answers, each given a few seconds; undefined when none does. */
+async function fetchSwarm(): Promise<unknown> {
+  for (const base of IMD_APIS as string[]) {
+    try {
+      const x = await fetch(`${base}/swarm`, { signal: AbortSignal.timeout(6000) });
+      if (x.ok) return await x.json();
+    } catch {
+      /* next server */
+    }
+  }
+  return undefined;
+}
 /** Every request IdentityMD sells costs this much IMD (api.imd.fun/requests/capabilities). */
 export const REQUEST_IMD = 0.5;
 
@@ -394,9 +409,8 @@ export async function readSwarm(r: Runtime, s: Snapshot): Promise<Swarm> {
   const head = Number(s.block);
   const today = Math.floor(Number(s.timestamp) / DAY) * DAY;
   const from = head - 8 * 7200;
-  const health = fetch(SWARM_API)
-    .then((x) => (x.ok ? x.json() : undefined))
-    .then((d) => (d?.health ?? d) as { agentsOnline?: number; seatsEnrolled?: number } | undefined)
+  const health = fetchSwarm()
+    .then((d) => ((d as { health?: unknown } | undefined)?.health ?? d) as { agentsOnline?: number; seatsEnrolled?: number } | undefined)
     .catch(() => undefined);
   // The history windows (aligned, so closed ones are cache-identical at /rpc); the days outside the week are dropped.
   const windows = alignedWindows(BigInt(from), BigInt(head)).map(([a, b]) => [Number(a), Number(b)] as const);

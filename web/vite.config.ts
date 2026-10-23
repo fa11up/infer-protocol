@@ -32,8 +32,8 @@ const BLOCKSCOUT: Record<number, string> = {
   1: "https://eth.blockscout.com",
   11155111: "https://eth-sepolia.blockscout.com",
 };
-/** IdentityMD's public API, read by the analytics page for the swarm's size (src/analytics-data.ts). */
-const IMD_API = "https://api.imd.fun";
+/** IdentityMD's public API servers, read by the analytics page for the swarm's size (src/analytics-data.ts). */
+const IMD_APIS: string[] = JSON.parse(readFileSync(resolve(import.meta.dirname, "src/imd-api.json"), "utf8"));
 /** Every origin the terminal connects to: the deployment's RPCs, the mainnet readers' RPCs (market price,
  * ENS), the archive gateways and the chain's Blockscout. Read from the same files the terminal reads, so they cannot disagree. */
 function launchConnect(): string[] {
@@ -44,7 +44,7 @@ function launchConnect(): string[] {
   const origins = [...deployment.network.rpcUrls, ...ens, ...archive].map((u: string) => new URL(u).origin);
   if (BLOCKSCOUT[deployment.chainId]) origins.push(BLOCKSCOUT[deployment.chainId]);
   // The analytics page's swarm strip reads IdentityMD's public /swarm (CORS-open).
-  origins.push(IMD_API);
+  origins.push(...IMD_APIS.map((u) => new URL(u).origin));
   return [...new Set(origins)];
 }
 /**
