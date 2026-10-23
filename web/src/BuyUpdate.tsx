@@ -2,7 +2,7 @@ import { keccak256, parseAbi, type Address } from "viem";
 import { ORACLE_OUTAGE, outageHold } from "./outage";
 import type { Runtime } from "./config";
 import type { Snapshot } from "./state";
-import { Action, ActionForm, Info, type Actions } from "./actions";
+import { Action, Info, type Actions } from "./actions";
 import { exact, fmt } from "./math";
 
 // Buying a price update through the protocol's OracleAsker. The asker pays IdentityMD's on-chain Intake and
@@ -294,16 +294,17 @@ export function BuyUpdate({
   );
 }
 
-/** Below this the asker can pay for only a few more Treasury-rule updates (four at 0.5 IMD), so the Oracle pane lets
- * anyone send it IMD. At or above it the control is not shown. */
+/** Below this the asker can pay for only a few more Treasury-rule updates (four at 0.5 IMD), so the Oracle pane offers
+ * the Treasury's refill. At or above it the control is not shown. */
 export const TOP_UP_BELOW = 2n * 10n ** 18n;
 
-/** Sending IMD to the asker, offered only while it holds under TOP_UP_BELOW. A plain ERC-20 transfer: the asker has
- * no withdraw, so what it is sent is spent only on updates its rules allow (`ask`), never returned. */
-export function OracleTopUp({ r, s, actions }: { r: Runtime; s?: Snapshot; actions: Actions }) {
-  const cfg = r.config.oracleAsker;
+/** The Treasury's keyless refill (`Treasury.fundOracle`), offered only while the asker holds under TOP_UP_BELOW. Anyone
+ * may trigger it and pays only gas: the IMD comes from the Treasury, capped per UTC day by the governed
+ * `Parameters.oracleBudget`, and goes only to the asker (a source constant). Visitors are never asked for their own IMD. */
+export function OracleTopUp({ s, actions }: { r: Runtime; s?: Snapshot; actions: Actions }) {
   const a = s?.asker === "unreadable" ? undefined : s?.asker;
-  if (!cfg || !a || a.held >= TOP_UP_BELOW) return null;
+  const treasury = s?.targets.treasury;
+  if (!a || !treasury || a.held >= TOP_UP_BELOW) return null;
   const left = a.price > 0n ? a.held / a.price : 0n;
   return (
     <section className="oracle-topup" aria-labelledby="oracle-topup-heading">
@@ -311,32 +312,24 @@ export function OracleTopUp({ r, s, actions }: { r: Runtime; s?: Snapshot; actio
         Top up the oracle
         <Info
           label="Top up the oracle"
-          text={`The request contract (OracleAsker) pays for the updates the protocol's rules allow: a feed near expiry, a feed stale long enough, or a fall in IMD's price. It holds ${fmt(a.held)} IMD. While it holds under ${fmt(TOP_UP_BELOW)}, anyone can send it IMD. It has no withdraw: IMD sent here is spent only on those updates and is never returned.`}
+          text={`The request contract (OracleAsker) pays for the updates the protocol's rules allow: a feed near expiry, a feed stale long enough, or a fall in IMD's price. It holds ${fmt(a.held)} IMD. The Treasury refills it from its own IMD, up to a daily budget set by governance. Anyone can trigger the refill and pays only gas.`}
         />
       </div>
       <p className="micro danger-text">
         The oracle holds {fmt(a.held)} IMD, enough for {left.toString()} more Treasury-paid{" "}
         {left === 1n ? "update" : "updates"} at {fmt(a.price)} IMD each.
       </p>
-      <ActionForm
+      <Action
         id="oracle-topup"
-        label="Review top-up"
+        label="Refill from the Treasury"
         actions={actions}
-        target={{ address: a.payToken, abi: erc20 }}
-        fn="transfer"
-        fields={[
-          {
-            name: "IMD to send",
-            kind: "amount",
-            balance: { connected: !!actions.account, amount: a.balance, symbol: "IMD", decimals: 18 },
-            max:
-              a.balance !== undefined
-                ? { value: a.balance, message: `This wallet holds ${exact(a.balance)} IMD.` }
-                : undefined,
-          },
-        ]}
-        mapArgs={(v) => [cfg.address, v[0]]}
-        summary="Sends IMD from this wallet to the oracle's request contract. It pays only for updates the protocol's rules allow and cannot be withdrawn."
+        request={() => ({
+          target: treasury,
+          fn: "fundOracle",
+          args: [],
+          summary:
+            "The Treasury sends the oracle what is left of today's budget from its own IMD. This wallet pays only gas; if today's budget is already spent, nothing is sent.",
+        })}
       />
     </section>
   );
