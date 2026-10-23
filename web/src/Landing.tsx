@@ -1,4 +1,5 @@
 import { lazy, Suspense, type ReactNode } from "react";
+import { ORACLE_OUTAGE, outageNotice } from "./outage";
 import { SiteFooter, SiteHeader, href, WHITEPAPER, TERMINAL } from "./site";
 import { MarketCap } from "./MarketCap";
 // The live homepage (chain reads, viem, the deployment file) lives in its own module, loaded after the page
@@ -171,6 +172,11 @@ export function Page({
     <div className="site">
       <SiteHeader page="home" network={network} mainnet={mainnet} />
       <main className="home">
+        {ORACLE_OUTAGE ? (
+          <p className="home-outage" role="status">
+            <strong>Oracle outage.</strong> {outageNotice(ORACLE_OUTAGE)}
+          </p>
+        ) : null}
         <section className="hero">
           <div className="hero-copy">
             <h1>

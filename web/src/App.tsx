@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ORACLE_OUTAGE, outageShort } from "./outage";
 import { DisconnectBox } from "./disconnect";
 import {
   encodeFunctionData,
@@ -585,6 +586,11 @@ function Terminal({ r }: { r: Runtime }) {
           onDisconnect={disconnect}
         />
       </SiteHeader>
+      {ORACLE_OUTAGE ? (
+        <div className="global-notice global-notice-outage" role="status">
+          <strong>Oracle outage.</strong> {outageShort(ORACLE_OUTAGE)}
+        </div>
+      ) : null}
       {walletError || readError || s?.errors.length ? (
         <div className="global-notice" role="alert">
           {walletError ||

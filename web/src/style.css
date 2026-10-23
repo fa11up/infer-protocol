@@ -409,6 +409,18 @@ form > button,
 .global-notice-cap {
   border-inline-start: 2px solid var(--danger);
 }
+.global-notice-outage {
+  border-inline-start: 2px solid var(--caution);
+}
+.home-outage {
+  margin: 0 0 20px;
+  padding: 10px 14px;
+  border: 1px solid var(--rule);
+  border-inline-start: 3px solid var(--caution);
+  background: var(--raised);
+  font-size: 14px;
+  line-height: 1.5;
+}
 .notice {
   border-inline-start: 2px solid var(--muted);
   padding: 8px 10px;

@@ -1,4 +1,5 @@
 import { keccak256, parseAbi, type Address } from "viem";
+import { ORACLE_OUTAGE, outageHold } from "./outage";
 import type { Runtime } from "./config";
 import type { Snapshot } from "./state";
 import { Action, ActionForm, Info, type Actions } from "./actions";
@@ -158,6 +159,15 @@ export function BuyUpdate({
 }) {
   const cfg = r.config.oracleAsker;
   const id = `${idPrefix}-${feed}`;
+  if (ORACLE_OUTAGE)
+    return (
+      <div className="buy-update">
+        <button type="button" disabled>
+          {label}
+        </button>
+        {info && <Info label={label} text={outageHold(ORACLE_OUTAGE)} />}
+      </div>
+    );
   if (cfg && s?.asker === "unreadable")
     return (
       <div className="buy-update">
