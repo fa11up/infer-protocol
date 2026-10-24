@@ -297,6 +297,7 @@ function call(s, params) {
       value = (args[0] * (10000n - fee(s, args[0])) * 10n ** 14n) / (2n * W);
     else if (f === "approve" || f === "transfer") value = true;
     else if (f === "sync") value = 0n;
+    else if (f === "fundOracle") value = 14n * W; // the Treasury's refill of the asker: what it sends
   } else if (name === "ParameterizedVault") {
     const scalar = {
       minCR: s.minCR,

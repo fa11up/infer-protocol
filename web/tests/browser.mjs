@@ -1823,7 +1823,8 @@ try {
     passed("Update price sends the Treasury-paid ask, with no approval, when the asker's rules allow it");
   }
   {
-    // The oracle top-up: hidden while the asker holds 2 IMD or more, offered below it as a plain IMD transfer.
+    // The oracle top-up: hidden while the asker holds 2 IMD or more, offered below it as the Treasury's own refill
+    // (Treasury.fundOracle): the visitor pays gas only and is never asked for IMD.
     const asker = {
       address: "0x0000000000000000000000000000000000000019",
       requests: { PriceFeed: askerBody, NhiFeed: askerBody, SpotFeed: askerBody },
@@ -1839,14 +1840,13 @@ try {
     const topUp = page.locator(".oracle-topup");
     await expectText(topUp, "enough for 3 more Treasury-paid updates");
     await page.locator(".pane-oracle").screenshot({ path: `${evidence}/oracle-topup-1440.png` });
-    await topUp.getByLabel("IMD to send").fill("1");
-    await review(page, "Review top-up");
+    assert.equal(await topUp.getByLabel("IMD to send").count(), 0, "no field asks the visitor for IMD");
+    await review(page, "Refill from the Treasury");
     await page.locator("dialog").getByRole("button", { name: "Confirm in wallet" }).click();
     await expectText(page.locator("footer"), "Confirmed on chain.");
-    assert.equal(s.sent.at(-1).name, "payToken");
-    assert.equal(s.sent.at(-1).functionName, "transfer");
-    assert.deepEqual(s.sent.at(-1).args, [asker.address, 10n ** 18n]);
-    passed("Oracle top-up: hidden at 2 IMD, offered below it, and sends exactly the IMD entered to the asker");
+    assert.equal(s.sent.at(-1).name, "treasury");
+    assert.equal(s.sent.at(-1).functionName, "fundOracle");
+    passed("Oracle top-up: hidden at 2 IMD, offered below it as the Treasury's fundOracle, never the visitor's IMD");
   }
   {
     // sIMD is priced from IMD: with the vault's collateral feed unreadable, the terminal derives the same

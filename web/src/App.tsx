@@ -441,6 +441,13 @@ function Terminal({ r }: { r: Runtime }) {
   async function sendCalls(calls: Call[], batch: boolean, onStep?: (done: number) => void): Promise<Hash | undefined> {
     const p = window.ethereum;
     if (!p) throw Error("Connect a browser wallet.");
+    // Ask for the accounts first, every time. A locked MetaMask can still look connected to the page (the account it
+    // granted earlier) yet open nothing for a send and answer it with an internal error (2026-10-23/24). This request
+    // opens its unlock prompt; an unlocked wallet answers it at once, with no window.
+    setTx({ status: "Opening your wallet. Unlock it if it asks." });
+    const granted = (await p.request({ method: "eth_requestAccounts" })) as string[];
+    if (!granted?.some((a) => a.toLowerCase() === account!.toLowerCase()))
+      throw Error("The wallet is connected with a different account. Nothing was sent. Review again from that account.");
     await guard(p);
     const w = await wallet(r, p);
     let last: Hash | undefined;

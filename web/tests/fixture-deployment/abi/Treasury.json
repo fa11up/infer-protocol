@@ -471,5 +471,18 @@
     "type": "error",
     "name": "ZeroAmount",
     "inputs": []
+  },
+  {
+    "type": "function",
+    "name": "fundOracle",
+    "inputs": [],
+    "outputs": [
+      {
+        "name": "sent",
+        "type": "uint256",
+        "internalType": "uint256"
+      }
+    ],
+    "stateMutability": "nonpayable"
   }
 ]
