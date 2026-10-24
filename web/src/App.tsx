@@ -421,6 +421,23 @@ function Terminal({ r }: { r: Runtime }) {
   const simulateAny = (c: Call) => (c.data ? simulateRaw(c as Call & { data: Hex }) : simulateCall(c));
   /** Sends `calls` from the connected wallet, as one atomic batch or one by one, then refreshes. The caller holds
    * the lock. A wallet that refuses wallet_sendCalls is remembered as unable to batch. */
+  /** Sends through the wallet; on a JSON-RPC internal error (-32603), reconnects once and sends again. A locked
+   * MetaMask answers a send with exactly that error and shows nothing (seen 2026-10-23, approve + lockIMD): asking
+   * for the accounts again opens its unlock prompt, and the retried request then appears in the wallet. The wallet
+   * signed nothing the first time, so the retry cannot send a second copy; it runs only if the same account returns. */
+  async function reconnectOnce<T>(p: NonNullable<typeof window.ethereum>, send: () => Promise<T>): Promise<T> {
+    try {
+      return await send();
+    } catch (e) {
+      if (!walletInternalError(e)) throw e;
+      setTx({ status: "Your wallet did not respond. Reconnecting: unlock it if it asks." });
+      const accounts = (await p.request({ method: "eth_requestAccounts" })) as string[];
+      if (!accounts?.some((a) => a.toLowerCase() === account!.toLowerCase()))
+        throw Error("The wallet reconnected with a different account. Nothing was sent. Review again from that account.");
+      return await send();
+    }
+  }
+
   async function sendCalls(calls: Call[], batch: boolean, onStep?: (done: number) => void): Promise<Hash | undefined> {
     const p = window.ethereum;
     if (!p) throw Error("Connect a browser wallet.");
@@ -434,7 +451,7 @@ function Terminal({ r }: { r: Runtime }) {
       setTx({ status: `Confirm ${calls.length} steps in your wallet: one signature, all or nothing.` });
       let batchId: string;
       try {
-        ({ id: batchId } = await w.sendCalls({
+        ({ id: batchId } = await reconnectOnce(p, () => w.sendCalls({
           account: account!,
           chain: r.chain,
           forceAtomic: true,
@@ -443,18 +460,9 @@ function Terminal({ r }: { r: Runtime }) {
             data: c.data ?? encodeFunctionData({ abi: c.target.abi, functionName: onChain(c.fn), args: onChainArgs(c.args) }),
             ...(c.value ? { value: c.value } : {}),
           })),
-        }));
+        })));
       } catch (e) {
         if (/wallet_sendCalls|does not support|not supported|method not found|4200/i.test(message(e))) setAtomic(false);
-        else if (walletInternalError(e)) {
-          // MetaMask answers -32603 when its own batch handling fails (seen 2026-10-23: approve + lockIMD from a 7702
-          // smart account; both simulate fine). Nothing was sent. The next review goes one call at a time, and it does
-          // not retry here on its own, so a batch the wallet did submit can never be followed by a second copy.
-          setAtomic(false);
-          throw Error(
-            "Your wallet could not send these steps as one batch, and nothing was sent. Review again: the steps will go one at a time, one signature each.",
-          );
-        }
         throw e;
       }
       setTx({ status: "Submitted. Waiting for on-chain confirmation…" });
@@ -472,9 +480,11 @@ function Terminal({ r }: { r: Runtime }) {
         if (c.data) await simulateRaw(c as Call & { data: Hex });
         await guard(p);
         setTx({ status: `Step ${i + 1} of ${calls.length}: ${c.label}. Confirm in your wallet.` });
-        const hash = simulation
-          ? await w.writeContract({ ...simulation.request, account: account!, chain: r.chain })
-          : await w.sendTransaction({ account: account!, chain: r.chain, to: c.target.address, data: c.data, value: c.value });
+        const hash = await reconnectOnce(p, () =>
+          simulation
+            ? w.writeContract({ ...simulation.request, account: account!, chain: r.chain })
+            : w.sendTransaction({ account: account!, chain: r.chain, to: c.target.address, data: c.data, value: c.value }),
+        );
         setTx({ status: `Step ${i + 1} of ${calls.length} submitted. Waiting for confirmation…`, hash });
         const receipt = await r.client.waitForTransactionReceipt({ hash, confirmations: 1, timeout: 120000 });
         if (receipt.status !== "success")
