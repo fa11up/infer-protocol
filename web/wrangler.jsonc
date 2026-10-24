@@ -9,9 +9,9 @@
   "assets": {
     "directory": "../dist-public",
     "binding": "ASSETS",
-    // Only /rpc, /swap/* and /api/v1/* run the Worker; every page and file is served straight from Cloudflare's cache. HTTP -> HTTPS and www -> imdusd.com are the zone's "Always Use HTTPS" setting and a
+    // Only /rpc, /swap/*, /api/v1/* and /geo (stock-token geofence, worker/geo.js) run the Worker; every page and file is served straight from Cloudflare's cache. HTTP -> HTTPS and www -> imdusd.com are the zone's "Always Use HTTPS" setting and a
     // Redirect Rule (set in the dashboard, 2026-10-08).
-    "run_worker_first": ["/rpc", "/swap/*", "/api/v1/*"],
+    "run_worker_first": ["/rpc", "/swap/*", "/api/v1/*", "/geo"],
     // /docs serves /docs/ and the site's relative links keep working.
     "html_handling": "auto-trailing-slash",
     // An unknown path is a 404 with the site's own not-found page (404.html, built from

@@ -1,5 +1,5 @@
-// imdusd.com's Worker. Cloudflare serves every file straight from its cache without invoking it, except /rpc
-// /swap/* and /api/v1/* (run_worker_first in wrangler.jsonc): the terminal's own Ethereum RPC (worker/rpc.js), cached per block,
+// imdusd.com's Worker. Cloudflare serves every file straight from its cache without invoking it, except /rpc,
+// /swap/*, /api/v1/* and /geo (run_worker_first in wrangler.jsonc): the terminal's own Ethereum RPC (worker/rpc.js), cached per block,
 // keyed upstreams, an allowlist of the deployment's contracts, plus the event logs its loan book reads.
 //
 // The redirects below are now the zone's "Always Use HTTPS" setting and a www -> imdusd.com Redirect Rule, so
@@ -8,6 +8,7 @@
 import { handleRpc } from "./rpc.js";
 import { handleSwap } from "./swap.js";
 import { handleHistoryApi } from "./history-api.js";
+import { handleGeo } from "./geo.js";
 
 const HOST = "imdusd.com";
 export default {
@@ -23,6 +24,8 @@ export default {
     if (url.pathname.startsWith("/swap/")) return handleSwap(request, env);
     // The public history index (worker/history-api.js): read-only, the PUBLIC_DB binding only.
     if (url.pathname.startsWith("/api/v1/")) return handleHistoryApi(request, env);
+    // Whether this visitor may be offered stock-token collateral (worker/geo.js): no-store, never cached.
+    if (url.pathname === "/geo") return handleGeo(request);
     // Only a build that ships rpc-allow.json (the launch build, with the terminal) serves it; otherwise 404.
     if (url.pathname === "/rpc") return handleRpc(request, env, {}, { logs: true, pages: "the imdUSD terminal" });
     return env.ASSETS.fetch(request);

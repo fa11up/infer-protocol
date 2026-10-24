@@ -1,0 +1,23 @@
+{
+  "$comment": "Who the site keeps away from tokenized-stock collateral (planned). One source for the Worker (worker/geo.js) and the page (src/geofence.ts). Re-read the issuer's page at every terminal deploy and at least monthly; legal confirms this table before any stock type is shown.",
+  "issuer": {
+    "terms": "https://robinhood.com/stocktoken/rhj",
+    "restrictedJurisdictions": "https://docs.robinhood.com/rhj/restricted-jurisdictions",
+    "prospectus": "https://robinhood.com/eu/en/legal/rhj/",
+    "read": "2026-10-22",
+    "quote": "The Products may not be offered, sold or delivered, directly or indirectly, in the United States or to, or for the account or benefit of, U.S. Persons or to Prohibited Investors. Prohibited Investors currently include investors in the following jurisdictions (which may be subject to change): Cuba, Belarus, Iran, North Korea, Russia, Syria, Ukraine, South Sudan, Sudan, Myanmar, and Venezuela."
+  },
+  "blocked": {
+    "named": ["US", "CA", "GB", "CH"],
+    "usTerritories": ["PR", "GU", "VI", "AS", "MP", "UM"],
+    "crownDependencies": ["JE", "GG", "IM"],
+    "prohibitedInvestors": ["CU", "BY", "IR", "KP", "RU", "SY", "UA", "SS", "SD", "MM", "VE"],
+    "pendingLegal": ["AE"]
+  },
+  "failClosed": ["XX", "T1"],
+  "stockGroup": 1,
+  "stockIlkPrefixes": ["STOCK-", "SGOV"],
+  "unwindException": true,
+  "legalConfirmed": false,
+  "declaration": "I am not a U.S. Person, and I am not resident in Canada, the United Kingdom, Switzerland or a Prohibited-Investor jurisdiction. (Wording pending legal review.)"
+}

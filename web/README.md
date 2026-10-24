@@ -74,3 +74,22 @@ Oracle points are paired `ValueUpdated` + `AttestationAccepted` events in transa
 Read source coverage and constraints in `src/history.ts` and `src/Charts.tsx`. The public API pagination schema is documented in [Blockscout’s OpenAPI specification](https://github.com/blockscout/blockscout-api-v2-swagger/blob/main/swagger.yaml).
 
 For an optional current-network browser smoke check (no wallet or broadcasts), run `node web/scripts/live-charts.mjs` with the same Playwright browser path. It serves the existing export at a local subpath for the duration of the check, then closes the browser and server. `node web/scripts/live-check.mjs` separately verifies public chain ID and code. These commands write dated evidence under `docs/frontend/`.
+
+## Stock-token geofence (planned tokenized-stock collateral)
+
+No stock type is shown yet. When one is, it goes through the gate:
+
+- `src/geofence.json` is the one country table, with the issuer's terms quoted and the date it was read. Unknown country
+  (`XX`, no header) and Tor (`T1`) are blocked.
+- `GET /geo` (`worker/geo.js`, `no-store`) answers `{ country, stocks, reason }` from Cloudflare's country for the request.
+- `src/stock-gate.ts` (`StockGate` / `useStockGate`) is the only way a stock pane renders: nothing until `/geo` says yes,
+  then a self-declaration per wallet; a restricted country sees only an existing position, read-only, with repay, withdraw
+  and claim (`unwindException`). `src/geofence.ts` reads the stock types from chain (Parameters' group 1, so a new type is
+  hidden with no site change) and refuses to send a stock borrow or auction take the visitor may not make.
+- `scripts/geofence-check.mjs` (in `npm test` and `build:launch`) fails if a source file names a stock type or the stock
+  auction without rendering through the gate. `npm run check:geofence-terms` re-reads the issuer's page: run it before
+  every terminal deploy.
+
+IP country is beaten by a VPN or another front end; the contracts are permissionless. This keeps our site within the
+issuer's terms; it is not a security boundary. `legalConfirmed` stays `false` until legal signs off the table, the
+declaration wording and the unwind exception.
