@@ -86,17 +86,23 @@ export async function firstBlockAtOrAfter(r: Runtime, ts: number, head: bigint):
     /* no storage */
   }
   const time = async (n: bigint) => Number((await r.client.getBlock({ blockNumber: n })).timestamp);
-  if ((await time(head)) < ts) throw Error("that time has not been reached");
-  // 12-second blocks: start the search near the estimate.
   const headTime = await time(head);
+  if (headTime < ts) throw Error("that time has not been reached");
+  // 12-second blocks: start the search near the estimate.
   let lo = head - BigInt(Math.ceil((headTime - ts) / 12) + 600);
   if (lo < 0n) lo = 0n;
   while (lo > 0n && (await time(lo)) >= ts) lo = lo > 5_000n ? lo - 5_000n : 0n;
   let hi = head;
+  // A 20-way search: each round reads 19 evenly spaced blocks at once (one batched request) and keeps the gap where
+  // the time is crossed, so a few rounds instead of ~22 reads one after another. Invariant: time(lo) < ts <= time(hi).
   while (hi - lo > 1n) {
-    const mid = (lo + hi) / 2n;
-    if ((await time(mid)) >= ts) hi = mid;
-    else lo = mid;
+    const step = (hi - lo) / 20n > 0n ? (hi - lo) / 20n : 1n;
+    const probes: bigint[] = [];
+    for (let b = lo + step; b < hi; b += step) probes.push(b);
+    const times = await Promise.all(probes.map(time));
+    const i = times.findIndex((t) => t >= ts);
+    if (i >= 0) hi = probes[i];
+    if (i !== 0) lo = i < 0 ? probes[probes.length - 1] : probes[i - 1];
   }
   try {
     localStorage.setItem(key, hi.toString());

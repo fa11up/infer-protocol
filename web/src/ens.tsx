@@ -1,8 +1,9 @@
 import { useEffect, useSyncExternalStore } from "react";
-import { fallback, http, getAddress } from "viem";
+import { fallback, getAddress } from "viem";
 import { createReadClient } from "./read-client";
 import { mainnet } from "viem/chains";
 import rpcUrls from "./ens-rpc.json";
+import { ownRpcFirst } from "./own-rpc";
 import { positionName } from "./history";
 
 // ENS names live on Ethereum mainnet whatever chain the protocol runs on, so reverse lookups use
@@ -10,23 +11,24 @@ import { positionName } from "./history";
 // at the address, so a name shown here is one the address owner set and controls.
 const client = createReadClient({
   chain: mainnet,
-  transport: fallback(
-    rpcUrls.map((url: string) => http(url, { timeout: 6000, retryCount: 0 })),
-  ),
+  transport: fallback(ownRpcFirst(rpcUrls, 6000)),
   batch: { multicall: false },
 });
+// viem's mainnet ENS universal resolver, named here so the build allowlists it for /rpc (every address in src/).
+const UNIVERSAL_RESOLVER = "0xeeeeeeee14d718c2b47d9923deab1335e144eeee";
 const names = new Map<string, string | null>();
 const queue: string[] = [];
 const listeners = new Set<() => void>();
 let version = 0;
 let running = 0;
-const MAX_IN_FLIGHT = 3;
+// Through /rpc, lookups issued together go as one batch; more in flight lets a list of names fill in one request.
+const MAX_IN_FLIGHT = 8;
 function pump() {
   while (running < MAX_IN_FLIGHT && queue.length) {
     const key = queue.shift()!;
     running++;
     client
-      .getEnsName({ address: getAddress(key) })
+      .getEnsName({ address: getAddress(key), universalResolverAddress: UNIVERSAL_RESOLVER })
       .catch(() => null) // an unreachable resolver means "no name", never a failed page
       .then((name) => {
         names.set(key, name || null);

@@ -39,31 +39,53 @@ async function pegLiquidityTxs(r: Runtime, head: number): Promise<Set<string> | 
 
 /** Reads imdUSD transfers and vault liquidations, then runs the shared engine at the snapshot block. */
 /** Season 1's wallet rule (rules section 2.1): EOAs, EIP-7702 accounts and Safe accounts earn; other contracts do
- * not. Classified by code at the head, as the reference scorer does through the head mid-season; remembered for the
- * session (code rarely changes, and a wrong guess only moves this view, never the payout). */
+ * not. Classified by code at the head, as the reference scorer does through the head mid-season; remembered in this
+ * browser for a week (code rarely changes, and a wrong guess only moves this view, never the payout). */
 const walletCache = new WeakMap<Runtime, Map<string, boolean>>();
+const WALLETS_KEY = "s1-wallets";
+const WALLETS_TTL_MS = 7 * 24 * 3600 * 1000;
+function storedWallets(): Record<string, [boolean, number]> {
+  try {
+    return JSON.parse(localStorage.getItem(WALLETS_KEY) ?? "{}");
+  } catch {
+    return {}; // no storage: every address is read
+  }
+}
 async function contractsAmong(r: Runtime, addresses: Set<string>, head: bigint, pinned = false): Promise<string[]> {
   // At the head the answer is kept across refreshes (code rarely changes); at a pinned block it is keyed by that block,
   // so a head answer never stands in for the end block's.
   const key = (a: string) => (pinned ? `${head}:${a}` : a);
   let cache = walletCache.get(r);
-  if (!cache) walletCache.set(r, (cache = new Map()));
+  if (!cache) {
+    walletCache.set(r, (cache = new Map()));
+    const now = Date.now();
+    for (const [k, [w, at]] of Object.entries(storedWallets())) if (now - at < WALLETS_TTL_MS) cache.set(k, w);
+  }
   const out: string[] = [];
   const todo = [...addresses].filter((a) => !cache!.has(key(a)));
-  for (let i = 0; i < todo.length; i += 8)
-    await Promise.all(
-      todo.slice(i, i + 8).map(async (a) => {
-        // At a pinned (past) block the state comes from the archive path; at the head, the usual one.
-        const c = pinned ? archiveClient(r) : r.client;
-        const code = (await c.getCode({ address: a as `0x${string}`, blockNumber: head })) ?? "0x";
-        let wallet = isWalletCode(code);
-        if (!wallet) {
-          const slot0 = await c.getStorageAt({ address: a as `0x${string}`, slot: "0x0", blockNumber: head });
-          wallet = isSafeProxy(code, slot0 ?? "0x");
-        }
-        cache!.set(key(a), wallet);
-      }),
-    );
+  // Every address at once: the transport sends them 20 to a request (was 8 at a time, each 8 waiting for the last).
+  // At a pinned (past) block the state comes from the archive path; at the head, the usual one.
+  const c = pinned ? archiveClient(r) : r.client;
+  const codes = await Promise.all(todo.map(async (a) => (await c.getCode({ address: a as `0x${string}`, blockNumber: head })) ?? "0x"));
+  await Promise.all(
+    todo.map(async (a, i) => {
+      let wallet = isWalletCode(codes[i]);
+      if (!wallet) {
+        const slot0 = await c.getStorageAt({ address: a as `0x${string}`, slot: "0x0", blockNumber: head });
+        wallet = isSafeProxy(codes[i], slot0 ?? "0x");
+      }
+      cache!.set(key(a), wallet);
+    }),
+  );
+  if (todo.length)
+    try {
+      const now = Date.now();
+      const kept = Object.fromEntries(Object.entries(storedWallets()).filter(([, [, at]]) => now - at < WALLETS_TTL_MS));
+      for (const a of todo) kept[key(a)] = [cache.get(key(a))!, now];
+      localStorage.setItem(WALLETS_KEY, JSON.stringify(kept));
+    } catch {
+      /* not kept */
+    }
   for (const a of addresses) if (cache.get(key(a)) === false) out.push(a);
   return out;
 }

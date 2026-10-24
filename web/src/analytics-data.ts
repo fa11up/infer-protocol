@@ -347,16 +347,21 @@ export async function redemptionHistory(r: Runtime, s: Snapshot, from: number): 
     const v = redemptionValue({ payoutPrice: payout, attested: colV[0], feeBps: fee, backing }, imdUsd, usdV[0]);
     return v === undefined || !Number.isFinite(v) ? null : v;
   };
-  const got = await Promise.all(
-    blocks.map(async (b): Promise<[number, number | null | undefined]> => {
-      if (b in kept) return [b, kept[b]];
-      try {
-        return [b, await limited(r, () => sample(b))];
-      } catch {
-        return [b, undefined]; // refused: read again on the next visit
-      }
-    }),
-  );
+  // The samples not kept are read 20 at a time: issued together, the archive client sends each 20 as one /rpc batch,
+  // and the limiter counts batches, not single calls (one at a time, a first visit spent ~150 requests here).
+  const one = async (b: number): Promise<number | null | undefined> => {
+    try {
+      return await sample(b);
+    } catch {
+      return undefined; // refused: read again on the next visit
+    }
+  };
+  const todo = blocks.filter((b) => !(b in kept));
+  const read = new Map<number, number | null | undefined>();
+  const chunks: number[][] = [];
+  for (let i = 0; i < todo.length; i += 20) chunks.push(todo.slice(i, i + 20));
+  await Promise.all(chunks.map((c) => limited(r, async () => (await Promise.all(c.map(one))).forEach((v, i) => read.set(c[i], v)))));
+  const got: [number, number | null | undefined][] = blocks.map((b) => [b, b in kept ? kept[b] : read.get(b)]);
   const closed = head - 64;
   for (const [b, v] of got) if (v !== undefined && b <= closed) kept[b] = v;
   try {

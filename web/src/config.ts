@@ -1,3 +1,4 @@
+import { OWN_RPC_HOSTS } from "./own-rpc";
 import { appRoot } from "./site";
 import { createReadClient } from "./read-client";
 import { onChain, setInterface } from "./names";
@@ -46,8 +47,6 @@ export type Deployment = {
 export type Target = { address: Address; abi: Abi };
 /** Multicall3 (same address everywhere): the block it was created in, per chain the terminal runs on. */
 const MULTICALL3_CREATED: Record<number, number> = { 1: 14_353_601, 11155111: 751_532 };
-/** Hosts whose Worker serves /rpc for the mainnet deployment (worker/index.js). */
-const OWN_RPC_HOSTS = ["imdusd.com"];
 function sort(v: unknown): unknown {
   return Array.isArray(v)
     ? v.map(sort)
@@ -163,7 +162,15 @@ export async function loadConfig() {
   const ownOld = own.length ? [new URL("/rpc", location.origin).href] : [];
   const gateways: string[] = (archiveRpcs as Record<string, string[]>)[String(config.chainId)] ?? [];
   const serveOld = config.network.rpcUrls.filter((url) => !historyConfig.noArchiveLogs.includes(new URL(url).hostname));
-  const old = (urls: string[]) => fallback([...new Set(urls)].map((url) => http(url, { timeout: 15000, retryCount: 0 })));
+  // /rpc takes JSON-RPC batches (at most 20 calls, the Worker's limit), so reads at past blocks issued together go as one
+  // request; unbatched, a stats load spent ~170 of the visitor's 300 /rpc requests a minute on single calls. The
+  // gateways and public RPCs get single calls, as before.
+  const old = (urls: string[]) =>
+    fallback(
+      [...new Set(urls)].map((url) =>
+        http(url, { timeout: 15000, retryCount: 0, ...(ownOld.includes(url) ? { batch: { batchSize: 20, wait: 16 } } : {}) }),
+      ),
+    );
   const logs = createReadClient({ chain, transport: old([...ownOld, ...gateways, ...serveOld]) });
   const archive = createReadClient({ chain, transport: old([...ownOld, ...gateways, ...config.network.rpcUrls]) });
   const client = createReadClient({

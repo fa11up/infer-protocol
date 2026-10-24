@@ -3,6 +3,7 @@ import { encodeAbiParameters, fallback, http, keccak256, parseAbi } from "viem";
 import { createReadClient } from "./read-client";
 import { mainnet } from "viem/chains";
 import rpcUrls from "./ens-rpc.json";
+import { ownRpcFirst } from "./own-rpc";
 
 // IMD's live market price, read where the feeds read it: the native-ETH/IMD Uniswap v4 pool on Ethereum
 // mainnet (the feeds' data chain on every deployment, testnets included), priced in USD with Chainlink's
@@ -16,7 +17,7 @@ const POLL_MS = 30_000;
 
 const client = createReadClient({
   chain: mainnet,
-  transport: fallback(rpcUrls.map((url: string) => http(url, { timeout: 6000, retryCount: 0 }))),
+  transport: fallback(ownRpcFirst(rpcUrls, 6000)),
   batch: { multicall: false },
 });
 const abi = parseAbi([
