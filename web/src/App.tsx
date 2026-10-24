@@ -50,6 +50,13 @@ function rememberDisconnected(on: boolean) {
   } catch {}
 }
 
+/** A wallet's JSON-RPC internal error (-32603), however deep viem has wrapped it. */
+function walletInternalError(e: unknown): boolean {
+  for (let x = e as { code?: number; message?: string; cause?: unknown } | undefined, i = 0; x && i < 6; x = x.cause as typeof x, i++)
+    if (x.code === -32603 || /internal (json-rpc )?error/i.test(x.message ?? "")) return true;
+  return false;
+}
+
 export default function App() {
   const [r, setRuntime] = useState<Runtime>();
   const [error, setError] = useState("");
@@ -439,6 +446,15 @@ function Terminal({ r }: { r: Runtime }) {
         }));
       } catch (e) {
         if (/wallet_sendCalls|does not support|not supported|method not found|4200/i.test(message(e))) setAtomic(false);
+        else if (walletInternalError(e)) {
+          // MetaMask answers -32603 when its own batch handling fails (seen 2026-10-23: approve + lockIMD from a 7702
+          // smart account; both simulate fine). Nothing was sent. The next review goes one call at a time, and it does
+          // not retry here on its own, so a batch the wallet did submit can never be followed by a second copy.
+          setAtomic(false);
+          throw Error(
+            "Your wallet could not send these steps as one batch, and nothing was sent. Review again: the steps will go one at a time, one signature each.",
+          );
+        }
         throw e;
       }
       setTx({ status: "Submitted. Waiting for on-chain confirmation…" });
