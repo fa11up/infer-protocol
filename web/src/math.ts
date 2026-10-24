@@ -95,6 +95,20 @@ export function age(t: bigint | undefined, now: bigint) {
       ? `${s / 60n}m ago`
       : `${s / 3600n}h ${(s % 3600n) / 60n}m ago`;
 }
+/** The wallet's own words behind a JSON-RPC internal error (-32603); undefined when `e` is not one, "" when the
+ * wallet gave no reason beyond the code. */
+export function walletDetail(e: unknown): string | undefined {
+  type X = { code?: number; details?: string; message?: string; cause?: unknown; data?: { message?: string; cause?: { message?: string } } };
+  let internal = false;
+  const words: string[] = [];
+  let x = e as X | undefined;
+  for (let i = 0; i < 8 && x; i++, x = x.cause as X | undefined) {
+    if (x.code === -32603) internal = true;
+    for (const w of [x.data?.cause?.message, x.data?.message, x.details])
+      if (w && !/^(an )?internal (json-rpc )?error( was received)?\.?$/i.test(w.trim()) && !words.includes(w)) words.push(w);
+  }
+  return internal ? words.join(" · ").slice(0, 300) : undefined;
+}
 export function message(e: unknown): string {
   const err = e as {
     shortMessage?: string;
@@ -139,6 +153,12 @@ export function message(e: unknown): string {
     const name = c.data?.errorName && ours(c.data.errorName);
     if (name && known[name]) return known[name];
     x = c.cause;
+  }
+  // A wallet's -32603: viem's summary ("An internal error was received.") hides the wallet's own reason, which sits
+  // deeper in the chain (details, or MetaMask's data.message / data.cause.message). Show it, so a failure can be read.
+  if (walletDetail(e) !== undefined) {
+    const d = walletDetail(e);
+    return `Your wallet returned an internal error${d ? `: ${d}` : ""}. Check its activity before trying again.`;
   }
   if (
     /RPC|HTTP request|fetch failed|network request/i.test(
