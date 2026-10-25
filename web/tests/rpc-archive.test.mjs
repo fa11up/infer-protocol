@@ -64,6 +64,9 @@ test("old log ranges and old-block reads go to the archive secrets first; recent
     await post({ jsonrpc: "2.0", id: 1, method, params: [OURS, hex(HEAD - 500)] }, deps);
     assert.deepEqual(up.to(method), [INFURA], method);
   }
+  // eth_getStorageAt carries its block third (address, slot, block): an old one is an archive read too.
+  await post({ jsonrpc: "2.0", id: 1, method: "eth_getStorageAt", params: [OURS, "0x0", hex(HEAD - 500)] }, deps);
+  assert.deepEqual(up.to("eth_getStorageAt"), [INFURA], "eth_getStorageAt");
   // Recent: the keyed upstream, never an archive key, and the head reads do not spend them either.
   up.calls.length = 0;
   await post(callAt(HEAD - 10, 2), deps);

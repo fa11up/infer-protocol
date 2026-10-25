@@ -95,6 +95,13 @@ test("canonical params: equivalent spellings share a key, different questions ne
   differ(logs({ address: OURS, topics: [null, T] }), logs({ address: OURS, topics: [T] }), "a leading wildcard");
   differ(logs({ address: OURS }), logs({ address: ALSO }), "another contract");
   differ(logs({ address: OURS, toBlock: "0x21" }), logs({ address: OURS }), "another range");
+
+  const slot = (address, s, tag) => ({ method: "eth_getStorageAt", params: [address, s, tag] });
+  same(slot(CHECKSUMMED, "0x0", "0x18f7fff"), slot(ALSO, "0x" + "0".repeat(64), "0x018F7FFF"), "a slot is a quantity; address and block case");
+  same(slot(ALSO, "0x0", undefined), slot(ALSO, "0x0", "latest"), "missing tag is latest");
+  differ(slot(ALSO, "0x0", "latest"), slot(ALSO, "0x1", "latest"), "another slot");
+  differ(slot(ALSO, "0x0", "latest"), slot(OURS, "0x0", "latest"), "another contract");
+  differ(slot(ALSO, "0x0", "0x18f7fff"), slot(ALSO, "0x0", "0x18f7ffe"), "another block");
 });
 
 test("visitors share one answer whatever their id, spelling or address", async () => {
@@ -293,4 +300,29 @@ test("the security rules still apply before any cache, memory or coalescing", as
   assert.match((await post({ jsonrpc: "2.0", id: 1, method: "eth_getLogs", params: [{ address: OURS, fromBlock: "0x1", toBlock: "0x2711" }] }, deps)).body.error.message, /at most 10000/);
   assert.equal((await post(Array.from({ length: 21 }, (_, i) => ethCall(ALSO, "0x18160ddd", "latest", i)), deps)).body.error.code, -32600);
   assert.equal(up.calls.length, 1, "only the first allowed bundle went upstream");
+});
+
+test("a read at a final block is shared for a month; one nearer the head than FINAL_DEPTH for an hour", async () => {
+  fresh();
+  const cache = countingCache();
+  const up = upstream();
+  const deps = { fetch: up.fetch, cache };
+  const realNow = Date.now;
+  // At the start of a month-long key window, so two hours later is still inside it.
+  let now = Math.floor(realNow() / (30 * 86_400_000)) * 30 * 86_400_000 + 1_000;
+  Date.now = () => now;
+  const hex = (n) => `0x${n.toString(16)}`;
+  try {
+    const deep = ethCall(OURS, "0x70a08231", hex(HEAD - 1_000));
+    const near = ethCall(OURS, "0x70a08231", hex(HEAD - 10), 2);
+    const slot = { jsonrpc: "2.0", id: 3, method: "eth_getStorageAt", params: [OURS, "0x0", hex(HEAD - 1_000)] };
+    for (const c of [deep, near, slot]) assert.equal((await post(c, deps)).source, "upstream");
+    now += 2 * 3_600_000;
+    resetBench(); // a new isolate: neither memory nor the head read carry over
+    assert.equal((await post({ ...deep, id: 4 }, deps)).source, "cache", "final block, two hours later");
+    assert.equal((await post({ ...slot, id: 5 }, deps)).source, "cache", "final storage slot, two hours later");
+    assert.equal((await post({ ...near, id: 6 }, deps)).source, "upstream", "near the head: asked again after the hour");
+  } finally {
+    Date.now = realNow;
+  }
 });

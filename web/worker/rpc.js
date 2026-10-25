@@ -26,7 +26,8 @@
 // failure (network, HTTP error, rate limit) moves on to the next upstream.
 //
 // ARCHIVE LANE. A call reaching back past what non-archive nodes keep (a log range starting more than ARCHIVE_DEPTH
-// blocks below the head, or an eth_call / eth_estimateGas / eth_getBalance / eth_getCode at such a numbered block) goes
+// blocks below the head, or an eth_call / eth_estimateGas / eth_getBalance / eth_getCode / eth_getStorageAt at such a
+// numbered block) goes
 // instead to: INFURA_RPC_URL, NODEREAL_RPC_URL (optional Worker secrets on both Workers: keyed free archive plans,
 // e.g. https://mainnet.infura.io/v3/<key> and https://eth-mainnet.nodereal.io/v1/<key>), then RPC_UPSTREAMS, then
 // the keyless archive gateways in ARCHIVE_PUBLIC. Recent calls never use the archive secrets (their quotas are small:
@@ -55,6 +56,7 @@ const ALLOWED = new Set([
   "eth_getBalance",
   "eth_getBlockByNumber",
   "eth_getCode",
+  "eth_getStorageAt",
   "eth_getTransactionReceipt",
   "eth_getTransactionByHash",
   "eth_gasPrice",
@@ -149,11 +151,21 @@ function refusal(call, allowed, opts) {
 
 /**
  * How long an answer may be shared, in ms, or 0 for never: reads that do not depend on who asks, at the
- * latest block (one block) or at a fixed block (an hour; history does not change).
+ * latest block (one block), at a fixed block that can no longer be reorganised (FINAL_DEPTH below the head: as long
+ * as final logs, its state never changes) or at a fixed block nearer the head (an hour). An hour for every fixed
+ * block expired the stats chart's ~150 hourly samples each hour, and the next visitor re-read them all uncached,
+ * over RPC_UPSTREAM, onto the slow public gateways.
  */
 function shareable(call, head) {
   const p = call.params ?? [];
-  const at = (tag) => (tag === undefined || tag === "latest" ? BLOCK_MS : /^0x[0-9a-f]+$/i.test(tag) ? 3_600_000 : 0);
+  const at = (tag) =>
+    tag === undefined || tag === "latest"
+      ? BLOCK_MS
+      : /^0x[0-9a-f]+$/i.test(tag)
+        ? head !== undefined && BigInt(tag) + FINAL_DEPTH <= head
+          ? FINAL_MS
+          : 3_600_000
+        : 0;
   switch (call.method) {
     case "eth_chainId":
       return 86_400_000;
@@ -167,6 +179,8 @@ function shareable(call, head) {
     case "eth_getBalance":
     case "eth_getCode":
       return at(p[1]);
+    case "eth_getStorageAt":
+      return at(p[2]);
     case "eth_getBlockByNumber":
       return p[1] === false ? at(p[0]) : 0;
     case "eth_getLogs": {
@@ -205,6 +219,8 @@ const lowerHex = (x) =>
         : x;
 const quantity = (x) => (typeof x === "string" && /^0x[0-9a-f]+$/i.test(x) ? `0x${BigInt(x).toString(16)}` : x);
 const tagOf = (t) => (t === undefined || t === null ? "latest" : quantity(t));
+// A storage slot is a quantity: "0x0" and the 32-byte zero are one slot, so they share one cache entry.
+const slotOf = (x) => quantity(lowerHex(x));
 const QUANTITIES = ["gas", "gasPrice", "maxFeePerGas", "maxPriorityFeePerGas", "nonce", "value"];
 
 function canonicalTx(tx) {
@@ -244,6 +260,8 @@ export function canonicalParams(call) {
     case "eth_getBalance":
     case "eth_getCode":
       return [lowerHex(p[0]), tagOf(p[1])];
+    case "eth_getStorageAt":
+      return [lowerHex(p[0]), slotOf(p[1]), tagOf(p[2])];
     case "eth_getBlockByNumber":
       return [tagOf(lowerHex(p[0])), p[1]];
     case "eth_getLogs":
@@ -548,13 +566,15 @@ async function under(binding, key) {
 }
 
 // The state reads whose second param is a block tag: at an old number, they need an archive node.
-const AT_BLOCK = new Set(["eth_call", "eth_estimateGas", "eth_getBalance", "eth_getCode"]);
+const AT_BLOCK = new Set(["eth_call", "eth_estimateGas", "eth_getBalance", "eth_getCode", "eth_getStorageAt"]);
 const NUMBER = /^0x[0-9a-f]+$/i;
+/** The block tag of a state read: the third param of eth_getStorageAt (address, slot, block), else the second. */
+const blockTagOf = (call) => (call.method === "eth_getStorageAt" ? call.params?.[2] : call.params?.[1]);
 
 /** What the bench and the lane see a call as: the method, or "<method>:old" when it reaches past ARCHIVE_DEPTH. */
 function kindOf(call, head) {
   if (head === undefined) return call.method;
-  const at = call.method === "eth_getLogs" ? call.params?.[0]?.fromBlock : AT_BLOCK.has(call.method) ? call.params?.[1] : undefined;
+  const at = call.method === "eth_getLogs" ? call.params?.[0]?.fromBlock : AT_BLOCK.has(call.method) ? blockTagOf(call) : undefined;
   return typeof at === "string" && NUMBER.test(at) && BigInt(at) + ARCHIVE_DEPTH < head ? `${call.method}:old` : call.method;
 }
 
@@ -591,7 +611,7 @@ async function answer(call, env, allowed, lanes, fetcher, cache, who, opts, orig
     return { body: fail(call?.id, -32601, no), source: "refused" };
   }
   const limited = () => ({ body: fail(call.id, -32005, "rate limited: too many uncached calls from this address, retry in a minute"), source: "limited" });
-  const numbered = call.method === "eth_getLogs" || (AT_BLOCK.has(call.method) && typeof call.params?.[1] === "string" && NUMBER.test(call.params[1]));
+  const numbered = call.method === "eth_getLogs" || (AT_BLOCK.has(call.method) && typeof blockTagOf(call) === "string" && NUMBER.test(blockTagOf(call)));
   const head = numbered && cache ? await latest(upstreams, fetcher, cache, origin) : undefined;
   const split = call.method === "eth_getLogs" ? splitAt(call, head) : null;
   if (split) return answerSplit(call, split, env, allowed, lanes, fetcher, cache, who, opts, origin);
