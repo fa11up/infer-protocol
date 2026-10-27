@@ -9,10 +9,11 @@ const OURS = "0x1111111111111111111111111111111111111111";
 const HEAD = 0x18f8000;
 const INFURA = "https://mainnet.infura.io/v3/infurasecretkey0123456789";
 const NODEREAL = "https://eth-mainnet.nodereal.io/v1/noderealsecretkey0123456789";
+const BLOCKPI = "https://ethereum.blockpi.network/v1/rpc/blockpisecretkey0123456789";
 const KEYED = "https://keyed.example/chainstacksecret0123456789";
 const TENDERLY = "https://gateway.tenderly.co/public/mainnet";
 const POCKET = "https://eth.api.pocket.network";
-const SECRETS = ["infurasecretkey0123456789", "noderealsecretkey0123456789", "chainstacksecret0123456789"];
+const SECRETS = ["blockpisecretkey0123456789", "infurasecretkey0123456789", "noderealsecretkey0123456789", "chainstacksecret0123456789"];
 const env = (extra = {}) => ({
   RPC_UPSTREAMS: KEYED,
   INFURA_RPC_URL: INFURA,
@@ -144,6 +145,21 @@ test("a rate limit or a too-wide answer moves to the next upstream; a revert is 
   const rev = await post(callAt(HEAD - 1_000), deps);
   assert.equal(rev.body.error.code, 3);
   assert.deepEqual(up.to("eth_call"), [INFURA]);
+});
+
+test("BLOCKPI_RPC_URL, when set, leads the archive lane; Infura and NodeReal follow; recent calls never see it", async () => {
+  fresh();
+  const up = upstream((url) => (url === BLOCKPI ? new Response("", { status: 429 }) : undefined));
+  const deps = { fetch: up.fetch, cache: memCache() };
+  const e = env({ BLOCKPI_RPC_URL: ` ${BLOCKPI} ` });
+  const r = await post(logs(HEAD - 50_000), deps, e);
+  assert.ok(Array.isArray(r.body.result));
+  assert.deepEqual(up.to("eth_getLogs"), [BLOCKPI, INFURA]);
+  for (const s of SECRETS) assert.ok(!r.text.includes(s), r.text);
+  up.calls.length = 0;
+  resetBench();
+  await post(logs(HEAD - 40), deps, e);
+  assert.ok(!up.to("eth_getLogs").includes(BLOCKPI), "a recent range never uses the archive key");
 });
 
 test("Pocket is skipped for a log span over 5,000 blocks, without being asked or benched", async () => {

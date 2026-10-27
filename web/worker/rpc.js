@@ -28,10 +28,12 @@
 // ARCHIVE LANE. A call reaching back past what non-archive nodes keep (a log range starting more than ARCHIVE_DEPTH
 // blocks below the head, or an eth_call / eth_estimateGas / eth_getBalance / eth_getCode / eth_getStorageAt at such a
 // numbered block) goes
-// instead to: INFURA_RPC_URL, NODEREAL_RPC_URL (optional Worker secrets on both Workers: keyed free archive plans,
-// e.g. https://mainnet.infura.io/v3/<key> and https://eth-mainnet.nodereal.io/v1/<key>), then RPC_UPSTREAMS, then
-// the keyless archive gateways in ARCHIVE_PUBLIC. Recent calls never use the archive secrets (their quotas are small:
-// Infura 3M credits/day at 255 per getLogs, NodeReal 10M CU/month at 50). Without the secrets the lane is
+// instead to: BLOCKPI_RPC_URL, INFURA_RPC_URL, NODEREAL_RPC_URL (optional Worker secrets on both Workers: keyed free
+// archive plans, e.g. https://ethereum.blockpi.network/v1/rpc/<key>, https://mainnet.infura.io/v3/<key> and
+// https://eth-mainnet.nodereal.io/v1/<key>), then RPC_UPSTREAMS, then the keyless archive gateways in ARCHIVE_PUBLIC.
+// Recent calls never use the archive secrets (their quotas are small: BlockPI 50M RU/month at 65 per archive getLogs,
+// 20 req/s, getLogs up to 5,000 blocks with an address; Infura 3M credits/day at 255; NodeReal 10M CU/month at 50).
+// BlockPI goes first: its month is the largest of the three. Without the secrets the lane is
 // RPC_UPSTREAMS then the keyless gateways. Every secret URL holds a key: it is never logged, returned or stored in
 // the cache in clear (the bench stores hashes; provider error text is scrubbed of the URLs).
 import { decodeFunctionData, parseAbi } from "viem";
@@ -688,7 +690,7 @@ export async function handleRpc(request, env, deps = {}, opts = {}) {
   const keyed = String(env.RPC_UPSTREAMS ?? "")
     .split(/[\s,]+/)
     .filter(https);
-  const archive = [env.INFURA_RPC_URL, env.NODEREAL_RPC_URL].map((u) => (typeof u === "string" ? u.trim() : u)).filter(https);
+  const archive = [env.BLOCKPI_RPC_URL, env.INFURA_RPC_URL, env.NODEREAL_RPC_URL].map((u) => (typeof u === "string" ? u.trim() : u)).filter(https);
   const lanes = { recent: [...new Set([...keyed, ...PUBLIC])], archive: [...new Set([...archive, ...keyed, ...ARCHIVE_PUBLIC])] };
   if (Array.isArray(body)) {
     if (body.length === 0 || body.length > MAX_BATCH) return json(fail(null, -32600, `send 1 to ${MAX_BATCH} calls`), 400);
