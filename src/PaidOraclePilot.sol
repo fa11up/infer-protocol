@@ -91,6 +91,8 @@ contract PaidOraclePilot is IWorkOracle, TransientReentrancyGuard {
     error NothingToPay();
     error InvalidAccount();
     error InsufficientRights();
+    error InvalidFirstBlock();
+    error PaidRecently();
 
     event PosterSet(address indexed poster);
     event EpochProposed(
@@ -132,6 +134,7 @@ contract PaidOraclePilot is IWorkOracle, TransientReentrancyGuard {
         uint40 proposedAt;
         bool vetoed;
         bool retired;
+        uint40 lastPaidAt;
     }
 
     Epoch[] private _epochs;
@@ -147,9 +150,11 @@ contract PaidOraclePilot is IWorkOracle, TransientReentrancyGuard {
     /// @dev Rights authorised for the batch in progress; zero outside `pay`.
     uint256 private _authorised;
 
-    /// @param firstFromBlock The first block the pilot counts paid work from.
+    /// @param firstFromBlock The first block the pilot counts paid work from; at most the current block, so the
+    /// first window can always be posted (there is no setter for it; audit d516fafb, info).
     constructor(address vault_, address poster_, uint64 firstFromBlock) {
         if (vault_ == address(0) || vault_.code.length == 0) revert InvalidVault();
+        if (firstFromBlock > block.number) revert InvalidFirstBlock();
         vault = vault_;
         stablecoin = IERC20(IPilotVault(vault_).stablecoin());
         poster = poster_;
@@ -191,15 +196,24 @@ contract PaidOraclePilot is IWorkOracle, TransientReentrancyGuard {
 
     /// @notice Release an epoch's unpaid remainder from the lifetime cap, RETIRE_AFTER after posting; its
     /// shares can no longer be paid. For an epoch that cannot be paid (a mistaken root, agents who never
-    /// bind a seat). Its window stays counted: a correct recount of it is not possible after this.
+    /// bind a seat).
+    /// @dev TRUST (audit d516fafb, info): this is a governor power over any epoch at least RETIRE_AFTER old,
+    /// and it ends that epoch's unpaid shares, valid or not. It cannot pay anyone and cannot run within
+    /// VETO_WINDOW of a batch being paid, so an epoch being paid out in batches is not cut off mid-way.
+    /// THE WINDOW (audit d516fafb, low): if nothing of the epoch was ever paid and it is the latest epoch,
+    /// its window is handed back exactly as a veto does, so a corrected root can recount it with no risk of
+    /// paying anything twice. Otherwise the window stays counted (a recount could pay a share twice, and a
+    /// later epoch has already started after it).
     function retire(uint256 epoch) external onlyGovernor {
         Epoch storage e = _epoch(epoch);
         if (e.vetoed) revert EpochVetoed();
         if (e.retired) revert EpochRetired();
         if (block.timestamp < uint256(e.proposedAt) + RETIRE_AFTER) revert TooEarlyToRetire();
+        if (e.lastPaidAt != 0 && block.timestamp < uint256(e.lastPaidAt) + VETO_WINDOW) revert PaidRecently();
         e.retired = true;
         uint256 released = uint256(e.total) - e.paid;
         totalCommitted -= released;
+        if (e.paid == 0 && epoch == _epochs.length - 1) nextFromBlock = e.fromBlock;
         emit EpochRetiredBy(epoch, msg.sender, released);
     }
 
@@ -208,7 +222,7 @@ contract PaidOraclePilot is IWorkOracle, TransientReentrancyGuard {
     /// @notice Post an epoch's tally root. Leaves are (epoch, agentId, amount) under the OpenZeppelin
     /// StandardMerkleTree encoding; `epoch` is `epochCount()` at the time of posting.
     /// @param fromBlock First block of Intake `Completed` events counted (inclusive); must be `nextFromBlock`.
-    /// @param toBlock Last block counted (inclusive), at most the current block; the next epoch starts after it.
+    /// @param toBlock Last block counted (inclusive), before the current block; the next epoch starts after it.
     /// @param uri Where the tally, its inputs and the script that built it are published.
     function propose(bytes32 root, uint256 total, uint64 fromBlock, uint64 toBlock, string calldata uri)
         external
@@ -234,7 +248,8 @@ contract PaidOraclePilot is IWorkOracle, TransientReentrancyGuard {
                 toBlock: toBlock,
                 proposedAt: uint40(block.timestamp),
                 vetoed: false,
-                retired: false
+                retired: false,
+                lastPaidAt: 0
             })
         );
         totalCommitted += total;
@@ -277,6 +292,7 @@ contract PaidOraclePilot is IWorkOracle, TransientReentrancyGuard {
         if (sum == 0) revert NothingToPay();
         if (uint256(e.paid) + sum > e.total) revert OverEpochTotal();
         e.paid += uint128(sum);
+        e.lastPaidAt = uint40(block.timestamp);
         totalPaid += sum;
 
         _authorised = sum;

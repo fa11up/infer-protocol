@@ -254,8 +254,13 @@ contract PaidOraclePilotForkTest is Test {
         vm.expectRevert(PaidOraclePilot.WindowInFuture.selector);
         pilot.propose(t.root, 3e18, 1, uint64(block.number), "");
         pilot.propose(t.root, 3e18, 1, uint64(block.number - 1), "");
-        vm.stopPrank();
         assertEq(pilot.nextFromBlock(), block.number);
+        // The pilot is not bricked: the next window posts normally (audit d516fafb, info: on the round-one code
+        // the max toBlock was ACCEPTED and only this next propose failed).
+        vm.warp(block.timestamp + 6 days);
+        vm.roll(block.number + 10);
+        pilot.propose(t.root, 3e18, uint64(block.number - 10), uint64(block.number - 1), "");
+        vm.stopPrank();
     }
 
     /// Finding 3: a window that skips blocks is refused, so no paid work falls in a hole.
@@ -272,25 +277,31 @@ contract PaidOraclePilotForkTest is Test {
         vm.stopPrank();
     }
 
-    /// Finding 4: two vetoes in a row (the second a narrower recount) still hand back the whole window.
+    /// Finding 4 (the variant, per audit d516fafb): the round-one bug was a recount with a LATER START
+    /// ([201,300] vetoed, recounted as [250,300], vetoed again) leaving blocks 201..249 uncountable. Windows
+    /// must start at nextFromBlock, so that recount is refused and two vetoes in a row still hand back the
+    /// whole window. On the round-one code the [250,300] recount was accepted.
     function test_consecutiveVetoesLoseNoBlocks() public {
         Tree memory t = _tree(0, 1e18, 1e18, 1e18);
         vm.prank(poster);
-        pilot.propose(t.root, 3e18, 1, 100, ""); // epoch 0, live
+        pilot.propose(t.root, 3e18, 1, 200, ""); // epoch 0, live
         vm.warp(block.timestamp + 6 days);
         vm.prank(poster);
-        pilot.propose(t.root, 3e18, 101, 300, ""); // epoch 1
+        pilot.propose(t.root, 3e18, 201, 300, ""); // epoch 1
         vm.prank(SAFE);
         pilot.veto(1);
         vm.warp(block.timestamp + 6 days);
         vm.prank(poster);
-        pilot.propose(t.root, 3e18, 101, 200, ""); // epoch 2, narrower recount
+        vm.expectRevert(abi.encodeWithSelector(PaidOraclePilot.WindowNotContiguous.selector, uint64(201)));
+        pilot.propose(t.root, 3e18, 250, 300, ""); // the finding's later-start recount
+        vm.prank(poster);
+        pilot.propose(t.root, 3e18, 201, 250, ""); // epoch 2, a narrower recount
         vm.prank(SAFE);
         pilot.veto(2);
-        assertEq(pilot.nextFromBlock(), 101, "blocks 101.. are still to be counted");
+        assertEq(pilot.nextFromBlock(), 201, "blocks 201.. are still to be counted");
         vm.warp(block.timestamp + 6 days);
         vm.prank(poster);
-        pilot.propose(t.root, 3e18, 101, 300, "");
+        pilot.propose(t.root, 3e18, 201, 300, "");
     }
 
     /// Finding 2: an epoch that can never be paid (here: a tree built for the wrong epoch number) can be
@@ -330,6 +341,82 @@ contract PaidOraclePilotForkTest is Test {
         vm.prank(SAFE);
         pilot.retire(epoch);
         assertEq(pilot.totalCommitted(), 2e18, "only the 1e18 never paid is released");
+    }
+
+    // ---------------------------------------------------------------- audit d516fafb regressions
+
+    /// Low: retiring the LATEST epoch from which nothing was paid hands its window back, so a corrected root
+    /// can recount the paid work in it. On the round-two code the window stayed counted and was lost.
+    function test_retireOfUnpaidLatestEpochHandsBackItsWindow() public {
+        Tree memory wrong = _tree(1, 1e18, 1e18, 1e18); // leaves say epoch 1, posted as epoch 0
+        _propose(wrong, 3e18); // window 1..100
+        assertEq(pilot.nextFromBlock(), 101);
+        vm.warp(block.timestamp + 30 days);
+        vm.prank(SAFE);
+        pilot.retire(0);
+        assertEq(pilot.nextFromBlock(), 1, "nothing paid, latest epoch: the window is handed back");
+        Tree memory fixed_ = _tree(1, 1e18, 1e18, 1e18);
+        uint256 epoch = _propose(fixed_, 3e18);
+        assertEq(epoch, 1);
+        vm.warp(block.timestamp + 24 hours);
+        _freshFeeds();
+        assertEq(pilot.pay(epoch, fixed_.ids, fixed_.amounts, fixed_.proofs), 2e18, "the recount pays");
+    }
+
+    /// ...but an epoch with any share paid keeps its window counted (a recount could pay a share twice),
+    /// and so does one that a later epoch follows.
+    function test_retireKeepsTheWindowOncePaidOrFollowed() public {
+        Tree memory t = _tree(0, 1e18, 1e18, 1e18);
+        _propose(t, 3e18);
+        vm.warp(block.timestamp + 24 hours);
+        _freshFeeds();
+        pilot.pay(0, t.ids, t.amounts, t.proofs); // UNKNOWN's share stays unpaid
+        vm.warp(block.timestamp + 30 days);
+        vm.prank(SAFE);
+        pilot.retire(0);
+        assertEq(pilot.nextFromBlock(), 101, "paid from: stays counted");
+
+        Tree memory w = _tree(9, 1e18, 1e18, 1e18); // unpayable epoch 1 ...
+        _propose(w, 3e18);
+        vm.warp(block.timestamp + 6 days);
+        Tree memory t2 = _tree(2, 1e18, 1e18, 1e18); // ... followed by epoch 2
+        _propose(t2, 3e18);
+        vm.warp(block.timestamp + 30 days);
+        vm.prank(SAFE);
+        pilot.retire(1);
+        assertEq(pilot.nextFromBlock(), 301, "followed by a later epoch: stays counted");
+    }
+
+    /// Info: retire cannot cut off an epoch being paid out in batches: it waits VETO_WINDOW after a payment.
+    function test_retireWaitsAfterABatchIsPaid() public {
+        Tree memory t = _tree(0, 1e18, 1e18, 1e18);
+        uint256 epoch = _propose(t, 3e18);
+        vm.warp(block.timestamp + 30 days);
+        _freshFeeds();
+        uint256[] memory one = new uint256[](1);
+        uint256[] memory amt = new uint256[](1);
+        bytes32[][] memory pr = new bytes32[][](1);
+        (one[0], amt[0], pr[0]) = (t.ids[0], t.amounts[0], t.proofs[0]);
+        pilot.pay(epoch, one, amt, pr); // batch 1 on day 30
+        vm.prank(SAFE);
+        vm.expectRevert(PaidOraclePilot.PaidRecently.selector);
+        pilot.retire(epoch);
+        _freshFeeds();
+        (one[0], amt[0], pr[0]) = (t.ids[1], t.amounts[1], t.proofs[1]);
+        pilot.pay(epoch, one, amt, pr); // batch 2 still pays
+        vm.warp(block.timestamp + 24 hours);
+        vm.prank(SAFE);
+        pilot.retire(epoch);
+        assertEq(pilot.totalCommitted(), 2e18, "only the never-payable share is released");
+    }
+
+    /// Info: the first window start cannot be set beyond the chain (there is no setter to fix it later).
+    function test_firstFromBlockMustNotBeInTheFuture() public {
+        vm.expectRevert(PaidOraclePilot.InvalidFirstBlock.selector);
+        new PaidOraclePilot(address(VAULT), poster, uint64(block.number + 1));
+        vm.expectRevert(PaidOraclePilot.InvalidFirstBlock.selector);
+        new PaidOraclePilot(address(VAULT), poster, type(uint64).max);
+        new PaidOraclePilot(address(VAULT), poster, uint64(block.number));
     }
 
     /// Finding 5: a malformed binding word (bits above uint8 / address) skips that share; it used to revert
