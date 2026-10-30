@@ -480,3 +480,105 @@ async function explorerTransfers(since: number): Promise<{ t: number; imd: numbe
   }
   return out;
 }
+
+/* ---------- resilience: the peg by the hour, its breaks, and the loan book's cover through them ---------- */
+
+// The pure peg figures (hourly averages, breaks, time in band) live in resilience.ts so Node can test them alone.
+export { bandShare, pegBreaks, pegHours, type Depeg, type PegHour } from "./resilience";
+
+export type CoverPoint = { t: number; block: number; cr?: number; imdUsd: number; debt: number };
+const COVER_ABI = parseAbi([
+  "function balanceOf(address) view returns (uint256)",
+  "function totalDebt() view returns (uint256)",
+  "function latestValue() view returns (uint256, uint256)",
+  "function extsload(bytes32) view returns (bytes32)",
+  "function latestRoundData() view returns (uint80, int256, uint256, uint256, uint80)",
+]);
+/** Sample blocks every six hours in [from, head), on fixed multiples so a revisit reads the same ones, then the head. */
+export function coverSampleBlocks(from: number, head: number): number[] {
+  const step = 6 * BLOCKS_PER_HOUR;
+  const out: number[] = [];
+  for (let b = Math.ceil(from / step) * step; b < head; b += step) out.push(b);
+  return out;
+}
+/**
+ * The loan book's cover over time: at each sample, all the collateral the vault holds valued at IMD's MARKET price
+ * (the attested sIMD price scaled by market over attested IMD/USD, as `redemptionValue` does), over all debt; and IMD's
+ * market price in dollars beside it. One Multicall3 eth_call per sample at a past block, kept in the browser once the
+ * block is closed (like `redemptionHistory`). Mainnet only: the market legs are mainnet's pools.
+ */
+export async function coverHistory(r: Runtime, s: Snapshot, from: number): Promise<CoverPoint[]> {
+  const vault = s.targets.ParameterizedVault.address;
+  const gem = s.targets.gem?.address;
+  const usd = s.targets.usdPriceFeed?.address;
+  const col = (s.targets.collateralPriceFeed ?? s.targets.usdPriceFeed)?.address;
+  if (!gem || !usd || !col || r.config.chainId !== 1) throw Error("Cover history is read on mainnet only.");
+  const head = Number(s.block);
+  const blocks = coverSampleBlocks(from, head);
+  const key = `an-cover:${vault.toLowerCase()}`;
+  type Kept = { cr: number | null; imd: number; debt: number } | null;
+  let kept: Record<string, Kept> = {};
+  try {
+    kept = JSON.parse(localStorage.getItem(key) ?? "{}");
+  } catch {
+    /* no storage: every sample is read */
+  }
+  const call = (address: Address, functionName: string, args: readonly unknown[] = []) => ({ address, abi: COVER_ABI, functionName, args });
+  const sample = async (b: number): Promise<Kept> => {
+    const res: { status: string; result?: unknown }[] = await r.archive.multicall({
+      allowFailure: true,
+      blockNumber: BigInt(b),
+      contracts: [
+        call(gem, "balanceOf", [vault]),
+        call(vault, "totalDebt"),
+        call(col, "latestValue"),
+        call(usd, "latestValue"),
+        call(POOL_MANAGER, "extsload", [SLOT0]),
+        call(ETH_USD, "latestRoundData"),
+      ] as never,
+    } as never);
+    if (res.some((x: { status: string }) => x.status !== "success")) return null;
+    const [bal, debt, colV, usdV, word, round] = res.map((x: { result?: unknown }) => x.result) as [
+      bigint,
+      bigint,
+      readonly [bigint, bigint],
+      readonly [bigint, bigint],
+      `0x${string}`,
+      readonly [bigint, bigint],
+    ];
+    const sqrt = BigInt(word) & ((1n << 160n) - 1n);
+    if (!sqrt || round[1] <= 0n) return null;
+    const imdUsd = ((((10n ** 18n) << 192n) / (sqrt * sqrt)) * round[1]) / 10n ** 8n;
+    const imd = Number(imdUsd) / 1e18;
+    const debtN = Number(debt) / 1e18;
+    // The collateral at the attested sIMD price, moved to the market by the ratio of market to attested IMD/USD.
+    const attestedUsd = (Number(bal) * Number(colV[0])) / 1e36;
+    const marketUsd = usdV[0] > 0n ? (attestedUsd * Number(imdUsd)) / Number(usdV[0]) : undefined;
+    const cr = marketUsd !== undefined && debtN > 0 ? (marketUsd / debtN) * 100 : null;
+    return Number.isFinite(imd) ? { cr: cr !== null && Number.isFinite(cr) ? cr : null, imd, debt: debtN } : null;
+  };
+  const one = async (b: number): Promise<Kept | undefined> => {
+    try {
+      return await sample(b);
+    } catch {
+      return undefined; // refused: read again on the next visit
+    }
+  };
+  const todo = blocks.filter((b) => !(b in kept));
+  const got = new Map<number, Kept | undefined>();
+  const chunks: number[][] = [];
+  for (let i = 0; i < todo.length; i += 20) chunks.push(todo.slice(i, i + 20));
+  await Promise.all(chunks.map((c) => limited(r, async () => (await Promise.all(c.map(one))).forEach((v, i) => got.set(c[i], v)))));
+  const all: [number, Kept | undefined][] = blocks.map((b) => [b, b in kept ? kept[b] : got.get(b)]);
+  const closed = head - 64;
+  for (const [b, v] of all) if (v !== undefined && b <= closed) kept[b] = v;
+  try {
+    localStorage.setItem(key, JSON.stringify(kept));
+  } catch {
+    /* not kept */
+  }
+  const points = all.filter((x): x is [number, NonNullable<Kept>] => !!x[1]);
+  if (!points.length) throw Error("No collateral history could be read.");
+  const clock = await blockClock(r, points[0][0], head);
+  return points.map(([b, v]) => ({ t: clock(b), block: b, cr: v.cr ?? undefined, imdUsd: v.imd, debt: v.debt }));
+}

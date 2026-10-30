@@ -1,6 +1,6 @@
 // The analytics page's charts: hand-rolled SVG, coloured only through style.css roles (the .an-* classes), each an
 // image with a name for screen readers and a <title> on every mark for hover. No chart library, like Charts.tsx.
-import type { FeedUpdates, PegPoint, RedeemPoint } from "./analytics-data";
+import type { CoverPoint, FeedUpdates, PegHour, PegPoint, RedeemPoint } from "./analytics-data";
 import { freshIntervals } from "./analytics-data";
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -373,4 +373,152 @@ export function Spark({ values, titles, label }: { values: number[]; titles: str
       ))}
     </svg>
   );
+}
+
+export type ChartEvent = { n: number; t0: number; t1?: number; title: string };
+/** The resilience chart's viewBox: the peg row, the loan book's cover and IMD's price, on one time axis. */
+export const RESILIENCE_W = 1060;
+export const RESILIENCE_H = 486;
+/**
+ * Since launch, on one time axis: the peg pool's hourly average against its band; the loan book's collateral ratio at
+ * IMD's market price against the minimum; and IMD's price in dollars. Each stress event is a numbered line through all
+ * three rows (a shaded span when it lasted), matching the numbered list under the chart.
+ */
+export function ResilienceChart({ hours, cover, coverNote = "Reading…", events, t0, t1, mat }: { hours: PegHour[]; cover?: CoverPoint[]; coverNote?: string; events: ChartEvent[]; t0: number; t1: number; mat: number }) {
+  const W = RESILIENCE_W,
+    H = RESILIENCE_H,
+    L = 100,
+    R = 1044,
+    top = 30;
+  const x = (t: number) => L + ((Math.min(t1, Math.max(t0, t)) - t0) / Math.max(1, t1 - t0)) * (R - L);
+  const rows = { peg: [44, 186], cr: [222, 330], imd: [366, 446] } as const;
+  const scale = (row: readonly [number, number], lo: number, hi: number) => (v: number) => row[1] - ((v - lo) / (hi - lo || 1)) * (row[1] - row[0]);
+  // Peg: a grid every 5 cents from below the worst hour to above the band.
+  const pegMin = Math.min(0.98, ...hours.map((h) => h.avg));
+  const pegLo = Math.floor((pegMin - 0.005) * 20) / 20,
+    pegHi = Math.max(1.02, Math.ceil((Math.max(...hours.map((h) => h.avg), 1) + 0.005) * 50) / 50);
+  const yp = scale(rows.peg, pegLo, pegHi);
+  const pegGrid: number[] = [];
+  for (let v = Math.ceil(pegLo * 20) / 20; v <= pegHi + 1e-9; v += 0.05) pegGrid.push(Number(v.toFixed(2)));
+  const pegPath = hours.map((h, i) => `${i ? "L" : "M"}${x(h.t + 1800).toFixed(1)},${yp(h.avg).toFixed(1)}`).join("");
+  const worst = hours.reduce<PegHour | undefined>((w, h) => (!w || h.avg < w.avg ? h : w), undefined);
+  // Cover: collateral ratio at market, from 0 to a round step above its highest.
+  const crs = (cover ?? []).filter((c) => c.cr !== undefined) as (CoverPoint & { cr: number })[];
+  const crMax = Math.max(mat * 1.5, ...crs.map((c) => c.cr));
+  const crStep = crMax > 900 ? 300 : crMax > 450 ? 150 : 100;
+  const crHi = Math.ceil(crMax / crStep) * crStep;
+  const yc = scale(rows.cr, 0, crHi);
+  const crGrid: number[] = [];
+  for (let v = 0; v <= crHi; v += crStep) crGrid.push(v);
+  const crPath = crs.map((c, i) => `${i ? "L" : "M"}${x(c.t).toFixed(1)},${yc(c.cr).toFixed(1)}`).join("");
+  // IMD in dollars: from zero, so a fall reads at its true size.
+  const imds = cover ?? [];
+  const imdMax = Math.max(0.01, ...imds.map((c) => c.imdUsd));
+  const imdStep = niceStep(imdMax / 2);
+  const imdHi = Math.ceil(imdMax / imdStep) * imdStep;
+  const yi = scale(rows.imd, 0, imdHi);
+  const imdGrid: number[] = [];
+  for (let v = 0; v <= imdHi + 1e-9; v += imdStep) imdGrid.push(v);
+  const imdPath = imds.map((c, i) => `${i ? "L" : "M"}${x(c.t).toFixed(1)},${yi(c.imdUsd).toFixed(1)}`).join("");
+  // Days: a tick every day, labelled every other day when the span is long.
+  const span = t1 - t0;
+  const labelEvery = span > 24 * 86400 ? 4 : span > 12 * 86400 ? 2 : 1;
+  const ticks: number[] = [];
+  for (let t = Math.ceil(t0 / 86400) * 86400; t <= t1; t += 86400) ticks.push(t);
+  const money = (v: number) => (imdHi < 1 ? `$${v.toFixed(2)}` : `$${v.toFixed(v < 10 ? 1 : 0)}`);
+  const label = `Since launch: the peg pool's hourly average${worst ? `, worst hour $${worst.avg.toFixed(3)}` : ""}; the loan book's collateral ratio at IMD's market price; and IMD's price. ${events.length} stress events marked.`;
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} role="img" aria-label={label} className="an-svg">
+      <g className="an-grid">
+        {ticks.map((t, i) => {
+          const dt = new Date(t * 1000);
+          return (
+            <g key={t}>
+              <line x1={x(t)} x2={x(t)} y1={rows.peg[0]} y2={rows.imd[1]} />
+              {i % labelEvery === 0 && (
+                <text x={x(t)} y={H - 14} textAnchor="middle">
+                  {`${pad(dt.getUTCMonth() + 1)}-${pad(dt.getUTCDate())}`}
+                </text>
+              )}
+            </g>
+          );
+        })}
+        {pegGrid.map((v) => (
+          <g key={`p${v}`}>
+            <line x1={L} x2={R} y1={yp(v)} y2={yp(v)} />
+            <text x={L - 8} y={yp(v) + 4} textAnchor="end">
+              ${v.toFixed(2)}
+            </text>
+          </g>
+        ))}
+        {crGrid.map((v) => (
+          <g key={`c${v}`}>
+            <line x1={L} x2={R} y1={yc(v)} y2={yc(v)} />
+            <text x={L - 8} y={yc(v) + 4} textAnchor="end">
+              {v}%
+            </text>
+          </g>
+        ))}
+        {imdGrid.map((v) => (
+          <g key={`i${v}`}>
+            <line x1={L} x2={R} y1={yi(v)} y2={yi(v)} />
+            <text x={L - 8} y={yi(v) + 4} textAnchor="end">
+              {money(v)}
+            </text>
+          </g>
+        ))}
+      </g>
+      {events
+        .filter((e) => e.t1 !== undefined)
+        .map((e) => (
+          <rect key={`s${e.n}`} className="an-event-span" x={x(e.t0)} y={top} width={Math.max(2, x(e.t1!) - x(e.t0))} height={rows.imd[1] - top} />
+        ))}
+      <text className="an-strong" x={L} y={rows.peg[0] - 6}>
+        Peg pool, hourly average
+      </text>
+      <rect className="an-band" x={L} y={yp(1.01)} width={R - L} height={yp(0.99) - yp(1.01)} />
+      <line className="an-par" x1={L} x2={R} y1={yp(1)} y2={yp(1)} />
+      <path className="an-line" d={pegPath} />
+      {worst && worst.avg < 0.99 && (
+        <g>
+          <circle className="an-dot-danger" cx={x(worst.t + 1800)} cy={yp(worst.avg)} r={4} />
+          <text className="an-danger" x={x(worst.t + 1800) + 8} y={yp(worst.avg) + 4}>
+            worst hour ${worst.avg.toFixed(3)}
+          </text>
+        </g>
+      )}
+      <text className="an-strong" x={L} y={rows.cr[0] - 6}>
+        Collateral ratio at IMD's market price
+      </text>
+      <line className="an-ref-danger" x1={L} x2={R} y1={yc(mat)} y2={yc(mat)} />
+      <text className="an-danger" x={R - 4} y={yc(mat) - 5} textAnchor="end">
+        minimum {mat}%
+      </text>
+      {crPath ? <path className="an-line" d={crPath} /> : <text x={(L + R) / 2} y={(rows.cr[0] + rows.cr[1]) / 2} textAnchor="middle">{cover ? "No samples" : coverNote}</text>}
+      <text className="an-strong" x={L} y={rows.imd[0] - 6}>
+        IMD, US dollars
+      </text>
+      {imdPath ? <path className="an-line-muted" d={imdPath} /> : <text x={(L + R) / 2} y={(rows.imd[0] + rows.imd[1]) / 2} textAnchor="middle">{cover ? "No samples" : coverNote}</text>}
+      {imds.map((c) => (
+        <circle key={c.block} className="an-hit" cx={x(c.t)} cy={c.cr !== undefined ? yc(c.cr) : yi(c.imdUsd)} r={5}>
+          <title>{`${utcShort(c.t)} UTC: collateral ratio ${c.cr !== undefined ? `${Math.round(c.cr)}%` : "unknown"} on ${whole(c.debt)} imdUSD of debt; IMD $${c.imdUsd.toFixed(3)}`}</title>
+        </circle>
+      ))}
+      {events.map((e) => (
+        <g key={`e${e.n}`} className="an-event">
+          <line x1={x(e.t0)} x2={x(e.t0)} y1={top} y2={rows.imd[1]} />
+          <circle cx={x(e.t0)} cy={top - 12} r={9} />
+          <text x={x(e.t0)} y={top - 8} textAnchor="middle">
+            {e.n}
+          </text>
+          <title>{`${e.n}. ${e.title}, ${utcShort(e.t0)} UTC`}</title>
+        </g>
+      ))}
+    </svg>
+  );
+}
+function niceStep(v: number) {
+  const p = Math.pow(10, Math.floor(Math.log10(Math.max(v, 1e-9))));
+  const m = v / p;
+  return (m <= 1 ? 1 : m <= 2 ? 2 : m <= 5 ? 5 : 10) * p;
 }

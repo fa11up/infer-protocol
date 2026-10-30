@@ -196,6 +196,16 @@ function publicSite(): Plugin {
         links,
         linksPage.replace("</head>", `${socialTags(SITE, `${SITE}/links/`, "imdUSD links", linksAbout, { type: "website" })}</head>`),
       );
+      // /build/ and /partners/: their canonical URLs and social cards (every public build has them).
+      for (const [path, title] of [
+        ["build/", "Build on imdUSD"],
+        ["partners/", "Work with imdUSD"],
+      ]) {
+        const file = resolve(dir, `${path}index.html`);
+        const page = readFileSync(file, "utf8");
+        const about = page.match(/<meta\s+name="description"\s+content="([^"]*)"/)?.[1] ?? "";
+        writeFileSync(file, page.replace("</head>", `${socialTags(SITE, `${SITE}/${path}`, title, about, { type: "website" })}</head>`));
+      }
       // The not-found page is served at whatever path was asked for, so its URLs must be absolute.
       const notFound = resolve(dir, "404.html");
       writeFileSync(
@@ -670,6 +680,9 @@ export default defineConfig(({ mode }) => {
           docs: resolve(import.meta.dirname, "docs/index.html"),
           // /links/, shared by QR code; it reads no chain, so every build has it.
           links: resolve(import.meta.dirname, "links/index.html"),
+          // /build/ and /partners/, for developers and partners; they read no chain either.
+          build: resolve(import.meta.dirname, "build/index.html"),
+          partners: resolve(import.meta.dirname, "partners/index.html"),
         },
       },
     },

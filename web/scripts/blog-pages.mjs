@@ -235,6 +235,8 @@ const footer = () =>
   `<nav class="foot-cols" aria-label="Footer">` +
   `<div class="foot-col"><span class="foot-h">Protocol</span><a href="https://imdusd.com/terminal/">Terminal</a>` +
   `<a href="https://imdusd.com/stats/">Stats</a><a href="https://imdusd.com/docs/">Docs</a></div>` +
+  `<div class="foot-col"><span class="foot-h">Work with us</span><a href="https://imdusd.com/build/">Build</a>` +
+  `<a href="https://imdusd.com/partners/">Partners</a><a href="mailto:admin@imdusd.com">Contact</a></div>` +
   `<div class="foot-col"><span class="foot-h">Read</span><a href="/">Blog</a><a href="/feed.xml">RSS</a>` +
   `<a href="https://whitepaper.imdusd.com" target="_blank" rel="noreferrer">Whitepaper ↗</a></div>` +
   `<div class="foot-col"><span class="foot-h">Ecosystem</span>` +

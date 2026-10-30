@@ -4,7 +4,11 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { getAddress } from "viem";
 import {
+  bandShare,
+  coverHistory,
   dayOf,
+  pegBreaks,
+  pegHours,
   feedUpdates,
   pegHistory,
   pegStats,
@@ -17,10 +21,12 @@ import {
   tokenLedger,
   treasuryHoldings,
   vaultEvents,
+  type CoverPoint,
   type FeedUpdates,
   type RedeemPoint,
 } from "./analytics-data";
-import { DayBars, FlowBars, HBars, PEG_CHART_W, PegChart, pegChartHeight, ShareBar, Spark, StressPlot, utcShort, type DayCol, type FlowDay } from "./AnalyticsCharts";
+import { eventTime, STRESS_EVENTS } from "./resilience-events";
+import { DayBars, FlowBars, HBars, PEG_CHART_W, PegChart, pegChartHeight, RESILIENCE_H, RESILIENCE_W, ResilienceChart, ShareBar, Spark, StressPlot, utcShort, type DayCol, type FlowDay } from "./AnalyticsCharts";
 import { loadConfig, pointsConfig, type Runtime } from "./config";
 import { ensName, useEns } from "./ens";
 import { describePending } from "./governance";
@@ -93,6 +99,9 @@ export function Analytics() {
   const events = useLoad(ready ? () => vaultEvents(r, s) : undefined, block);
   const settings = useLoad(ready ? () => settingEvents(r, s) : undefined, block);
   const treasury = useLoad(ready ? () => treasuryHoldings(r, s, market?.imdUsd) : undefined, `${block}-${!!market}`);
+  // The loan book's cover since launch, sampled every six hours: re-read once six hours of blocks have passed.
+  const mainnet = r?.config.chainId === 1;
+  const cover = useLoad(ready && mainnet && peg.data ? () => coverHistory(r, s, peg.data!.firstBlock) : undefined, block !== undefined && peg.data ? `${block / 1800n}` : undefined);
   // The swarm strip changes slowly and reads a week of logs: once per ~10 minutes of blocks.
   const swarm = useLoad(ready ? () => readSwarm(r, s) : undefined, block !== undefined ? block / 50n : undefined);
 
@@ -177,6 +186,8 @@ export function Analytics() {
           />
         </div>
       </section>
+
+      <ResiliencePanel peg={peg} feeds={feeds} events={events} cover={cover} mainnet={mainnet} now={now} mat={mat} badDebt={s ? Number(s.v.totalBadDebt ?? 0n) / 1e18 : undefined} />
 
       <PegPanel peg={peg} feeds={feeds.data} now={now} pegNow={pegNow} redeem={redeemLine(redeemHist.data, redeem, now)} lanes={s ? ["PriceFeed", "SpotFeed"].filter((k) => s.targets[k]).length : 2} />
 
@@ -503,6 +514,95 @@ function PegPanel({ peg, feeds, now, pegNow, lanes, redeem }: { peg: Load<Awaite
         {(price || !feeds) && <Fig k="Price feed fresh" v={price && st ? `${freshShare(price, t0, now)}%` : "…"} />}
       </dl>
       <p className="an-src">Swap logs of the imdUSD/USDC pool {short(pointsConfig.pegPools[1]?.poolId ?? "0x0000000000")} · ValueUpdated logs of the price and spot feeds · the vault's payout price, fee and backing, sampled hourly (4-hourly before the last 3 days)</p>
+    </section>
+  );
+}
+
+/** Since launch, through every stress event: how long the peg held its band, its worst hour and slowest recovery, the
+ * loan book's cover at IMD's market price, the liquidations and the oracle updates; the events are a dated list
+ * (resilience-events.ts), every figure is read from the chain. */
+function ResiliencePanel({
+  peg,
+  feeds,
+  events,
+  cover,
+  mainnet,
+  now,
+  mat,
+  badDebt,
+}: {
+  peg: Load<Awaited<ReturnType<typeof pegHistory>>>;
+  feeds: Load<FeedUpdates[]>;
+  events: Load<Awaited<ReturnType<typeof vaultEvents>>>;
+  cover: Load<CoverPoint[]>;
+  mainnet: boolean;
+  now: number;
+  mat: number;
+  badDebt?: number;
+}) {
+  const points = peg.data?.points;
+  const launch = points?.[0]?.t;
+  const hours = useMemo(() => (points && launch !== undefined ? pegHours(points, launch, now) : []), [points, launch, now]);
+  const band = bandShare(hours);
+  const breaks = points ? pegBreaks(points) : [];
+  const longest = breaks.reduce<(typeof breaks)[number] | undefined>((w, b) => (!w || (b.end ?? now) - b.start > (w.end ?? now) - w.start ? b : w), undefined);
+  const deepest = breaks.reduce<(typeof breaks)[number] | undefined>((w, b) => (!w || b.low < w.low ? b : w), undefined);
+  const bites = events.data?.filter((e) => e.name === "Bite") ?? [];
+  const updates = feeds.data?.reduce((a, f) => a + f.times.length, 0);
+  const crs = (cover.data ?? []).map((c) => c.cr).filter((c): c is number => c !== undefined);
+  const lowCr = crs.length ? Math.min(...crs) : undefined;
+  const listed = mainnet && launch !== undefined ? STRESS_EVENTS.map((e, i) => ({ ...e, n: i + 1, t0: eventTime(e.from), t1: e.to ? eventTime(e.to) : undefined })) : [];
+  const day = (t: number) => utcShort(t).slice(0, 5);
+  const hrs = (sec: number) => `${(sec / 3600).toFixed(1)} h`;
+  return (
+    <section className="an-panel" aria-label="Resilience since launch">
+      <div className="an-panel-head">
+        <h2>Resilience since launch</h2>
+        <p>How the peg, the loans and the oracle held through each stress</p>
+      </div>
+      <dl className="an-figs">
+        <Fig k="Hours in the $0.99–$1.01 band" v={band.share !== undefined ? `${(band.share * 100).toFixed(1)}%` : "…"} />
+        <Fig k="Worst hour, UTC" v={band.worst ? `$${band.worst.avg.toFixed(3)} · ${day(band.worst.t)}` : "…"} />
+        <Fig k="Longest below $0.99" v={!points ? "…" : longest ? `${hrs((longest.end ?? now) - longest.start)}${longest.end ? "" : ", still under"}` : "never"} />
+        <Fig k={deepest ? `From the $${deepest.low.toFixed(3)} low back to the band` : "From the low back to the band"} v={!points ? "…" : deepest ? (deepest.end ? hrs(deepest.end - deepest.lowAt) : "still under") : "–"} />
+        <Fig k="Liquidations handled" v={events.data ? `${bites.length}${badDebt !== undefined ? (badDebt > 0 ? ` · ${whole(badDebt)} bad debt` : " · no bad debt") : ""}` : "…"} />
+        <Fig k="Oracle updates delivered" v={updates !== undefined ? whole(updates) : "…"} />
+        {mainnet && <Fig k="Lowest cover at market" v={lowCr !== undefined ? `${Math.round(lowCr)}%` : "…"} />}
+      </dl>
+      {!points || launch === undefined ? (
+        <ChartWait scroll w={RESILIENCE_W} h={RESILIENCE_H} note={peg.error ? `Could not read the peg pool: ${peg.error}` : "Reading the peg pool…"} />
+      ) : (
+        <div className="an-chart" tabIndex={0} role="region" aria-label="Resilience chart, scrolls sideways on small screens">
+          <ResilienceChart
+            hours={hours}
+            cover={cover.data}
+            coverNote={!mainnet ? "Read on mainnet only" : cover.error ? "Could not be read" : "Reading…"}
+            events={listed.map((e) => ({ n: e.n, t0: e.t0, t1: e.t1, title: e.title }))}
+            t0={launch}
+            t1={now}
+            mat={mat}
+          />
+        </div>
+      )}
+      {listed.length > 0 && (
+        <ol className="an-events" aria-label="Stress events">
+          {listed.map((e) => (
+            <li key={e.n}>
+              <span className="an-event-n" aria-hidden="true">
+                {e.n}
+              </span>
+              <span className="an-event-head">
+                <time dateTime={e.from}>{e.t1 ? (day(e.t0) === day(e.t1) ? `${utcShort(e.t0)}–${utcShort(e.t1).slice(6)}` : `${day(e.t0)} – ${day(e.t1)}`) : day(e.t0)}</time>
+                {e.title}
+              </span>
+              <span className="an-event-text">{e.text}</span>
+            </li>
+          ))}
+        </ol>
+      )}
+      <p className="an-src">
+        Hourly time-weighted average of the peg pool's swaps · the vault's collateral (sIMD) at the attested price scaled to IMD's market (IMD/ETH pool × Chainlink ETH/USD) over its total debt, sampled every 6 hours · the vault's Bite logs and bad debt · the feeds' ValueUpdated logs. Event dates are UTC.
+      </p>
     </section>
   );
 }

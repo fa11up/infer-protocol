@@ -264,6 +264,24 @@ export function Page({
           </div>
         </section>
 
+        <section className="audiences" aria-labelledby="audiences-heading">
+          <h2 id="audiences-heading">Who it is for</h2>
+          <div className="audiences-grid">
+            <a href={TERMINAL ? href("terminal/") : href("docs/guides/open-a-position/")}>
+              <h3>Borrowers →</h3>
+              <p>Deposit IMD, mint imdUSD against it, and keep the position healthy from one terminal.</p>
+            </a>
+            <a href={href("build/")}>
+              <h3>Builders →</h3>
+              <p>Swarm oracle answers, a public history API, an open-source keeper and every contract address.</p>
+            </a>
+            <a href={href("partners/")}>
+              <h3>Partners →</h3>
+              <p>Savings with v2, payroll and payments, launch pairing, white label and swarm services.</p>
+            </a>
+          </div>
+        </section>
+
         <section className="contracts" aria-labelledby="contracts-heading">
           <h2 id="contracts-heading">{contractsHeading}</h2>
           {contracts}

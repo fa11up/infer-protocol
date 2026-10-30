@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en" class="app-page">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="app-root" content="../" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Per-theme browser chrome. theme.tsx rewrites both to the active --bg when a choice is made. -->
+    <meta
+      name="theme-color"
+      media="(prefers-color-scheme: light)"
+      content="#f7f5ef"
+    />
+    <meta
+      name="theme-color"
+      media="(prefers-color-scheme: dark)"
+      content="#111111"
+    />
+    <!-- Installable, deliberately with no service worker: a cached protocol UI would show stale prices. -->
+    <link rel="manifest" href="../manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="../icon-192.png" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-title" content="imdUSD" />
+    <script>
+      // Resolve before the first paint; colors themselves stay in the CSS tokens.
+      (() => {
+        let saved;
+        try {
+          saved = localStorage.getItem("comp-terminal-theme");
+        } catch {}
+        document.documentElement.dataset.theme =
+          saved === "light" || saved === "dark"
+            ? saved
+            : matchMedia("(prefers-color-scheme: dark)").matches
+              ? "dark"
+              : "light";
+      })();
+    </script>
+    <meta
+      name="description"
+      content="Build on imdUSD: the IdentityMD swarm's oracle answers, the public history API, the open-source keeper, the liquidity skill for agents, and every contract address."
+    />
+    <title>Build on imdUSD</title>
+    <link rel="icon" href="../favicon.svg" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/entry-build.tsx"></script>
+  </body>
+</html>
