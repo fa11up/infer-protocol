@@ -4,7 +4,6 @@ import { Card, Cards, InfoPage, InfoSection } from "./InfoPage";
 import { EMAIL } from "./links-config";
 import { BLOG, href, IDENTITYMD, TERMINAL } from "./site";
 
-const V2_POST = `${BLOG}v2-scope-and-strategy/`;
 const docs = (path: string) => href(`docs/${path}`);
 
 export function Partners() {
@@ -23,29 +22,22 @@ export function Partners() {
     >
       <InfoSection id="partners-ways" title="Ways to work together">
         <Cards>
-          <Card title="Earn on imdUSD" tag="With v2" links={[{ text: "v2: scope and strategy", url: V2_POST }]}>
-            <p>
-              v2 adds sImdUSD, a savings vault: deposit imdUSD and earn a share of what borrowers pay, streamed to savers. It
-              is built and in review. Teams holding imdUSD can talk to us now about using it when v2 launches.
-            </p>
-          </Card>
           <Card title="Payroll and payments" links={[{ text: "What is imdUSD", url: docs("overview/what-is-imdusd/") }]}>
             <p>
               imdUSD is a standard ERC-20 on Ethereum. Only its vault can mint it, against collateral held on chain, and no one
-              can pause or freeze it. If you pay contributors, agents or suppliers in dollars, we will help you set up payments in imdUSD and
-              hold the float in it.
+              can pause or freeze it, so it can be held and paid like any other dollar token.
             </p>
           </Card>
           <Card title="Launch pairing" links={[{ text: "The peg pool", url: docs("overview/the-peg-pool/") }]}>
             <p>
               Pair a token with imdUSD and its price reads in dollars, not in a volatile asset. imdUSD trades against USDC at
-              the peg and against IMD on Uniswap v4; we can help you open your pool beside them and seed it.
+              the peg and against IMD on Uniswap v4.
             </p>
           </Card>
           <Card title="White label" links={[{ text: "Build on imdUSD", url: href("build/") }]}>
             <p>
               Offer imdUSD under your own brand: your front end over the same ownerless contracts, with the public history
-              API and the docs behind it. Talk to us about a branded terminal for your community.
+              API and the docs behind it.
             </p>
           </Card>
           <Card
@@ -58,8 +50,7 @@ export function Partners() {
           >
             <p>
               We run some of the IdentityMD swarm's most-used paid price feeds, and most audits of our contracts ran on it.
-              If you need a price, an on-chain fact or a code review answered by the swarm, we will help you shape the
-              question so a panel can agree on it, and wire the signed answer into your contract.
+              Our feed contracts, keeper and question documents are public, so they show how to wire a signed swarm answer into a contract.
             </p>
           </Card>
         </Cards>

@@ -277,7 +277,7 @@ export function Page({
             </a>
             <a href={href("partners/")}>
               <h3>Partners →</h3>
-              <p>Savings with v2, payroll and payments, launch pairing, white label and swarm services.</p>
+              <p>Payroll and payments, launch pairing, white label and swarm services.</p>
             </a>
           </div>
         </section>
