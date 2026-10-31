@@ -3868,6 +3868,10 @@ body:has(> .vibe-canvas:not([hidden])) .live-panel {
 /* The stats page (/stats/): its panels and the vitals strip are the same translucent paper. The vitals' hairlines
    were the strip's opaque backing showing through 1px gaps; with the strip translucent and each vital clear they
    are drawn as shadows instead, as on INFER's stats grid. */
+/* /build/ and /partners/: their cards and code block are the same translucent paper. */
+body:has(> .vibe-canvas:not([hidden])) :is(.plain-card, .plain-code) {
+  background: color-mix(in srgb, var(--surface) 35%, transparent);
+}
 body:has(> .vibe-canvas:not([hidden])) :is(.an-panel, .an-vitals) {
   background: color-mix(in srgb, var(--surface) 35%, transparent);
 }
