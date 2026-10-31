@@ -1,6 +1,6 @@
 // The scaffold of imdusd.com's plain reading pages (/build/, /partners/): the site header and footer around a title,
 // a lede and sections of cards. They read no chain, so they are in every build, like the links page.
-import type { ReactNode } from "react";
+import { Children, type ReactNode } from "react";
 import { SiteFooter, SiteHeader } from "./site";
 
 export function InfoPage({
@@ -75,5 +75,11 @@ export function Card({ title, tag, children, links = [] }: { title: string; tag?
 }
 
 export function Cards({ children }: { children: ReactNode }) {
-  return <div className="plain-cards">{children}</div>;
+  // Columns follow the count so a row is never left with an empty box: 2 for an even count, 3 otherwise.
+  const n = Children.count(children);
+  return (
+    <div className="plain-cards" data-cols={n % 3 === 0 ? 3 : n % 2 === 0 ? 2 : 3}>
+      {children}
+    </div>
+  );
 }
