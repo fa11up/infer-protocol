@@ -3869,7 +3869,7 @@ body:has(> .vibe-canvas:not([hidden])) .live-panel {
    were the strip's opaque backing showing through 1px gaps; with the strip translucent and each vital clear they
    are drawn as shadows instead, as on INFER's stats grid. */
 /* /build/ and /partners/: their cards and code block are the same translucent paper. */
-body:has(> .vibe-canvas:not([hidden])) :is(.plain-card, .plain-code) {
+body:has(> .vibe-canvas:not([hidden])) :is(.plain-card, .plain-code, .audiences-grid a) {
   background: color-mix(in srgb, var(--surface) 35%, transparent);
 }
 body:has(> .vibe-canvas:not([hidden])) :is(.an-panel, .an-vitals) {
@@ -6117,9 +6117,7 @@ body:has(> .vibe-canvas:not([hidden])) .blog-masthead {
 .audiences-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr));
-  gap: 1px;
-  background: var(--rule);
-  border: 1px solid var(--rule);
+  gap: 12px;
 }
 .audiences-grid a {
   display: flex;
@@ -6127,6 +6125,7 @@ body:has(> .vibe-canvas:not([hidden])) .blog-masthead {
   gap: 6px;
   padding: 16px 18px 18px;
   background: var(--surface);
+  border: 1px solid var(--rule);
   color: var(--text);
   text-decoration: none;
 }
