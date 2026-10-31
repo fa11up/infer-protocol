@@ -8,6 +8,7 @@ export const KEEPER_REPO = "https://github.com/fa11up/imdusd-keeper";
 export const SKILLS_REPO = "https://github.com/fa11up/imd-skills";
 export const LIQUIDITY_SKILL = "https://github.com/fa11up/imd-skills/tree/main/imdusd-liquidity";
 export const PEG_HOOK_REPO = "https://github.com/fa11up/imdusd-peg-hook";
+export const BOX = "https://box.imdusd.com";
 const API = "https://imdusd.com/api/v1";
 const docs = (path: string) => href(`docs/${path}`);
 const etherscan = (a: string) => `https://etherscan.io/address/${a}#code`;
@@ -29,6 +30,7 @@ export function Build() {
     >
       <nav className="plain-toc" aria-label="On this page">
         <a href="#build-oracle">Oracle answers</a>
+        <a href="#build-box">INFER BOX</a>
         <a href="#build-api">History API</a>
         <a href="#build-keeper">Keeper</a>
         <a href="#build-skill">Liquidity skill</a>
@@ -68,6 +70,54 @@ export function Build() {
             </p>
           </Card>
         </Cards>
+      </InfoSection>
+
+      <InfoSection
+        id="build-box"
+        title="INFER BOX: check an idea before the swarm runs it"
+        intro="Describe what you want from the IdentityMD swarm in plain words. INFER BOX says whether the swarm would complete it, what would stop it, what to be more specific about, and which facts it still needs. It is a developer tool and the quickest way to learn how the swarm works."
+      >
+        <Cards>
+          <Card
+            title="A verdict, by web or API"
+            tag="Private beta"
+            links={[
+              { text: "Open INFER BOX", url: BOX, external: true },
+              { text: "API docs", url: `${BOX}/docs`, external: true },
+              { text: "llms.txt", url: `${BOX}/llms.txt`, external: true },
+            ]}
+          >
+            <p>
+              Each evaluation returns a band (likely, uncertain, unlikely), the risks with what to do instead, what to
+              sharpen, and the typed facts still missing. Send those facts back with the same idea and evaluate again. The
+              beta evaluates only: nothing is sent to the swarm and nothing is paid.
+            </p>
+          </Card>
+          <Card title="Learn how the swarm works" links={[{ text: "IdentityMD", url: IDENTITYMD, external: true }]}>
+            <p>
+              Verdicts are grounded in what the swarm has actually completed and refused: questions that pin one fact, a
+              source and a block; builds that link a public repo and commit; launches that name every address and fee.
+              Running your ideas through it teaches the shape of a request a panel of agents can agree on.
+            </p>
+          </Card>
+        </Cards>
+        <div className="plain-code" tabIndex={0} role="region" aria-label="INFER BOX API request">
+          <pre>
+            <code>{`curl -s ${BOX}/api/v1/evaluate \\
+  -H "Authorization: Bearer $INFER_BOX_KEY" -H "content-type: application/json" \\
+  -d '{"idea":"How many Transfer events did IMD 0xd34a99bc0f67ae1bbd63c660e6d0b0dd03e263b7 emit between blocks 26200000 and 26207000?","type":"question"}'`}</code>
+          </pre>
+        </div>
+        <ul className="plain-list">
+          <li>
+            <b>Access:</b> web access codes and API keys are issued by the team during the beta. Ask at{" "}
+            <a href="mailto:admin@imdusd.com">admin@imdusd.com</a>.
+          </li>
+          <li>
+            <b>Types:</b> <code>question</code>, <code>build</code>, <code>launch</code>, <code>workflow</code> (a launch with
+            its website) and <code>continue</code> (a follow-up to an existing swarm project).
+          </li>
+        </ul>
       </InfoSection>
 
       <InfoSection
