@@ -275,7 +275,7 @@ export function Page({
               <h3>Builders →</h3>
               <p>Swarm oracle answers, a public history API, an open-source keeper and every contract address.</p>
             </a>
-            <a href={href("partners/")}>
+            <a href={href("build/#partners")}>
               <h3>Partners →</h3>
               <p>Payroll and payments, launch pairing, white label and swarm services.</p>
             </a>

@@ -1,4 +1,4 @@
-// The scaffold of imdusd.com's plain reading pages (/build/, /partners/): the site header and footer around a title,
+// The scaffold of imdusd.com's plain reading pages (/build/): the site header and footer around a title,
 // a lede and sections of cards. They read no chain, so they are in every build, like the links page.
 import { Children, type ReactNode } from "react";
 import { SiteFooter, SiteHeader } from "./site";
@@ -10,7 +10,7 @@ export function InfoPage({
   lede,
   children,
 }: {
-  page: "build" | "partners";
+  page: "build";
   kicker: string;
   title: string;
   lede: ReactNode;

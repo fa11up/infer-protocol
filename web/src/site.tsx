@@ -70,7 +70,7 @@ export function DexLink() {
   );
 }
 
-type Page = "home" | "terminal" | "analytics" | "build" | "partners" | "docs" | "links" | "blog";
+type Page = "home" | "terminal" | "analytics" | "build" | "docs" | "links" | "blog";
 /** One header for every page: brand and navigation on the left; the network chip, theme, background and a
  * page-specific end on the right. */
 export function SiteHeader({
@@ -101,7 +101,6 @@ export function SiteHeader({
           {TERMINAL && link("analytics", "stats/", "Stats")}
           {/* Builders and partners find their way from every page, not only borrowers (2026-10-30). */}
           {link("build", "build/", "Build")}
-          {link("partners", "partners/", "Partners")}
           {link("docs", "docs/", "Docs")}
           {/* Blog and Whitepaper live in the footer (user, 2026-10-21: a cleaner header). */}
           <a href={INFER_SITE} target="_blank" rel="noreferrer">
@@ -129,7 +128,7 @@ export function SiteHeader({
   );
 }
 
-/** The team's address, in the footer's Contact link (the links page and /partners/ show it too). */
+/** The team's address, in the footer's Contact link (the links page and /build/ show it too). */
 const CONTACT_EMAIL = "admin@imdusd.com";
 /** The footer every page shares, in four short columns beside the wordmark (the docs pages render the same
  *  markup in scripts/docs-pages.mjs and scripts/blog-pages.mjs). Blog and Whitepaper live here rather than in the header. */
@@ -152,7 +151,7 @@ export function SiteFooter() {
         <div className="foot-col">
           <span className="foot-h">Work with us</span>
           <a href={siteHref("build/")}>Build</a>
-          <a href={siteHref("partners/")}>Partners</a>
+          <a href={siteHref("build/#partners")}>Partners</a>
           <a href={`mailto:${CONTACT_EMAIL}`}>Contact</a>
         </div>
         <div className="foot-col">

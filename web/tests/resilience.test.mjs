@@ -78,7 +78,7 @@ test("/build/ lists only addresses the docs' contracts page lists", async () => 
   assert.ok(pool.includes(PEG_POOL_ID), "the peg pool id matches the docs");
 });
 
-test("/build/ and /partners/ are in the header, every footer, the routes, the build inputs and the sitemap", async () => {
+test("/build/ is in the header, every footer, the routes, the build inputs and the sitemap; Partners is its section and /partners/ redirects to it", async () => {
   const read = (p) => readFile(new URL(p, import.meta.url), "utf8");
   const [site, routes, vite, docsPages, blogPages] = await Promise.all([
     read("../src/site.tsx"),
@@ -89,10 +89,7 @@ test("/build/ and /partners/ are in the header, every footer, the routes, the bu
   ]);
   const header = site.slice(site.indexOf("export function SiteHeader"), site.indexOf("export function SiteFooter"));
   const footer = site.slice(site.indexOf("export function SiteFooter"));
-  for (const [path, label] of [
-    ["build/", "Build"],
-    ["partners/", "Partners"],
-  ]) {
+  for (const [path, label] of [["build/", "Build"]]) {
     assert.ok(header.includes(`"${path}", "${label}"`), `header links ${label}`);
     assert.ok(footer.includes(`siteHref("${path}")`), `footer links ${label}`);
     assert.ok(routes.includes(`path: "${path}"`), `soft route for ${path}`);
@@ -101,4 +98,10 @@ test("/build/ and /partners/ are in the header, every footer, the routes, the bu
     assert.ok(blogPages.includes(`https://imdusd.com/${path}">${label}</a>`), `blog footer links ${label}`);
     assert.ok(docsPages.includes(`"${path}"`), `sitemap lists ${path}`);
   }
+  // Partners lives on /build/ (#partners): every footer links there, and the old URL redirects in both builds.
+  assert.ok(footer.includes('siteHref("build/#partners")'), "footer links Partners to /build/#partners");
+  assert.ok(docsPages.includes('${root}/build/#partners">Partners</a>'), "docs footer links Partners");
+  assert.ok(blogPages.includes('https://imdusd.com/build/#partners">Partners</a>'), "blog footer links Partners");
+  assert.equal((vite.match(/\/partners\/ \/build\/#partners 301/g) ?? []).length, 2, "/partners/ redirects in the launch and public builds");
+  assert.ok(!routes.includes('path: "partners/"') && !vite.includes('"partners/index.html"'), "no separate partners page");
 });

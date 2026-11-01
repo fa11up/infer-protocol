@@ -3884,7 +3884,7 @@ body:has(> .vibe-canvas:not([hidden])) .live-panel {
 /* The stats page (/stats/): its panels and the vitals strip are the same translucent paper. The vitals' hairlines
    were the strip's opaque backing showing through 1px gaps; with the strip translucent and each vital clear they
    are drawn as shadows instead, as on INFER's stats grid. */
-/* /build/ and /partners/: their cards and code block are the same translucent paper. */
+/* /build/: their cards and code block are the same translucent paper. */
 body:has(> .vibe-canvas:not([hidden])) :is(.plain-card, .plain-code, .audiences-grid a) {
   background: color-mix(in srgb, var(--surface) 35%, transparent);
 }
@@ -5955,7 +5955,7 @@ body:has(> .vibe-canvas:not([hidden])) .blog-masthead {
   }
 }
 
-/* ---- imdusd.com/build/ and /partners/ (src/InfoPage.tsx): plain reading pages for developers and partners ---- */
+/* ---- imdusd.com/build/ (src/InfoPage.tsx): plain reading pages for developers and partners ---- */
 .plain {
   display: flex;
   flex-direction: column;

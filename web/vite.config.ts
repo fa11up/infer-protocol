@@ -75,9 +75,13 @@ function terminalRpcAllow(): string[] {
   ].sort();
 }
 const PUBLIC_REDIRECTS = `/terminal / 302
+/partners /build/#partners 301
+/partners/ /build/#partners 301
 /terminal/* / 302
 `;
 const LAUNCH_REDIRECTS = `/analytics /stats/ 301
+/partners /build/#partners 301
+/partners/ /build/#partners 301
 /analytics/ /stats/ 301
 /analytics/* /stats/ 301
 `;
@@ -196,10 +200,9 @@ function publicSite(): Plugin {
         links,
         linksPage.replace("</head>", `${socialTags(SITE, `${SITE}/links/`, "imdUSD links", linksAbout, { type: "website" })}</head>`),
       );
-      // /build/ and /partners/: their canonical URLs and social cards (every public build has them).
+      // /build/: their canonical URLs and social cards (every public build has them).
       for (const [path, title] of [
         ["build/", "Build on imdUSD"],
-        ["partners/", "Work with imdUSD"],
       ]) {
         const file = resolve(dir, `${path}index.html`);
         const page = readFileSync(file, "utf8");
@@ -680,9 +683,8 @@ export default defineConfig(({ mode }) => {
           docs: resolve(import.meta.dirname, "docs/index.html"),
           // /links/, shared by QR code; it reads no chain, so every build has it.
           links: resolve(import.meta.dirname, "links/index.html"),
-          // /build/ and /partners/, for developers and partners; they read no chain either.
+          // /build/, for developers and partners; they read no chain either.
           build: resolve(import.meta.dirname, "build/index.html"),
-          partners: resolve(import.meta.dirname, "partners/index.html"),
         },
       },
     },

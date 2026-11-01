@@ -2022,7 +2022,7 @@ try {
     passed("Links page: every link, no Telegram row while unset, Copy with a select fallback, a white full-screen QR; axe clean at 390 and 1440, no sideways scroll");
   }
   {
-    // imdusd.com/build/ and /partners/ (src/Build.tsx, src/Partners.tsx): for developers and partners, reached from the
+    // imdusd.com/build/ (src/Build.tsx): for developers and partners (Partners = its #partners section), reached from the
     // header, the footer and the homepage's "Who it is for" row; they pass axe and never scroll sideways, phone to desktop.
     const { page } = await setup({ wallet: false });
     const axeOk = async (where) => {
@@ -2036,30 +2036,27 @@ try {
     await page.goto(url);
     await page.locator(".audiences-grid a").first().waitFor();
     const doors = Object.fromEntries(await page.locator(".audiences-grid a").evaluateAll((as) => as.map((a) => [a.querySelector("h3").textContent, a.getAttribute("href")])));
-    assert.deepEqual(doors, { "Borrowers →": `${url}terminal/`, "Builders →": `${url}build/`, "Partners →": `${url}partners/` }, "the homepage's three doors");
+    assert.deepEqual(doors, { "Borrowers →": `${url}terminal/`, "Builders →": `${url}build/`, "Partners →": `${url}build/#partners` }, "the homepage's three doors");
     assert.deepEqual(
       await page.locator(".site-nav a").allTextContents(),
-      ["Terminal", "Stats", "Build", "Partners", "Docs", "INFER ↗"],
+      ["Terminal", "Stats", "Build", "Docs", "INFER ↗"],
       "the header's links, in order",
     );
     await page.locator(".site-nav").getByRole("link", { name: "Build" }).click();
     await page.getByRole("heading", { level: 1, name: "Build on imdUSD" }).waitFor();
     assert.equal(new URL(page.url()).pathname, "/preview/build/");
     assert.equal(await page.locator('.site-nav a[aria-current="page"]').textContent(), "Build");
-    for (const h of ["Oracle answers from the IdentityMD swarm", "Public history API", "Run a keeper", "Liquidity skill for agents", "Contracts"])
+    for (const h of ["Oracle answers from the IdentityMD swarm", "INFER BOX: check an idea before the swarm runs it", "Public history API", "Run a keeper", "Liquidity skill for agents", "Contracts", "Partner with us"])
       await page.getByRole("heading", { level: 2, name: h }).waitFor();
     assert.equal(await page.getByRole("link", { name: /github\.com\/fa11up\/imdusd-keeper/ }).getAttribute("href"), "https://github.com/fa11up/imdusd-keeper");
     assert.equal(await page.getByRole("link", { name: /^The skill/ }).getAttribute("href"), "https://github.com/fa11up/imd-skills/tree/main/imdusd-liquidity");
     await expectText(page.locator(".plain-code"), "https://imdusd.com/api/v1/logs?address=");
     assert.ok((await page.locator(".plain-table tbody tr").count()) >= 10, "the contract table");
-    await page.locator(".site-footer").getByRole("link", { name: "Partners", exact: true }).click();
-    await page.getByRole("heading", { level: 1, name: "Work with imdUSD" }).waitFor();
-    assert.equal(new URL(page.url()).pathname, "/preview/partners/");
-    assert.equal(await page.locator('.site-nav a[aria-current="page"]').textContent(), "Partners");
-    for (const h of ["Earn on imdUSD", "Payroll and payments", "Launch pairing", "White label", "Swarm services"])
+    for (const h of ["Payroll and payments", "Launch pairing", "White label", "Swarm services"])
       await page.getByRole("heading", { level: 3, name: h }).waitFor();
     assert.equal(await page.getByRole("link", { name: "Write to admin@imdusd.com" }).getAttribute("href"), "mailto:admin@imdusd.com");
-    for (const path of ["build/", "partners/"]) {
+    assert.equal(await page.locator(".site-footer").getByRole("link", { name: "Partners", exact: true }).getAttribute("href"), `${url}build/#partners`);
+    for (const path of ["build/"]) {
       await page.goto(`${url}${path}`);
       await page.getByRole("heading", { level: 1 }).waitFor();
       for (const [width, height] of [
@@ -2074,7 +2071,7 @@ try {
       }
       await page.setViewportSize({ width: 1440, height: 900 });
     }
-    passed("Build and Partners pages: reached from the header, the footer and the homepage; axe clean at 390 and 1440, no sideways scroll");
+    passed("Build page with its Partners section: reached from the header, the footer and the homepage; axe clean at 390 and 1440, no sideways scroll");
   }
   assert.deepEqual(errors.filter((e) => !/^503 .*\/api\/v1\//.test(e) && !/Failed to load resource.*503/.test(e)), [], JSON.stringify(errors.slice(0, 10)));
   passed(
