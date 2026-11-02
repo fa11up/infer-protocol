@@ -11,6 +11,7 @@ export const LIQUIDITY_SKILL = "https://github.com/fa11up/imd-skills/tree/main/i
 export const PEG_HOOK_REPO = "https://github.com/fa11up/imdusd-peg-hook";
 export const BOX = "https://box.imdusd.com";
 const API = "https://imdusd.com/api/v1";
+const IMD_DOCS = "https://imd.fun/docs/";
 const docs = (path: string) => href(`docs/${path}`);
 const etherscan = (a: string) => `https://etherscan.io/address/${a}#code`;
 const short = (a: string) => `${a.slice(0, 6)}…${a.slice(-4)}`;
@@ -60,7 +61,7 @@ export function Build() {
               When it reads likely, pay in imdUSD on Ethereum mainnet from the website and the swarm runs the request.
             </p>
           </Card>
-          <Card title="Learn how the swarm works" links={[{ text: "IdentityMD", url: IDENTITYMD, external: true }]}>
+          <Card title="Learn how the swarm works" links={[{ text: "IdentityMD docs", url: IMD_DOCS, external: true }]}>
             <p>
               Verdicts are grounded in what the swarm has actually completed and refused: questions that pin one fact, a
               source and a block; builds that link a public repo and commit; launches that name every address and fee.
