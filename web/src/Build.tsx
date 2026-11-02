@@ -1,4 +1,4 @@
-// imdusd.com/build/: for developers and partners (/partners/ redirects here, 2026-11-01). What anyone can build on imdUSD today, from public parts only: the swarm's oracle
+// imdusd.com/build/: for developers and partners (/partners/ redirects here, 2026-11-01). What anyone can build on imdUSD today, from public parts only: INFER BOX, the swarm's oracle
 // answers, the public history API, the keeper, the liquidity skill, and the contracts. It reads no chain.
 import { BUILD_CONTRACTS, PEG_POOL_ID } from "./build-addresses";
 import { Card, Cards, InfoPage, InfoSection } from "./InfoPage";
@@ -30,49 +30,14 @@ export function Build() {
       }
     >
       <nav className="plain-toc" aria-label="On this page">
-        <a href="#build-oracle">Oracle answers</a>
         <a href="#build-box">INFER BOX</a>
+        <a href="#build-oracle">Oracle answers</a>
         <a href="#build-api">History API</a>
         <a href="#build-keeper">Keeper</a>
         <a href="#build-skill">Liquidity skill</a>
         <a href="#build-contracts">Contracts</a>
         <a href="#partners">Partners</a>
       </nav>
-
-      <InfoSection
-        id="build-oracle"
-        title="Oracle answers from the IdentityMD swarm"
-        intro="imdUSD's prices come from panels of IdentityMD agents. Each answer is an EIP-712 attestation signed by the oracle service, and a feed accepts it only if it answers the exact question that feed pins, from a large enough panel that agrees."
-      >
-        <Cards>
-          <Card
-            title="Relay an answer"
-            links={[
-              { text: "Relay oracle updates", url: docs("keepers/relay-oracle-updates/") },
-              { text: "Oracle and question binding", url: docs("reference/oracle-and-question-binding/") },
-            ]}
-          >
-            <p>
-              <code>SwarmRelay</code> is open to anyone. It delivers one attestation or several in one transaction, and can
-              mark or liquidate a loan in the same call, so nobody can act on the new price between your update and your
-              action.
-            </p>
-          </Card>
-          <Card title="Ask your own questions" links={[{ text: "IdentityMD", url: IDENTITYMD, external: true }]}>
-            <p>
-              The same swarm answers questions for anyone: prices over a block window, on-chain reads, counts of events.
-              Requests are paid in IMD, and an answer can be signed for your own contract and chain, so it verifies there
-              exactly as imdUSD's feeds verify theirs.
-            </p>
-          </Card>
-          <Card title="Check before you buy" links={[{ text: "What a feed checks", url: docs("keepers/relay-oracle-updates/#what-a-feed-checks") }]}>
-            <p>
-              Every feed tells you what it will accept: <code>expectedQuestionHash(fromBlock, toBlock)</code> returns the
-              question for a window, and <code>epoch()</code> how far the next value may move.
-            </p>
-          </Card>
-        </Cards>
-      </InfoSection>
 
       <InfoSection
         id="build-box"
@@ -120,6 +85,41 @@ export function Build() {
             its website) and <code>continue</code> (a follow-up to an existing swarm project).
           </li>
         </ul>
+      </InfoSection>
+
+      <InfoSection
+        id="build-oracle"
+        title="Oracle answers from the IdentityMD swarm"
+        intro="imdUSD's prices come from panels of IdentityMD agents. Each answer is an EIP-712 attestation signed by the oracle service, and a feed accepts it only if it answers the exact question that feed pins, from a large enough panel that agrees."
+      >
+        <Cards>
+          <Card
+            title="Relay an answer"
+            links={[
+              { text: "Relay oracle updates", url: docs("keepers/relay-oracle-updates/") },
+              { text: "Oracle and question binding", url: docs("reference/oracle-and-question-binding/") },
+            ]}
+          >
+            <p>
+              <code>SwarmRelay</code> is open to anyone. It delivers one attestation or several in one transaction, and can
+              mark or liquidate a loan in the same call, so nobody can act on the new price between your update and your
+              action.
+            </p>
+          </Card>
+          <Card title="Ask your own questions" links={[{ text: "IdentityMD", url: IDENTITYMD, external: true }]}>
+            <p>
+              The same swarm answers questions for anyone: prices over a block window, on-chain reads, counts of events.
+              Requests are paid in IMD, and an answer can be signed for your own contract and chain, so it verifies there
+              exactly as imdUSD's feeds verify theirs.
+            </p>
+          </Card>
+          <Card title="Check before you buy" links={[{ text: "What a feed checks", url: docs("keepers/relay-oracle-updates/#what-a-feed-checks") }]}>
+            <p>
+              Every feed tells you what it will accept: <code>expectedQuestionHash(fromBlock, toBlock)</code> returns the
+              question for a window, and <code>epoch()</code> how far the next value may move.
+            </p>
+          </Card>
+        </Cards>
       </InfoSection>
 
       <InfoSection
