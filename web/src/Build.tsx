@@ -47,7 +47,7 @@ export function Build() {
         <Cards>
           <Card
             title="A verdict, by web or API"
-            tag="Private beta"
+            tag="Beta"
             links={[
               { text: "Open INFER BOX", url: BOX, external: true },
               { text: "API docs", url: `${BOX}/docs`, external: true },
@@ -56,8 +56,8 @@ export function Build() {
           >
             <p>
               Each evaluation returns a band (likely, uncertain, unlikely), the risks with what to do instead, what to
-              sharpen, and the typed facts still missing. Send those facts back with the same idea and evaluate again. The
-              beta evaluates only: nothing is sent to the swarm and nothing is paid.
+              sharpen, and the typed facts still missing. Send those facts back with the same idea and evaluate again.
+              When it reads likely, pay in imdUSD on Ethereum mainnet from the website and the swarm runs the request.
             </p>
           </Card>
           <Card title="Learn how the swarm works" links={[{ text: "IdentityMD", url: IDENTITYMD, external: true }]}>
@@ -77,7 +77,8 @@ export function Build() {
         </div>
         <ul className="plain-list">
           <li>
-            <b>Access:</b> web access codes and API keys are issued by the team during the beta. Ask at{" "}
+            <b>Access:</b> sign in with a one-time access code or a member's invite link; that wallet keeps access for
+            good. Finish the basics in the learn tab to make your own API key. Ask for a code at{" "}
             <a href="mailto:admin@imdusd.com">admin@imdusd.com</a>.
           </li>
           <li>
