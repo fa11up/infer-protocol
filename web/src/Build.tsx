@@ -150,7 +150,7 @@ GET ${API}/logs?address=<addr[,addr]>&fromBlock=<n>&toBlock=<n>
             title="imdusd-keeper"
             tag="Open source"
             links={[
-              { text: "github.com/fa11up/imdusd-keeper", url: KEEPER_REPO, external: true },
+              { text: "Public keeper repo", url: KEEPER_REPO, external: true },
               { text: "How liquidation works", url: docs("keepers/how-liquidation-works/") },
             ]}
           >
