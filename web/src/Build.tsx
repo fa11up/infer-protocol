@@ -185,7 +185,7 @@ GET ${API}/logs?address=<addr[,addr]>&fromBlock=<n>&toBlock=<n>
               with their own wallet, a hardware wallet or a Safe.
             </p>
           </Card>
-          <Card title="The peg hook" tag="Open source" links={[{ text: "github.com/fa11up/imdusd-peg-hook", url: PEG_HOOK_REPO, external: true }]}>
+          <Card title="The peg hook" tag="Open source" links={[{ text: "Public peg hook repo", url: PEG_HOOK_REPO, external: true }]}>
             <p>
               The pool's <code>PegFeeHook</code>: 0.01% near the peg, a surcharge on swaps that push the price away from $1,
               nothing on swaps toward it. No owner and nothing anyone can change.
