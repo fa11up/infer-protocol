@@ -30,16 +30,6 @@ export function Build() {
         </p>
       }
     >
-      <nav className="plain-toc" aria-label="On this page">
-        <a href="#build-box">INFER BOX</a>
-        <a href="#build-oracle">Oracle answers</a>
-        <a href="#build-api">History API</a>
-        <a href="#build-keeper">Keeper</a>
-        <a href="#build-skill">Liquidity skill</a>
-        <a href="#build-contracts">Contracts</a>
-        <a href="#partners">Partners</a>
-      </nav>
-
       <InfoSection
         id="build-box"
         title="INFER BOX: check an idea before the swarm runs it"
