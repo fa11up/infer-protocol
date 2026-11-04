@@ -33,6 +33,22 @@ export const TOKENS: Token[] = [
   { address: "0x2260FAC5E5542a773Aa44fBCfeDf7C193bc2C599", symbol: "WBTC", name: "Wrapped BTC", decimals: 8 },
   { address: "0xcbB7C0000aB88B473b1f5aFd9ef808440eed33Bf", symbol: "cbBTC", name: "Coinbase Wrapped BTC", decimals: 8 },
 ];
+const INFER_TRADE_SYMBOLS = ["ETH", "USDC", "USDT", "WETH", "imdUSD", "IMD", "WBTC", "cbBTC"];
+
+/**
+ * What the INFER pane trades against: the launch pool's pair first, then the common tokens, by their addresses in
+ * TOKENS. ETH is the native address (0x0) the pane uses, which zeroXAddress turns into 0x's placeholder.
+ */
+export function tradeTokens(pairAddress: Address, pairSymbol: string): Token[] {
+  const list = INFER_TRADE_SYMBOLS.map((symbol) => TOKENS.find((t) => t.symbol === symbol) as Token).map((t) =>
+    isEth(t) ? { ...t, address: "0x0000000000000000000000000000000000000000" as Address } : t,
+  );
+  return [
+    { address: pairAddress, symbol: pairSymbol, name: pairSymbol, decimals: 18 },
+    ...list.filter((t) => t.symbol !== pairSymbol),
+  ];
+}
+
 /** USDT's approve returns nothing, and it refuses to change a nonzero allowance to another nonzero one. */
 export const USDT_ADDRESS: Address = "0xdAC17F958D2ee523a2206206994597C13D831ec7";
 /** approve without a declared return value: right for USDT and harmless for every other token. */

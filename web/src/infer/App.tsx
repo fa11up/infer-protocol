@@ -1,5 +1,5 @@
 // The INFER app: one screen, no scrolling. Trading on the left, staking on the right.
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { everyVisible, REFRESH_MS } from "./visible";
 import { formatUnits, type Address } from "viem";
 import { LAUNCH, LIVE, pct, whole } from "./config";
@@ -11,6 +11,7 @@ import {
   askSwap,
   bestRoute,
   feeLine,
+  tradeTokens,
   minReceived,
   routeSummary,
   swapQuery,
@@ -76,11 +77,44 @@ export function App() {
 
 type Side = "buy" | "sell";
 
-/** Quick amounts in the compact pane, in the pair token when buying (whole tokens). */
+/** Quick amounts in the compact pane, in the token you pay with when buying. */
 const QUICK_BUY: Record<string, string[]> = {
   ETH: ["0.01", "0.05", "0.1"],
+  WETH: ["0.01", "0.05", "0.1"],
   IMD: ["10", "50", "100"],
+  USDC: ["25", "100", "500"],
+  USDT: ["25", "100", "500"],
+  imdUSD: ["25", "100", "500"],
+  WBTC: ["0.001", "0.005", "0.01"],
+  cbBTC: ["0.001", "0.005", "0.01"],
 };
+
+function TokenSelect({
+  label,
+  choices,
+  value,
+  onChange,
+}: {
+  label: string;
+  choices: Token[];
+  value: string;
+  onChange: (symbol: string) => void;
+}) {
+  return (
+    <select
+      className="infer-token"
+      aria-label={label}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+    >
+      {choices.map((t) => (
+        <option key={t.symbol} value={t.symbol}>
+          {t.symbol}
+        </option>
+      ))}
+    </select>
+  );
+}
 
 export function Trade({
   w,
@@ -100,6 +134,11 @@ export function Trade({
   const pairToken = c.pair; // NATIVE for ETH
   const { tx, send, clear } = useTx(refresh);
   const [side, setSide] = useState<Side>("buy");
+  // What INFER is bought with or sold for. The launch pool only trades its pair; every other token goes through 0x.
+  const choices = useMemo(() => tradeTokens(pairToken, pair), [pairToken, pair]);
+  const [otherSymbol, setOtherSymbol] = useState(pair);
+  const other = choices.find((t) => t.symbol === otherSymbol) ?? choices[0];
+  const isPair = other.symbol === pair;
   const [amount, setAmount] = useState("");
   const [slippage, setSlippage] = useState(LAUNCH.slippageBps);
   const [quote, setQuote] = useState<{ out: bigint; forAmount: bigint } | null>(
@@ -129,17 +168,19 @@ export function Trade({
   } | null>(null);
 
   const tokenIn: Address | null =
-    !LIVE || !c.infer ? null : side === "buy" ? pairToken : c.infer;
+    !LIVE || !c.infer ? null : side === "buy" ? other.address : c.infer;
   const tokenOut: Address | null =
-    !LIVE || !c.infer ? null : side === "buy" ? c.infer : pairToken;
-  const amountIn = parseAmount(amount, 18);
-  const symbolIn = side === "buy" ? pair : "INFER";
-  const symbolOut = side === "buy" ? "INFER" : pair;
+    !LIVE || !c.infer ? null : side === "buy" ? c.infer : other.address;
+  const decimalsIn = side === "buy" ? other.decimals : 18;
+  const decimalsOut = side === "buy" ? 18 : other.decimals;
+  const amountIn = parseAmount(amount, decimalsIn);
+  const symbolIn = side === "buy" ? other.symbol : "INFER";
+  const symbolOut = side === "buy" ? "INFER" : other.symbol;
   const sellTok: Token | null = tokenIn
-    ? { address: zeroXAddress(tokenIn), symbol: symbolIn, name: symbolIn, decimals: 18 }
+    ? { address: zeroXAddress(tokenIn), symbol: symbolIn, name: symbolIn, decimals: decimalsIn }
     : null;
   const buyTok: Token | null = tokenOut
-    ? { address: zeroXAddress(tokenOut), symbol: symbolOut, name: symbolOut, decimals: 18 }
+    ? { address: zeroXAddress(tokenOut), symbol: symbolOut, name: symbolOut, decimals: decimalsOut }
     : null;
 
   // The pool's price, read straight from the PoolManager's storage.
@@ -235,7 +276,7 @@ export function Trade({
   useEffect(() => {
     setQuote(null);
     setQuoteError(null);
-    if (!LIVE || !key || !tokenIn || amountIn === 0n) return;
+    if (!LIVE || !key || !tokenIn || !isPair || amountIn === 0n) return;
     const t = setTimeout(() => {
       client
         .readContract({
@@ -255,7 +296,7 @@ export function Trade({
         .catch((e) => setQuoteError(notice(message(e))));
     }, 250);
     return () => clearTimeout(t);
-  }, [amountIn, tokenIn, key, tick]);
+  }, [amountIn, tokenIn, isPair, key, tick]);
 
   // 0x's price for the typed amount, debounced like the pool quote.
   useEffect(() => {
@@ -278,7 +319,7 @@ export function Trade({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [amountIn, tokenIn, tokenOut, slippage, tick]);
 
-  const directOut = quote && quote.forAmount === amountIn ? quote.out : undefined;
+  const directOut = isPair && quote && quote.forAmount === amountIn ? quote.out : undefined;
   const zxOut = zx && zx.forAmount === amountIn && !zx.unavailable ? zx.buy : undefined;
   const route: Route | undefined = bestRoute(zxOut, directOut);
   const out = route === "0x" ? zxOut : route === "direct" ? directOut : undefined;
@@ -294,7 +335,7 @@ export function Trade({
   // The pay box's balance: the pair token (which exists before launch) on a buy, INFER on a sell.
   const balanceIn = useBalance(
     w.account,
-    side === "buy" ? pairToken : (c.infer ?? null),
+    side === "buy" ? other.address : (c.infer ?? null),
     tick,
   );
   const insufficient = typeof balanceIn === "bigint" && amountIn > balanceIn;
@@ -321,7 +362,7 @@ export function Trade({
     }
     const minOut = minReceived(BigInt(q.buyAmount!), slippage, q.minBuyAmount);
     if (minOut < minimumOut(out, slippage)) {
-      setQuoteError(notice(`The price moved: 0x now returns at least ${tokens(minOut, 4)} ${symbolOut}. Check the quote again.`));
+      setQuoteError(notice(`The price moved: 0x now returns at least ${tokens(minOut, 4, decimalsOut)} ${symbolOut}. Check the quote again.`));
       refresh();
       return;
     }
@@ -436,7 +477,7 @@ export function Trade({
 
   const quick =
     side === "buy"
-      ? (QUICK_BUY[pair] ?? []).map((v) => [`${v} ${pair}`, v] as const)
+      ? (QUICK_BUY[other.symbol] ?? []).map((v) => [`${v} ${other.symbol}`, v] as const)
       : bal && bal.infer > 0n
         ? ([25n, 50n, 100n] as const).map(
             (pc) =>
@@ -482,7 +523,7 @@ export function Trade({
               account={w.account}
               value={balanceIn}
               symbol={symbolIn}
-              decimals={18}
+              decimals={decimalsIn}
               onUse={setAmount}
             />
           </span>
@@ -495,7 +536,19 @@ export function Trade({
               disabled={!LIVE}
               aria-label={`Amount of ${symbolIn} to pay`}
             />
-            <b>{symbolIn}</b>
+            {side === "buy" && LIVE ? (
+              <TokenSelect
+              label="Token to pay with"
+              choices={choices}
+              value={other.symbol}
+              onChange={(v) => {
+                setOtherSymbol(v);
+                setAmount("");
+              }}
+            />
+            ) : (
+              <b>{symbolIn}</b>
+            )}
           </span>
         </div>
         <div className="infer-perforation" aria-hidden="true" />
@@ -504,14 +557,26 @@ export function Trade({
           <span className="infer-field-row">
             <output aria-live="polite" aria-label="You receive">
               {out !== undefined
-                ? tokens(out, 4)
+                ? tokens(out, 4, decimalsOut)
                 : amountIn === 0n
                   ? "0"
-                  : quoteError
+                  : quoteError || (!isPair && zx?.unavailable)
                     ? "no quote"
                     : "…"}
             </output>
-            <b>{symbolOut}</b>
+            {side === "sell" && LIVE ? (
+              <TokenSelect
+              label="Token to receive"
+              choices={choices}
+              value={other.symbol}
+              onChange={(v) => {
+                setOtherSymbol(v);
+                setAmount("");
+              }}
+            />
+            ) : (
+              <b>{symbolOut}</b>
+            )}
           </span>
         </div>
         {compact && quick.length > 0 && (
@@ -548,7 +613,7 @@ export function Trade({
               k="Minimum received"
               v={
                 minOutShown !== undefined
-                  ? `${tokens(minOutShown, 4)} ${symbolOut}`
+                  ? `${tokens(minOutShown, 4, decimalsOut)} ${symbolOut}`
                   : "—"
               }
             />

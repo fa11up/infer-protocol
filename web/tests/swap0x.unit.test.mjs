@@ -3,6 +3,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   ALLOWANCE_HOLDER,
+  tradeTokens,
+  zeroXAddress,
   ETH_ADDRESS,
   IMDUSD_ADDRESS,
   TOKENS,
@@ -168,4 +170,18 @@ test("approvals: exact, only to AllowanceHolder, none for ETH, and USDT's reset 
     { spender: ALLOWANCE_HOLDER, amount: 100n },
   ]);
   assert.throws(() => approvalsFor(usdc, 100n, { actual: "0", spender: "0x1111111111111111111111111111111111111111" }), /unexpected/);
+});
+
+test("tradeTokens: the pair first, then the common tokens, each with its own decimals", () => {
+  const imd = "0xD34a99Bc0f67aE1bbd63C660e6d0b0dd03E263B7";
+  const list = tradeTokens(imd, "IMD");
+  assert.equal(list[0].symbol, "IMD");
+  assert.equal(list.filter((t) => t.symbol === "IMD").length, 1, "the pair is listed once");
+  assert.ok(!list.some((t) => t.symbol === "INFER"));
+  const by = Object.fromEntries(list.map((t) => [t.symbol, t]));
+  assert.equal(by.USDC.decimals, 6);
+  assert.equal(by.USDT.decimals, 6);
+  assert.equal(by.WBTC.decimals, 8);
+  assert.equal(by.ETH.address, "0x0000000000000000000000000000000000000000");
+  assert.equal(zeroXAddress(by.ETH.address), ETH_ADDRESS);
 });

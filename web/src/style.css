@@ -3222,6 +3222,26 @@ button.balance-hint.balance-connect:hover {
   letter-spacing: 0.1em;
   text-transform: uppercase;
 }
+.infer-token {
+  flex: none;
+  align-self: center;
+  max-width: 96px;
+  appearance: auto;
+  -webkit-appearance: menulist;
+  padding: 3px 4px;
+  font: inherit;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid var(--rule);
+  border-radius: 0;
+  cursor: pointer;
+}
+.infer-token:focus-visible {
+  outline: 2px solid var(--text);
+  outline-offset: 1px;
+}
 .infer-lines {
   margin: 0;
   padding: 0;
