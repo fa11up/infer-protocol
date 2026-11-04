@@ -976,7 +976,6 @@ export function Balance({
   decimals,
   onUse,
   wallet,
-  hideWhenConnected = false,
 }: {
   account: Address | null;
   value: bigint | null | undefined;
@@ -986,8 +985,6 @@ export function Balance({
   /** With no account, the label ("disconnected") is the way to connect; on the /buy/ card before launch,
    * the only one. */
   wallet?: Wallet;
-  /** The /buy/ card's compact pane: the label is only the way in, so it goes once a wallet is connected. */
-  hideWhenConnected?: boolean;
 }) {
   if (!account)
     return wallet ? (
@@ -1003,7 +1000,6 @@ export function Balance({
     ) : (
       <span className="infer-bal">disconnected</span>
     );
-  if (hideWhenConnected) return null;
   if (value === undefined) return <span className="infer-bal">…</span>;
   if (value === null || value === 0n)
     return <span className="infer-bal">No {symbol}</span>;
