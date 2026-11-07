@@ -1,5 +1,5 @@
 // The INFER app: one screen, no scrolling. Trading on the left, staking on the right.
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { everyVisible, REFRESH_MS } from "./visible";
 import { formatUnits, type Address } from "viem";
 import { LAUNCH, LIVE, pct, whole } from "./config";
@@ -145,6 +145,9 @@ export function Trade({
     null,
   );
   const [quoteError, setQuoteError] = useState<Notice | null>(null);
+  // Why a press of the button sent nothing. Unlike a read quote's error it survives refreshes, until the trade changes.
+  const [goError, setGoError] = useState<Notice | null>(null);
+  const [preparing, setPreparing] = useState(false);
   // 0x's price for the same amount (Matcha's engine, asked through this site's /swap proxy): the pane trades on
   // whichever of 0x and the launch pool returns more, as the imdUSD terminal's trade box does. `unavailable`
   // (no key yet, or 0x down) just leaves the launch pool.
@@ -277,6 +280,7 @@ export function Trade({
     setQuote(null);
     setQuoteError(null);
     if (!LIVE || !key || !tokenIn || !isPair || amountIn === 0n) return;
+    let stale = false;
     const t = setTimeout(() => {
       client
         .readContract({
@@ -292,10 +296,14 @@ export function Trade({
             },
           ],
         })
-        .then(([out]) => setQuote({ out, forAmount: amountIn }))
-        .catch((e) => setQuoteError(notice(message(e))));
+        // A slower answer for an older amount or token must not land over the newer one.
+        .then(([out]) => !stale && setQuote({ out, forAmount: amountIn }))
+        .catch((e) => !stale && setQuoteError(notice(message(e))));
     }, 250);
-    return () => clearTimeout(t);
+    return () => {
+      stale = true;
+      clearTimeout(t);
+    };
   }, [amountIn, tokenIn, isPair, key, tick]);
 
   // 0x's price for the typed amount, debounced like the pool quote.
@@ -339,30 +347,44 @@ export function Trade({
     tick,
   );
   const insufficient = typeof balanceIn === "bigint" && amountIn > balanceIn;
+  // The trade as the form has it now, to tell whether it changed during a wait for the firm quote.
+  const tradeKey = `${tokenIn}|${tokenOut}|${amountIn}|${slippage}`;
+  const latestTrade = useRef(tradeKey);
+  latestTrade.current = tradeKey;
+  useEffect(() => setGoError(null), [tradeKey]);
 
   /** The 0x route: a firm quote for this wallet, checked, then one approval step or the swap itself. */
   async function goZeroX(account: Address, p: NonNullable<Wallet["provider"]>) {
     if (!sellTok || !buyTok || out === undefined) return;
+    const asked = tradeKey;
     const a = await askSwap("quote", swapQuery(sellTok, buyTok, amountIn, slippage, account));
+    if (latestTrade.current !== asked) {
+      setGoError(notice("You changed the trade while its quote was loading. Nothing was sent. Press the button again."));
+      return;
+    }
     if (!a.ok) {
-      setQuoteError(notice(a.error));
+      setGoError(notice(a.error));
       refresh();
       return;
     }
     const q = a.body;
     const tx = q.transaction;
     if (!tx || tx.to.toLowerCase() !== ALLOWANCE_HOLDER.toLowerCase() || !/^0x[0-9a-fA-F]+$/.test(tx.data)) {
-      setQuoteError(notice("0x returned a transaction for an unexpected contract. Nothing was sent."));
+      setGoError(notice("0x returned a transaction for an unexpected contract. Nothing was sent."));
       return;
     }
     const value = BigInt(tx.value ?? "0");
     if (tokenIn === NATIVE ? value !== amountIn : value !== 0n) {
-      setQuoteError(notice("0x's transaction would send a different amount of ETH than this trade. Nothing was sent."));
+      setGoError(notice("0x's transaction would send a different amount of ETH than this trade. Nothing was sent."));
+      return;
+    }
+    if (q.sellAmount !== undefined && BigInt(q.sellAmount) !== amountIn) {
+      setGoError(notice("0x quoted a different amount than this trade. Nothing was sent."));
       return;
     }
     const minOut = minReceived(BigInt(q.buyAmount!), slippage, q.minBuyAmount);
     if (minOut < minimumOut(out, slippage)) {
-      setQuoteError(notice(`The price moved: 0x now returns at least ${tokens(minOut, 4, decimalsOut)} ${symbolOut}. Check the quote again.`));
+      setGoError(notice(`The price moved: 0x now returns at least ${tokens(minOut, 4, decimalsOut)} ${symbolOut}. Check the quote again.`));
       refresh();
       return;
     }
@@ -384,13 +406,28 @@ export function Trade({
       );
       return;
     }
-    await send(side === "buy" ? "Buy INFER via Matcha/0x" : "Sell INFER via Matcha/0x", () =>
-      wallet(p).sendTransaction({ account, chain, to: tx.to, data: tx.data, value }),
-    );
-    setAmount("");
+    const sent = await send(side === "buy" ? "Buy INFER via Matcha/0x" : "Sell INFER via Matcha/0x", async () => {
+      await client.call({ account, to: tx.to, data: tx.data, value });
+      return wallet(p).sendTransaction({ account, chain, to: tx.to, data: tx.data, value });
+    });
+    if (sent) setAmount("");
   }
 
+  /** The button: one press at a time, and whatever stops it is said on the form. */
   async function go() {
+    if (preparing) return;
+    setGoError(null);
+    setPreparing(true);
+    try {
+      await goTrade();
+    } catch (e) {
+      setGoError(notice(message(e)));
+    } finally {
+      setPreparing(false);
+    }
+  }
+
+  async function goTrade() {
     if (!w.account || !key || !tokenIn || !tokenOut || out === undefined || amountIn === 0n) return;
     const account = w.account;
     const p = w.provider!;
@@ -439,7 +476,7 @@ export function Trade({
       amountIn,
       minOut,
     });
-    await send(side === "buy" ? "Buy INFER" : "Sell INFER", async () => {
+    const sent = await send(side === "buy" ? "Buy INFER" : "Sell INFER", async () => {
       const { request } = await client.simulateContract({
         account,
         address: LAUNCH.router.universalRouter,
@@ -450,11 +487,13 @@ export function Trade({
       });
       return wallet(p).writeContract(request);
     });
-    setAmount("");
+    if (sent) setAmount("");
   }
 
   const button = !LIVE
     ? "Trading opens at launch"
+    : preparing
+      ? "Getting a firm quote…"
     : !w.account
       ? "Connect a wallet to trade"
       : amountIn === 0n
@@ -667,6 +706,15 @@ export function Trade({
             {quoteError.text}
           </Vanishing>
         )}
+        {goError && (
+          <Vanishing
+            key={goError.id}
+            className="infer-warn"
+            onDone={() => setGoError(null)}
+          >
+            {goError.text}
+          </Vanishing>
+        )}
         {readError && (
           <Vanishing
             key={readError.id}
@@ -681,6 +729,7 @@ export function Trade({
           type="submit"
           disabled={
             !LIVE ||
+            preparing ||
             !w.account ||
             !bal ||
             amountIn === 0n ||
@@ -902,6 +951,7 @@ function Stake({
       infer = c.infer,
       vault = c.stakedInfer,
       p = w.provider!;
+    let sent = false;
     if (mode === "stake") {
       if (st.allowance < wei) {
         await send("Approve INFER", async () => {
@@ -916,7 +966,7 @@ function Stake({
         });
         return;
       }
-      await send("Stake", async () => {
+      sent = await send("Stake", async () => {
         const { request } = await client.simulateContract({
           account,
           address: vault,
@@ -930,7 +980,7 @@ function Stake({
       // The input is sINFER shares; the button is disabled while the one-block hold covers them.
       const shares = wei;
       if (shares === 0n || shares > st.maxRedeem) return;
-      await send("Unstake", async () => {
+      sent = await send("Unstake", async () => {
         const { request } = await client.simulateContract({
           account,
           address: vault,
@@ -941,7 +991,7 @@ function Stake({
         return wallet(p).writeContract(request);
       });
     }
-    setAmount("");
+    if (sent) setAmount("");
   }
 
   const button = !LIVE ? (

@@ -116,7 +116,9 @@ function MarkNotice({ s, actions, now }: { s?: Snapshot; actions: Actions; now: 
     <div className="notice notice-warn" role="alert">
       <p>
         <strong>
-          {open
+          {open && v.collateralRatio !== undefined && v.mat !== undefined && (v.collateralRatio as bigint) >= (v.mat as bigint)
+            ? "Your position is marked, but it is back above minCR, so it cannot be liquidated while it stays there."
+            : open
             ? "Your position can be liquidated now."
             : `Your position has been marked for liquidation. It can be liquidated in ${countdown(ends - now)} (${when}).`}
         </strong>
@@ -949,6 +951,11 @@ export function Keeper({
       setLoading(false);
     }
   };
+  // A confirmed transaction may be this keeper's bark or bite: read the position again rather than show the old mark.
+  useEffect(() => {
+    if (position?.owner) void inspect(position.owner);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [actions.confirmed]);
   // A pasted or typed address is inspected as soon as it is complete, as a loan-book click is.
   useEffect(() => {
     const a = owner.trim();

@@ -12,6 +12,7 @@ import {
   type Hex,
 } from "viem";
 import { encode } from "uqr";
+import { loadUnsettled, replacedText, saveUnsettled, settle, type Outcome, type Unsettled } from "../unsettled";
 import wcConfig from "./walletconnect.json";
 export { parseAmount } from "./amount";
 import { ThemeToggle } from "../theme";
@@ -280,11 +281,18 @@ export function useWallet(): Wallet {
       }));
     };
     const onChain = (c: unknown) => setW((s) => ({ ...s, chainId: Number(c) }));
+    // A WalletConnect session ended from the phone: the page is no longer connected.
+    const onGone = () => {
+      remember(null);
+      setW((s) => (s.provider === p ? { ...s, account: null, provider: null, walletLink: null } : s));
+    };
     p.on("accountsChanged", onAccounts);
     p.on("chainChanged", onChain);
+    p.on("session_delete", onGone);
     return () => {
       p.removeListener?.("accountsChanged", onAccounts);
       p.removeListener?.("chainChanged", onChain);
+      p.removeListener?.("session_delete", onGone);
     };
   }, [w.provider]);
 
@@ -302,6 +310,8 @@ export function useWallet(): Wallet {
         .then((m) => m.restore())
         .then((s) => {
           if (!s) return remember(null);
+          // The visitor chose a wallet while this was restoring: theirs wins.
+          if (attempt.current) return;
           wcDisconnect.current = s.disconnect;
           setW({
             account: s.account,
@@ -323,6 +333,7 @@ export function useWallet(): Wallet {
         const list = a as Address[];
         if (!list?.[0]) return;
         const c = Number(await o.provider.request({ method: "eth_chainId" }));
+        if (attempt.current) return;
         setW({
           account: getAddress(list[0]),
           chainId: c,
@@ -382,8 +393,10 @@ export function useWallet(): Wallet {
     } catch (e) {
       if (live()) setW((s) => ({ ...s, error: notice(message(e)) }));
     } finally {
-      if (live()) setBusy(false);
-      setPairing(null);
+      if (live()) {
+        setBusy(false);
+        setPairing(null);
+      }
     }
   }
 
@@ -589,43 +602,120 @@ export type Tx = {
   status: "idle" | "pending" | "mined" | "failed";
   detail?: string;
   hash?: Hex;
+  /** Sent, and the receipt has not come in the time it should have. */
+  slow?: boolean;
 };
 
+/** The one sent transaction whose result is not known yet. It outlives a page, because the transaction does too. */
+const HELD_KEY = "infer-unsettled";
+let held = loadUnsettled(HELD_KEY);
+let slow = false;
+let waiting: Promise<Outcome | undefined> | undefined;
+let giveUp: (() => void) | undefined;
+// The useTx that shows it: whichever sent it, or after a page change the first to mount.
+let shownBy: number | undefined;
+let txHooks = 0;
+const heldChanged = new Set<() => void>();
+const heldEnded = new Set<(label: string, o: Outcome | undefined) => void>();
+
+function setHeld(u: Unsettled | undefined) {
+  held = u;
+  saveUnsettled(HELD_KEY, u);
+}
+
+function watchHeld(): Promise<Outcome | undefined> {
+  if (waiting) return waiting;
+  const u = held;
+  if (!u?.hash) return Promise.resolve(undefined);
+  waiting = new Promise<Outcome | undefined>((resolve) => {
+    giveUp = () => resolve(undefined);
+    void (async () => {
+      for (;;) {
+        const o = await settle(client, u.hash!, 120_000);
+        if (held !== u) return;
+        if (o.kind !== "unknown") return resolve(o);
+        slow = true;
+        heldChanged.forEach((fn) => fn());
+        await new Promise((d) => setTimeout(d, 15_000));
+        if (held !== u) return;
+      }
+    })();
+  }).then((o) => {
+    setHeld(undefined);
+    slow = false;
+    waiting = undefined;
+    heldEnded.forEach((fn) => fn(u.label, o));
+    return o;
+  });
+  return waiting;
+}
+
 /**
- * Simulate, sign, wait for one receipt. Every action on these pages goes through here. A second
- * send while one is in flight is ignored, so two quick clicks cannot start two transactions. A
- * failure after the hash is known keeps the hash: the transaction may well have mined, and the
- * receipt link is how the user finds out before trying again.
+ * Simulate, sign, wait for one receipt. Every action on these pages goes through here, and send says
+ * whether it ran. A second send while one is in flight is ignored, so two quick clicks cannot start
+ * two transactions. Once a hash exists nothing else can be sent until that transaction has an end:
+ * a slow or failed receipt lookup is not a failure, because the transaction may well have mined. The
+ * page keeps asking, through a page change or a reload, until the receipt comes or the user gives up.
  */
 export function useTx(onMined: () => void) {
-  const [tx, setTx] = useState<Tx>({ id: 0, label: "", status: "idle" });
+  const [local, setTx] = useState<Tx>({ id: 0, label: "", status: "idle" });
+  const [, redraw] = useState(0);
   const inFlight = useRef(false);
-  async function send(label: string, run: () => Promise<Hex>) {
-    if (inFlight.current) return;
+  const self = useRef(0);
+  if (!self.current) self.current = ++txHooks;
+  const mined = useRef(onMined);
+  mined.current = onMined;
+  useEffect(() => {
+    const me = self.current;
+    const changed = () => redraw((n) => n + 1);
+    const ended = (label: string, o: Outcome | undefined) => {
+      if (shownBy === me) {
+        shownBy = undefined;
+        const id = ++noticeSeq;
+        if (!o) setTx({ id: 0, label: "", status: "idle" });
+        else if (o.kind === "mined") setTx({ id, label, status: "mined", hash: o.hash });
+        else if (o.kind === "reverted") setTx({ id, label, status: "failed", detail: "The transaction reverted.", hash: o.hash });
+        else setTx({ id, label, status: "failed", detail: replacedText("It", o.kind === "replaced" ? o.reason : "replaced"), hash: o.hash });
+      }
+      changed();
+      if (o?.kind === "mined") mined.current();
+    };
+    heldChanged.add(changed);
+    heldEnded.add(ended);
+    if (held) {
+      shownBy ??= me;
+      changed();
+      void watchHeld();
+    }
+    return () => {
+      heldChanged.delete(changed);
+      heldEnded.delete(ended);
+      if (shownBy === me) shownBy = undefined;
+    };
+  }, []);
+  async function send(label: string, run: () => Promise<Hex>): Promise<boolean> {
+    if (inFlight.current) return false;
+    if (held) {
+      setTx({
+        id: ++noticeSeq,
+        label,
+        status: "failed",
+        detail: `Nothing was sent: "${held.label}" has not settled yet.`,
+      });
+      return false;
+    }
     inFlight.current = true;
     const id = ++noticeSeq;
     setTx({ id, label, status: "pending" });
-    let hash: Hex | undefined;
     try {
-      hash = await run();
-      setTx({
-        id,
-        label,
-        status: "pending",
-        hash,
-        detail: "Waiting for the receipt…",
-      });
-      const receipt = await client.waitForTransactionReceipt({ hash });
-      if (receipt.status !== "success")
-        throw Error("The transaction reverted.");
-      setTx({ id, label, status: "mined", hash });
-      onMined();
+      const hash = await run();
+      setHeld({ hash, label, account: "", since: Date.now() });
+      shownBy = self.current;
+      redraw((n) => n + 1);
+      return (await watchHeld())?.kind === "mined";
     } catch (e) {
-      const detail =
-        hash && !/reverted/.test(message(e))
-          ? `could not confirm it: ${message(e)}`
-          : message(e);
-      setTx({ id, label, status: "failed", detail, hash });
+      setTx({ id, label, status: "failed", detail: message(e) });
+      return false;
     } finally {
       inFlight.current = false;
     }
@@ -634,7 +724,24 @@ export function useTx(onMined: () => void) {
     setTx((t) =>
       t.status === "failed" ? { id: 0, label: "", status: "idle" } : t,
     );
+  const tx: Tx =
+    held && shownBy === self.current
+      ? {
+          id: local.id,
+          label: held.label,
+          status: "pending",
+          hash: held.hash,
+          slow,
+          detail: slow ? "not confirmed yet. It may still land, so do not send it again" : "Waiting for the receipt…",
+        }
+      : local;
   return { tx, send, clear };
+}
+
+/** The user has looked in their wallet and the transaction is gone: stop waiting for it. */
+function stopWaiting() {
+  setHeld(undefined);
+  giveUp?.();
 }
 
 /** How long an error stays on screen before it swipes away. */
@@ -780,6 +887,14 @@ export function TxStatus({ tx, onDone }: { tx: Tx; onDone?: () => void }) {
           </a>
         </>
       )}
+      {tx.slow && (
+        <>
+          {" · "}
+          <button type="button" className="infer-small" onClick={stopWaiting}>
+            I checked my wallet: stop waiting
+          </button>
+        </>
+      )}
     </p>
   );
 }
@@ -900,6 +1015,9 @@ export function Line({
 
 // ------------------------------------------------------------------ balances
 
+/** ETH that Max leaves in the wallet, so the trade can still pay its gas. */
+const GAS_KEPT = 3n * 10n ** 15n;
+
 /**
  * The connected account's balance of each token: a bigint once read, `undefined` while reading or
  * with no account, `null` when the token does not exist yet (its address is unset before launch).
@@ -1008,7 +1126,7 @@ export function Balance({
       type="button"
       className="infer-bal infer-bal-use"
       title={`Use the whole balance: ${formatUnits(value, decimals)} ${symbol}`}
-      onClick={() => onUse(formatUnits(value, decimals))}
+      onClick={() => onUse(formatUnits(symbol === "ETH" ? (value > GAS_KEPT ? value - GAS_KEPT : 0n) : value, decimals))}
     >
       Max {tokens(value, 4, decimals)} {symbol}
     </button>

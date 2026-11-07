@@ -228,6 +228,8 @@ export function LpWindow({
   const [error, setError] = useState("");
   const [finished, setFinished] = useState("");
   const me = actions.account;
+  // Another account's positions are not this one's: a deposit must never add to them.
+  useEffect(() => setPositions(undefined), [me]);
   const busy = !!actions.busy;
   const working = actions.busy === "lp";
   const atomic = actions.atomic;
@@ -306,11 +308,19 @@ export function LpWindow({
           const held = sqrtP ? amountsForLiquidity(sqrtP, sqrtA, sqrtB, liquidity) : { amount0: 0n, amount1: 0n };
           const fees = feesOwed(liquidity, inside, [last0, last1]);
           return { id, liquidity, imdusd: held.amount0, usdc: held.amount1, feeImdusd: fees.imdusd, feeUsdc: fees.usdc, tickLower, tickUpper };
-        } catch {
-          return undefined; // Burned, or not a position: skip it.
+        } catch (e) {
+          // Burned, or not a position: the contract says no, so skip it. A read that failed says nothing, and hiding
+          // the position would send a deposit to a new one instead of adding to it.
+          if (/reverted|returned no data/i.test(message(e))) return undefined;
+          throw e;
         }
       }),
-    );
+    ).catch((e) => {
+      setPositions(undefined);
+      setScan(`Your positions could not be read: ${message(e)} Try again in a moment.`);
+      return undefined;
+    });
+    if (!found) return undefined;
     const list = found.filter((p): p is Position => !!p);
     setPositions(list);
     setScan(note);
@@ -358,7 +368,7 @@ export function LpWindow({
   );
   const reader = (t: Token) => (t.custom ? open : r.client);
   const sellAmount = useMemo(() => parseAmount(sellText, sellT.decimals), [sellText, sellT]);
-  const key = `${sellT.address}:${buyT.address}:${sellAmount ?? ""}:${slip}`;
+  const key = `${me ?? ""}:${sellT.address}:${buyT.address}:${sellAmount ?? ""}:${slip}`;
   const peg = isPegPair(sellT.address, buyT.address);
   const pegSide: TradeSide = same(sellT.address, IMDUSD) ? "sell" : "buy";
 
@@ -547,7 +557,9 @@ export function LpWindow({
       const fit = fitToBalances(now, heldImdusd, heldUsdc);
       if (!fit) throw Error("This deposit needs more than the wallet holds now. The balances are updated: lower the amount.");
       // Same range already held: add to that position (the largest, if several) instead of minting another NFT.
-      const held = (positions ?? (await readPositions()) ?? []).filter(
+      const mine = positions ?? (await readPositions());
+      if (!mine) throw Error("Your positions could not be read, so this could open a new position instead of adding to yours. Nothing was sent. Try again.");
+      const held = mine.filter(
         (p) => p.tickLower === fit.tickLower && p.tickUpper === fit.tickUpper && p.liquidity > 0n,
       );
       const into = held.sort((a, b) => (a.liquidity > b.liquidity ? -1 : 1))[0];

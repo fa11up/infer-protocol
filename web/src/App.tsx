@@ -34,8 +34,11 @@ import { LoanBook, useCharts } from "./Charts";
 import { Points, usePoints } from "./Points";
 import { Ticker } from "./motion";
 import { MarketCap, compact } from "./MarketCap";
+import { OutcomeUnknown, loadUnsettled, replacedText, saveUnsettled, settle, unknownText, type Unsettled } from "./unsettled";
 /** The terminal remembers a disconnect, so a reload does not silently reconnect the wallet. */
 const DISCONNECTED_KEY = "comp-terminal-disconnected";
+/** A transaction sent from here whose result is not known yet: it blocks further sends from that account. */
+const UNSETTLED_KEY = "comp-terminal-unsettled";
 function disconnectedHere(): boolean {
   try {
     return localStorage.getItem(DISCONNECTED_KEY) === "1";
@@ -111,6 +114,13 @@ function Terminal({ r }: { r: Runtime }) {
   const [tx, setTx] = useState<{ status: string; hash?: Hash; error?: string }>(
     { status: "No transaction submitted." },
   );
+  const [unsettled, setUnsettled] = useState(() => loadUnsettled(UNSETTLED_KEY));
+  const unsettledRef = useRef(unsettled);
+  // What to do if the transaction we are unsure of turns out to have landed: count its step.
+  const landed = useRef<(() => void) | undefined>(undefined);
+  // Bumped when a transaction confirms, so a pane can drop a quote or re-read a position it acted on.
+  const [confirmed, setConfirmed] = useState(0);
+  const [confirmedId, setConfirmedId] = useState<string>();
   const [now, setNow] = useState(BigInt(Math.floor(Date.now() / 1000)));
   const [mobilePane, setMobilePane] = useState("loans");
   const [desk, setDesk] = useState("position");
@@ -176,7 +186,7 @@ function Terminal({ r }: { r: Runtime }) {
     setRefreshing(true);
     try {
       const next = await snapshot(r, account);
-      if (id === serial.current) {
+      if (id === serial.current && accountRef.current === account) {
         // A read that failed this round (it is named in `errors`) keeps the value the last snapshot had, so
         // one slow RPC answer no longer blanks a figure for a refresh. Actions stay locked while `errors` is
         // non-empty, so nothing is ever sent against a carried-over value.
@@ -264,6 +274,51 @@ function Terminal({ r }: { r: Runtime }) {
     if (review) openModal(dialog.current, opener.current as HTMLElement | null);
     if (!review && dialog.current?.open) dialog.current.close();
   }, [review]);
+  function holdUnsettled(u: Unsettled | undefined, onLanded?: () => void) {
+    unsettledRef.current = u;
+    landed.current = onLanded;
+    setUnsettled(u);
+    saveUnsettled(UNSETTLED_KEY, u);
+  }
+  // Keeps asking about a transaction whose result was not known when the send gave up on it.
+  useEffect(() => {
+    if (!unsettled) return;
+    let live = true;
+    const label = unsettled.label;
+    void (async () => {
+      while (live) {
+        let end: { ok: boolean; hash?: Hash; error?: string } | undefined;
+        if (unsettled.hash) {
+          const o = await settle(r.client, unsettled.hash, 60000);
+          if (o.kind === "mined") end = { ok: true, hash: o.hash };
+          else if (o.kind === "reverted") end = { ok: false, hash: o.hash, error: `${label} reverted on chain.` };
+          else if (o.kind === "replaced") end = { ok: false, hash: o.hash, error: replacedText(label, o.reason) };
+        } else if (window.ethereum) {
+          const w = await wallet(r, window.ethereum);
+          const c = await w.getCallsStatus({ id: unsettled.batchId! }).catch(() => undefined);
+          const hash = c?.receipts?.[c.receipts.length - 1]?.transactionHash;
+          if (c?.status === "success") end = { ok: true, hash };
+          else if (c?.status === "failure") end = { ok: false, hash, error: `${label} did not go through. It is all or nothing, so none of its steps were applied.` };
+        }
+        if (!live) return;
+        if (end) {
+          if (end.ok) {
+            landed.current?.();
+            setConfirmed((n) => n + 1);
+          }
+          holdUnsettled(undefined);
+          setTx(end.ok ? { status: `${label}: confirmed on chain.`, hash: end.hash } : { status: "Action stopped.", error: end.error, hash: end.hash });
+          void refresh();
+          return;
+        }
+        await new Promise((d) => setTimeout(d, 15000));
+      }
+    })();
+    return () => {
+      live = false;
+    };
+  }, [unsettled, r, refresh]);
+  const holding = !!unsettled && unsettled.account.toLowerCase() === account?.toLowerCase();
   const correctChain = chainId === r.config.chainId;
   const recent = s && Date.now() - s.loadedAt < 45000;
   const ready =
@@ -272,11 +327,14 @@ function Terminal({ r }: { r: Runtime }) {
     !!s?.verified &&
     !!recent &&
     !readError &&
-    s.errors.length === 0;
+    s.errors.length === 0 &&
+    !holding;
   const reason = !account
     ? "Connect a wallet to use this control."
     : !correctChain
       ? `Switch to ${r.config.network.name} to continue.`
+      : holding
+        ? `Waiting to learn what became of "${unsettled!.label}". Nothing else can be sent from this wallet until then.`
       : !s
         ? "Waiting for verified contract state."
         : !recent
@@ -287,7 +345,6 @@ function Terminal({ r }: { r: Runtime }) {
   async function connect() {
     setConnecting(true);
     setWalletError("");
-    rememberDisconnected(false);
     try {
       const p = window.ethereum;
       if (!p)
@@ -295,6 +352,8 @@ function Terminal({ r }: { r: Runtime }) {
           "No browser wallet found. Install an Ethereum wallet extension, then reload.",
         );
       const a = await p.request({ method: "eth_requestAccounts" });
+      // Only a connection that happened forgets the disconnect: a refused one keeps the page disconnected.
+      rememberDisconnected(false);
       setAccount(a[0] as Address);
       setChainId(Number(await p.request({ method: "eth_chainId" })));
     } catch (e) {
@@ -332,6 +391,8 @@ function Terminal({ r }: { r: Runtime }) {
   async function guard(p: EIP1193Provider) {
     if (!ready || !account)
       throw Error(reason || "Fresh verified state is required.");
+    if (unsettledRef.current?.account.toLowerCase() === account.toLowerCase())
+      throw Error("An earlier transaction has not settled yet. Nothing was sent.");
     const [accounts, chain] = await Promise.all([
       p.request({ method: "eth_accounts" }),
       p.request({ method: "eth_chainId" }),
@@ -397,6 +458,7 @@ function Terminal({ r }: { r: Runtime }) {
         return await sendCalls(calls, batch, onStep);
       } catch (e) {
         setTx((old) => ({ ...old, status: "Action stopped.", error: message(e) }));
+        void refresh();
         throw e;
       } finally {
         locked.current = false;
@@ -404,7 +466,21 @@ function Terminal({ r }: { r: Runtime }) {
       }
     },
     atomic,
+    confirmed,
+    confirmedId,
   };
+  /** Waits for a sent transaction. Only "it ran" returns; anything else stops whatever was to follow it. */
+  async function confirm(hash: Hash, label: string, onLanded?: () => void): Promise<Hash> {
+    const o = await settle(r.client, hash, 120000);
+    if (o.kind === "unknown") {
+      holdUnsettled({ hash, label, account: account!, since: Date.now() }, onLanded);
+      throw new OutcomeUnknown(unknownText(label));
+    }
+    if (o.kind === "replaced") throw Error(`${replacedText(label, o.reason)} Nothing after it was sent.`);
+    if (o.kind === "reverted") throw Error(`${label} reverted on chain.`);
+    onLanded?.();
+    return o.hash;
+  }
   function simulateCall(c: Call) {
     return r.client
       .simulateContract({ ...c.target, functionName: onChain(c.fn), args: onChainArgs(c.args), account })
@@ -438,7 +514,8 @@ function Terminal({ r }: { r: Runtime }) {
     }
   }
 
-  async function sendCalls(calls: Call[], batch: boolean, onStep?: (done: number) => void): Promise<Hash | undefined> {
+  /** `from` skips the steps that have already landed, when a review is carried on after a stop. */
+  async function sendCalls(calls: Call[], batch: boolean, onStep?: (done: number) => void, from = 0): Promise<Hash | undefined> {
     const p = window.ethereum;
     if (!p) throw Error("Connect a browser wallet.");
     // Ask for the accounts first, every time. A locked MetaMask can still look connected to the page (the account it
@@ -454,15 +531,16 @@ function Terminal({ r }: { r: Runtime }) {
     if (batch) {
       // Later calls depend on earlier ones (the swap spends what the borrow mints, the deposit what the approval
       // allows), so only the first can be simulated alone; the wallet's own simulation of the batch covers the rest.
-      await simulateAny(calls[0]);
-      setTx({ status: `Confirm ${calls.length} steps in your wallet: one signature, all or nothing.` });
+      const rest = calls.slice(from);
+      await simulateAny(rest[0]);
+      setTx({ status: `Confirm ${rest.length} steps in your wallet: one signature, all or nothing.` });
       let batchId: string;
       try {
         ({ id: batchId } = await reconnectOnce(p, () => w.sendCalls({
           account: account!,
           chain: r.chain,
           forceAtomic: true,
-          calls: calls.map((c) => ({
+          calls: rest.map((c) => ({
             to: c.target.address,
             data: c.data ?? encodeFunctionData({ abi: c.target.abi, functionName: onChain(c.fn), args: onChainArgs(c.args) }),
             ...(c.value ? { value: c.value } : {}),
@@ -473,7 +551,11 @@ function Terminal({ r }: { r: Runtime }) {
         throw e;
       }
       setTx({ status: "Submitted. Waiting for on-chain confirmation…" });
-      const result = await w.waitForCallsStatus({ id: batchId, timeout: 180_000 });
+      const label = `This batch of ${rest.length} steps`;
+      const result = await w.waitForCallsStatus({ id: batchId, timeout: 180_000 }).catch(() => {
+        holdUnsettled({ batchId, label, account: account!, since: Date.now() }, () => onStep?.(calls.length));
+        throw new OutcomeUnknown(unknownText(label));
+      });
       const hash = result.receipts?.[result.receipts.length - 1]?.transactionHash;
       if (result.status !== "success")
         throw Error("The batch did not go through. It is all or nothing, so none of its steps were applied.");
@@ -482,6 +564,7 @@ function Terminal({ r }: { r: Runtime }) {
       setTx({ status: "Confirmed. Refreshing balances and state…", hash });
     } else {
       for (const [i, c] of calls.entries()) {
+        if (i < from) continue;
         await guard(p);
         const simulation = c.data ? undefined : await simulateCall(c);
         if (c.data) await simulateRaw(c as Call & { data: Hex });
@@ -493,20 +576,26 @@ function Terminal({ r }: { r: Runtime }) {
             : w.sendTransaction({ account: account!, chain: r.chain, to: c.target.address, data: c.data, value: c.value }),
         );
         setTx({ status: `Step ${i + 1} of ${calls.length} submitted. Waiting for confirmation…`, hash });
-        const receipt = await r.client.waitForTransactionReceipt({ hash, confirmations: 1, timeout: 120000 });
-        if (receipt.status !== "success")
-          throw Error(`Step ${i + 1} (${c.label}) reverted on chain. The steps before it stand.`);
-        last = hash;
-        onStep?.(i + 1);
+        last = await confirm(hash, `Step ${i + 1} (${c.label})`, () => onStep?.(i + 1));
       }
     }
+    setConfirmed((n) => n + 1);
     await refresh();
+    refreshAgain();
     setTx((old) => ({ ...old, status: "Confirmed on chain." }));
     return last;
   }
+  /** /rpc keeps an answer for up to 12 s, so the read right after a receipt can predate it: read once more after that. */
+  function refreshAgain() {
+    setTimeout(() => void refresh(), 13000);
+  }
   function cancelReview() {
     setReview(undefined);
-    setTx({ status: "Review cancelled. Nothing was sent." });
+    setTx({
+      status: stepsDone
+        ? `Review closed. The ${stepsDone === 1 ? "step" : `${stepsDone} steps`} already confirmed still stand; the rest were not sent.`
+        : "Review cancelled. Nothing was sent.",
+    });
   }
   async function submit() {
     if (!review || locked.current) return;
@@ -524,8 +613,8 @@ function Terminal({ r }: { r: Runtime }) {
           ...request.before,
           { target: request.target, fn: request.fn, args: request.args, label: request.label ?? request.fn },
         ];
-        setStepsDone(0);
-        await sendCalls(calls, !!atomic, setStepsDone);
+        await sendCalls(calls, !!atomic, setStepsDone, stepsDone);
+        setConfirmedId(id);
         setReview(undefined);
         return;
       }
@@ -553,22 +642,20 @@ function Terminal({ r }: { r: Runtime }) {
       });
       setTx({ status: "Submitted. Waiting for on-chain confirmation…", hash });
       setReview(undefined);
-      const receipt = await r.client.waitForTransactionReceipt({
-        hash,
-        confirmations: 1,
-        timeout: 120000,
-      });
-      if (receipt.status !== "success")
-        throw Error("Transaction reverted on chain. No changes were applied.");
-      setTx({ status: "Confirmed. Refreshing balances and state…", hash });
+      const landedHash = await confirm(hash, request.label ?? "This transaction");
+      setConfirmedId(id);
+      setConfirmed((n) => n + 1);
+      setTx({ status: "Confirmed. Refreshing balances and state…", hash: landedHash });
       await refresh();
-      setTx({ status: "Confirmed on chain.", hash });
+      refreshAgain();
+      setTx({ status: "Confirmed on chain.", hash: landedHash });
     } catch (e) {
       setTx((old) => ({
         ...old,
         status: "Action stopped.",
         error: message(e),
       }));
+      void refresh();
     } finally {
       locked.current = false;
       setBusy("");
@@ -833,6 +920,24 @@ function Terminal({ r }: { r: Runtime }) {
                 View transaction ↗
               </a>
             )}
+            {unsettled && (
+              <span>
+                {" "}
+                {unsettled.label}: result not known yet, still checking.{" "}
+                {unsettled.hash && (
+                  <a
+                    href={`${r.config.network.explorer}/tx/${unsettled.hash}`}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    View it ↗
+                  </a>
+                )}{" "}
+                <button type="button" onClick={() => holdUnsettled(undefined)}>
+                  I checked my wallet: stop waiting
+                </button>
+              </span>
+            )}
           </div>
           <div className="footer-meta">
             <span>imdUSD / v.12</span>
@@ -907,7 +1012,7 @@ function Terminal({ r }: { r: Runtime }) {
                 disabled={!!busy || !ready}
                 onClick={() => void submit()}
               >
-                {busy ? "Processing…" : "Confirm in wallet"}
+                {busy ? "Processing…" : stepsDone ? `Continue from step ${stepsDone + 1}` : "Confirm in wallet"}
               </button>
             </div>
           </>

@@ -131,6 +131,15 @@ test("rule 4: pending that the data cannot vest yet is reported, not counted", (
   assert.equal(row(r, A)!.lpPending, bandDepth(L) * 3n * BigInt(DAY / 2));
 });
 
+test("rule 4: events past the data horizon change nothing, so the result does not depend on when it is run", () => {
+  const evs = () => [price(PEG, 0), owner("p", A, 10 * DAY - 60), liq("p", LO, HI, L, 10 * DAY - 60), tx(ZERO, B, 1, 5)];
+  const at = season(10 * DAY, { dataThroughBlock: 10 * DAY });
+  const now = computeSeason1(evs(), at);
+  const later = computeSeason1([...evs(), tx(ZERO, B, 1, 70 * DAY), liq("p", LO, HI, L, 70 * DAY + 1)], at);
+  assert.equal(row(now, A)!.points, 0n);
+  assert.deepEqual(later.accounts, now.accounts);
+});
+
 test("rule 4: adding more restarts the window for what is pending", () => {
   const evs = [price(PEG, 0), liq("p", LO, HI, L, 0), owner("p", A, 0), liq("p", LO, HI, L, DAY - 1), liq("p", LO, HI, -L, DAY + 10)];
   const r = computeSeason1(evs, season(3 * DAY));

@@ -160,6 +160,9 @@ const season = {
   dataThroughBlock: through,
   netDebt: args.includes("--net-debt"),
   excluded: [vault!, chain.poolManager, ...contracts],
+  // Closed once the data reaches a given end block (as web/src/Points.tsx once the season has ended): nothing accrues
+  // past it, so no per-day rate. Without --end the end is the head and the season is still running.
+  closed: opt("end") !== undefined && through >= endBlock,
 };
 const r = computeSeason1(events, season);
 const d = (x: bigint) => display(x, chain.blocksPerDay);

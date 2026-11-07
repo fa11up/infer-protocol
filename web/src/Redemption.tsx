@@ -75,7 +75,7 @@ export function Redemption({
   useEffect(() => {
     version.current++;
     setQ(undefined);
-  }, [input, candidate, slippage, actions.account]);
+  }, [input, candidate, slippage, actions.account, actions.confirmed]);
   // A quote stays through refreshes (it names its block, and submitting simulates again against the minimum
   // it carries); clearing it every 15 s made it vanish while it was being read.
   useEffect(() => {

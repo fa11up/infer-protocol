@@ -3,7 +3,7 @@ import { ORACLE_OUTAGE, outageHold } from "./outage";
 import type { Runtime } from "./config";
 import type { Snapshot } from "./state";
 import { Action, Info, type Actions } from "./actions";
-import { exact, fmt } from "./math";
+import { exact, fmt, message } from "./math";
 
 // Buying a price update through the protocol's OracleAsker. The asker pays IdentityMD's on-chain Intake and
 // delivers the answer through SwarmRelay; the feed checks it like any other attestation. When the asker's own
@@ -104,7 +104,11 @@ export async function readAsker(
       if (ready[name] && !inFlight[name])
         free[name] = await r.client
           .simulateContract({ ...at, functionName: "ask", args: [feed, body], blockNumber })
-          .then(() => true, () => false);
+          // Only the asker refusing means the Treasury will not pay; a failed read is not a reason to charge the wallet.
+          .then(() => true, (e) => {
+            if (/revert/i.test(message(e))) return false;
+            throw e;
+          });
     }),
   );
   const state: AskerState = { price, payToken, ready, inFlight, orderedAt, reopensAt, answered, free, held };

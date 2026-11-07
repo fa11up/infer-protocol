@@ -185,6 +185,7 @@ export function softSite(site: Site) {
     try {
       [doc, Page] = await Promise.all([html(url), code(route)]);
     } catch {
+      if (mine !== seq) return; // a later click won: its page, not this one
       return hard();
     }
     pages.delete(url.pathname); // used: the next visit asks again

@@ -1643,6 +1643,72 @@ try {
     passed(
       "Withdrawals parse sIMD at 24 decimals; receiving IMD redeems on the staking vault to this wallet; no test faucet",
     );
+    // A review that stops partway carries on from the next step: a second free() would withdraw twice.
+    const frees = () => s.sent.filter((x) => x.functionName === "withdrawCollateral").length;
+    const redeems = () => s.sent.filter((x) => x.functionName === "redeem").length;
+    const [freesBefore, redeemsBefore] = [frees(), redeems()];
+    await page.evaluate(() => {
+      const real = window.__sendFixture;
+      let n = 0;
+      window.__sendFixture = (tx) => {
+        if (n++ === 1) throw { code: -32000, message: "the node dropped it" };
+        return real(tx);
+      };
+    });
+    await pos.getByLabel("Withdraw sIMD", { exact: true }).fill("1");
+    await review(page, "Review withdrawal to IMD");
+    const dialog = page.locator("dialog");
+    await dialog.getByRole("button", { name: "Confirm in wallet" }).click();
+    await dialog.getByRole("button", { name: "Continue from step 2" }).waitFor();
+    assert.equal(frees(), freesBefore + 1, "the first step landed");
+    assert.equal(redeems(), redeemsBefore, "the second did not");
+    await dialog.getByRole("button", { name: "Continue from step 2" }).click();
+    await expectText(page.locator("footer"), "Confirmed on chain.");
+    assert.equal(frees(), freesBefore + 1, "retrying did not send the first step again");
+    assert.equal(redeems(), redeemsBefore + 1);
+    passed("A multi-step review that stops carries on from the next step and never repeats one that landed");
+    // A sent transaction whose receipt cannot be read is neither failed nor done, and blocks a second send.
+    let receiptsDown = true;
+    await page.route(/^https:\/\//, async (route) => {
+      const body = route.request().postData() ?? "";
+      if (receiptsDown && body.includes("eth_getTransactionReceipt")) {
+        const q = JSON.parse(body);
+        await route.fulfill({ json: { jsonrpc: "2.0", id: q.id, error: { code: -32000, message: "node is syncing" } } });
+      } else await route.fallback();
+    });
+    await pos.getByRole("group", { name: "Receive" }).getByRole("button", { name: "Receive sIMD", exact: true }).click();
+    await pos.getByLabel("Withdraw sIMD", { exact: true }).fill("1");
+    await review(page, "Review withdrawal");
+    await dialog.getByRole("button", { name: "Confirm in wallet" }).click();
+    const footer = page.locator("footer");
+    // The wait for a receipt gives up after two minutes.
+    await footer.getByText("result not known yet").first().waitFor({ timeout: 130000 });
+    assert.ok(!/nothing was sent/i.test(await footer.innerText()), "it must not say nothing was sent");
+    await pos.getByLabel("Withdraw sIMD", { exact: true }).fill("1");
+    assert.equal(await pos.getByRole("button", { name: "Review withdrawal", exact: true }).isDisabled(), true, "no second send while it is unknown");
+    // ...across a reload too.
+    await page.reload();
+    await page.getByRole("button", { name: "Refresh state", exact: true }).waitFor();
+    await expectText(footer, "result not known yet");
+    // Once the receipt can be read, it ends on its own and sending is open again.
+    receiptsDown = false;
+    await footer.getByText("confirmed on chain").first().waitFor({ timeout: 90000 });
+    assert.equal(await footer.getByText("result not known yet").count(), 0);
+    passed("A send with no readable receipt holds further sends, survives a reload, and settles itself when the receipt comes");
+    // The user can give up on one: wallets drop transactions.
+    receiptsDown = true;
+    await connect(page);
+    await tab(page, "position");
+    await pos.getByRole("button", { name: "Withdraw", exact: true }).click();
+    await pos.getByRole("group", { name: "Receive" }).getByRole("button", { name: "Receive sIMD", exact: true }).click();
+    await pos.getByLabel("Withdraw sIMD", { exact: true }).fill("1");
+    await review(page, "Review withdrawal");
+    await dialog.getByRole("button", { name: "Confirm in wallet" }).click();
+    await footer.getByText("result not known yet").first().waitFor({ timeout: 130000 });
+    await footer.getByRole("button", { name: /stop waiting/ }).click();
+    assert.equal(await footer.getByText("result not known yet").count(), 0);
+    await page.unroute(/^https:\/\//);
+    passed("A held send can be given up on by hand");
     await tab(page, "redemption");
     await expectText(page.locator(".pane-redemption"), "sIMD");
     passed("The redemption desk speaks sIMD for the reserve and the payout");

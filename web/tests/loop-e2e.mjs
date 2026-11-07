@@ -157,7 +157,7 @@ const passed = (name) => (results.push(name), console.log("PASS", name));
 /** A browser wallet that really signs through the fork. With `batch`, it also answers EIP-5792. */
 async function open(account, { batch = false } = {}) {
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
-  const forked = ["ethereum-rpc.publicnode.com", "eth.drpc.org", "rpc.mevblocker.io", "eth-mainnet.public.blastapi.io"];
+  const forked = ["ethereum-rpc.publicnode.com", "eth.drpc.org", "rpc.mevblocker.io", "eth-mainnet.public.blastapi.io", "gateway.tenderly.co", "eth.api.pocket.network"];
   await context.route(/^https:\/\//, async (route) => {
     const req = route.request();
     const host = new URL(req.url()).host;
@@ -202,7 +202,11 @@ async function open(account, { batch = false } = {}) {
           if (method === "eth_accounts") return connected ? [account] : [];
           if (method === "eth_requestAccounts") return (connected = true), [account];
           if (method === "eth_chainId") return "0x1";
-          if (method === "eth_sendTransaction") return forward(method, [{ ...params[0], from: account }]);
+          if (method === "eth_sendTransaction") {
+            // __failSends: let this many through, then refuse one, as a wallet or node might mid-round.
+            if (window.__failSends !== undefined && window.__failSends-- === 0) throw { code: -32000, message: "the node dropped it" };
+            return forward(method, [{ gas: "0x2dc6c0", ...params[0], from: account }]);
+          }
           if (method === "wallet_getCapabilities") {
             if (!batch) throw Object.assign(Error("Method not supported"), { code: 4200 });
             return { "0x1": { atomic: { status: "supported" } } };
@@ -215,7 +219,7 @@ async function open(account, { batch = false } = {}) {
             batches[bid] = (async () => {
               const receipts = [];
               for (const c of params[0].calls) {
-                const hash = await forward("eth_sendTransaction", [{ from: account, to: c.to, data: c.data, value: c.value }]);
+                const hash = await forward("eth_sendTransaction", [{ gas: "0x2dc6c0", from: account, to: c.to, data: c.data, value: c.value }]);
                 const r = await receipt(hash);
                 receipts.push(r);
                 if (r.status !== "0x1") break;
@@ -297,7 +301,12 @@ try {
   if (pegNow < 0.9975) {
     await page.getByRole("button", { name: "Loop leverage ↗" }).click();
     const dialog = page.locator("dialog.loop-dialog[open]");
-    await dialog.getByRole("button", { name: "1.5×", exact: true }).click();
+    await dialog.getByRole("button", { name: "1.5×", exact: true }).click({ timeout: 120_000 });
+    await dialog.locator(".loop-plan").waitFor({ timeout: 40_000 }).catch(async (e) => {
+      throw Error(`no plan; the window read: ${(await dialog.innerText()).replace(/\s+/g, " ")}`, { cause: e });
+    });
+    // Only a route through the peg pool sells imdUSD there: when the direct pool pays more, there is no loss to accept.
+    if (await dialog.getByText("Via USDC and ETH").count()) {
     await dialog.locator(".loop-check input").waitFor({ timeout: 120_000 });
     assert.ok(await dialog.locator("button.primary").isDisabled(), "the button waits for the acceptance");
     assert.match(await dialog.locator(".loop-check").innerText(), /trades at \$0\.\d{4} on the pool/);
@@ -312,6 +321,7 @@ try {
       await arbitrage(1_000n * 10n ** 6n);
     }
     await freshFeeds();
+    }
     await dialog.getByRole("button", { name: "Close", exact: true }).click();
     await page.getByRole("button", { name: "Refresh state", exact: true }).click();
   }
@@ -329,6 +339,47 @@ try {
   after = await position(a);
   assert.ok(after.debt < E18, `debt left ${after.debt}`);
   passed(`unwound: debt left ${(Number(after.debt) / 1e18).toFixed(4)} imdUSD`);
+
+  // ---- A round that stops after its borrow: finish it, rather than borrow again -------------------------------
+  await freshFeeds();
+  const c = await borrower(100n * E18);
+  const { page: halfPage } = await open(c);
+  await halfPage.getByRole("button", { name: "Loop leverage ↗" }).click();
+  const halfDialog = halfPage.locator("dialog.loop-dialog[open]");
+  await halfDialog.getByRole("button", { name: "1.5×", exact: true }).click();
+  await halfDialog.locator(".loop-plan").waitFor({ timeout: 120_000 });
+  if (await halfDialog.locator(".loop-check input").count()) await halfDialog.locator(".loop-check input").check();
+  await halfPage.evaluate(() => (window.__failSends = 1));
+  await halfDialog.locator("button.primary").last().click();
+  const stopped = halfDialog.locator(".loop-half");
+  await stopped.waitFor({ timeout: 120_000 });
+  assert.match(await stopped.innerText(), /still in your wallet/);
+  const mid = await position(c);
+  assert.ok(mid.debt > 0n && mid.imdusd > 0n, "the borrow landed and its imdUSD is in the wallet");
+  assert.ok(await halfDialog.locator("button.primary").last().isDisabled(), "a new run cannot borrow again");
+  // It survives closing the window.
+  await halfDialog.getByRole("button", { name: "Close", exact: true }).click();
+  await halfPage.getByRole("button", { name: "Loop leverage ↗" }).click();
+  await stopped.waitFor();
+  await freshFeeds();
+  await halfDialog.getByRole("button", { name: "Finish this round" }).click();
+  // With imdUSD under the peg floor, finishing asks for the loss to be accepted, in the same place.
+  await until("the round finished", async () => {
+    const ask = stopped.locator(".loop-check input");
+    if ((await ask.count()) && !(await ask.isChecked())) {
+      await ask.check();
+      await halfDialog.getByRole("button", { name: "Finish this round" }).click();
+    }
+    return /^Round finished/.test(await halfDialog.locator('[role="status"].action-note').innerText());
+  }, 200_000).catch(async (e) => {
+    throw Error(`${e.message}\nwindow: ${(await halfDialog.innerText()).replace(/\s+/g, " ")}\nfooter: ${(await halfPage.locator("footer").innerText()).replace(/\s+/g, " ")}`);
+  });
+  const end = await position(c);
+  assert.ok(end.debt >= mid.debt && end.debt < mid.debt + E18 / 100n, `no second borrow: ${mid.debt} then ${end.debt}`);
+  assert.ok(end.imdusd < mid.imdusd / 100n, "the borrowed imdUSD was swapped");
+  assert.ok(end.collateral > mid.collateral, "and its IMD deposited");
+  assert.equal(await stopped.count(), 0);
+  passed("a round stopped after its borrow is finished by one button, across a close, with no second borrow");
 
   }
   let plan, after;

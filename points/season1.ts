@@ -97,10 +97,12 @@ export function computeSeason1(events: S1Event[], season: S1Season) {
   const { startBlock: start, endBlock: end, bandLower, bandUpper } = season;
   if (end < start) throw Error("season ends before it starts");
   if (bandUpper <= bandLower) throw Error("empty peg band");
-  const sorted = [...events].sort(byChainOrder);
   // How far the data reaches. The CLI passes the block it read through; by default the data is taken as complete
   // through the season's end (as the preseason engine assumes).
   const through = season.dataThroughBlock ?? end;
+  // Nothing past that block counts: sources can answer with later logs, and a later event would vest liquidity that
+  // was still pending at the horizon, so the result would depend on when it was run.
+  const sorted = events.filter((e) => e.block <= through).sort(byChainOrder);
   const excluded = new Set(["0x0000000000000000000000000000000000000000", ...(season.excluded ?? [])].map((a) => a.toLowerCase()));
   const clamp = (b: number) => (b < start ? start : b > end ? end : b);
 

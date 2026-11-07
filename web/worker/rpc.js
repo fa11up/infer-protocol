@@ -95,12 +95,16 @@ const AGGREGATE3 = parseAbi([
 ]);
 
 // The build's rpc-allow.json as a Set of lowercase addresses, read once per isolate; false when the build has
-// none (the whitepaper runs the INFER Worker), which turns /rpc into a 404.
+// none (the whitepaper runs the INFER Worker), which turns /rpc into a 404. A "none" is asked again after NO_ALLOW_MS,
+// so one failed asset read does not turn /rpc off for the isolate's life.
+const NO_ALLOW_MS = 60_000;
 let allow = null;
+let allowUntil = 0;
 async function allowlist(env, origin) {
-  if (allow !== null) return allow;
+  if (allow !== null && (allow !== false || Date.now() < allowUntil)) return allow;
   const r = await env.ASSETS.fetch(new Request(`${origin}/rpc-allow.json`));
   allow = r.ok ? new Set((await r.json()).map((a) => a.toLowerCase())) : false;
+  allowUntil = Date.now() + NO_ALLOW_MS;
   return allow;
 }
 /** Tests reset the cached allowlist between cases. */
@@ -194,6 +198,19 @@ function shareable(call, head) {
     default:
       return 0;
   }
+}
+
+// Some providers stop a log answer at a result cap instead of refusing the range. A final range's logs are kept for a
+// month only when the list is known whole: under LOG_CAP entries, each inside the range asked, none marked removed.
+const LOG_CAP = 10_000;
+function wholeLogs(result, filter) {
+  if (!Array.isArray(result) || result.length >= LOG_CAP) return false;
+  const from = block(filter?.fromBlock);
+  const to = block(filter?.toBlock);
+  return result.every((l) => {
+    const n = block(l?.blockNumber);
+    return l?.removed !== true && n !== null && n >= from && n <= to;
+  });
 }
 
 // ----------------------------------------------------------------------------------------------- cache keys
@@ -356,8 +373,18 @@ async function store(key, ms, got, cache) {
 }
 
 // Identical calls in flight in this isolate (the same read from two visitors, or twice in one batch) share one
-// upstream call: the cache key -> the pending answer.
+// upstream call: the cache key -> the pending answer. The request that starts it hands it to waitUntil, so its own
+// client leaving does not cancel it; and no one waits on another request's promise (a pending answer, a probe, the head)
+// for more than SHARED_WAIT_MS: after that it goes on by itself rather than hang on a request that has gone.
 const inflight = new Map();
+const SHARED_WAIT_MS = 10_000;
+const GAVE_UP = Symbol("gave up");
+/** `p`'s value, or GAVE_UP if it has not settled within `ms`. */
+function within(p, ms = SHARED_WAIT_MS) {
+  let timer;
+  const t = new Promise((r) => (timer = setTimeout(() => r(GAVE_UP), ms)));
+  return Promise.race([p, t]).finally(() => clearTimeout(timer));
+}
 
 // A revert is the chain's answer, whatever its message says.
 const reverted = (e) => e.code === 3 || /^execution reverted/i.test(e.message ?? "");
@@ -457,12 +484,14 @@ async function forward(call, upstreams, fetcher, cache, origin, kind = call.meth
     // still go out together, so a cold isolate's first batch is not slowed.
     const probe = now - (answered.get(k) ?? -Infinity) >= BENCH_MS && (benched.has(k) || kind.endsWith(":old"));
     if (probe && probes.has(k)) {
-      await probes.get(k);
+      const p = probes.get(k);
+      // A probe whose request went away never settles: past the wait it is dropped and this call probes instead.
+      if ((await within(p)) === GAVE_UP && probes.get(k) === p) probes.delete(k);
       continue;
     }
     tried.add(url);
-    let done;
-    if (probe) probes.set(k, new Promise((r) => (done = r)));
+    let done, mine;
+    if (probe) probes.set(k, (mine = new Promise((r) => (done = r))));
     try {
       const got = await attempt(call, url, fetcher);
       if (got.wide) {
@@ -486,7 +515,7 @@ async function forward(call, upstreams, fetcher, cache, origin, kind = call.meth
       return got.answer;
     } finally {
       if (done) {
-        probes.delete(k);
+        if (probes.get(k) === mine) probes.delete(k);
         done();
       }
     }
@@ -614,7 +643,13 @@ async function answer(call, env, allowed, lanes, fetcher, cache, who, opts, orig
   }
   const limited = () => ({ body: fail(call.id, -32005, "rate limited: too many uncached calls from this address, retry in a minute"), source: "limited" });
   const numbered = call.method === "eth_getLogs" || (AT_BLOCK.has(call.method) && typeof blockTagOf(call) === "string" && NUMBER.test(blockTagOf(call)));
-  const head = numbered && cache ? await latest(upstreams, fetcher, cache, origin) : undefined;
+  let head;
+  if (numbered && cache) {
+    const p = latest(upstreams, fetcher, cache, origin);
+    opts.waitUntil?.(p.catch(() => undefined));
+    // Not known in time: nothing is treated as final.
+    if ((head = await within(p)) === GAVE_UP) head = undefined;
+  }
   const split = call.method === "eth_getLogs" ? splitAt(call, head) : null;
   if (split) return answerSplit(call, split, env, allowed, lanes, fetcher, cache, who, opts, origin);
   const ttl = shareable(call, head);
@@ -638,29 +673,35 @@ async function answer(call, env, allowed, lanes, fetcher, cache, who, opts, orig
   // cache hit, it does not count against this visitor's upstream limit.
   const pending = inflight.get(key.url);
   if (pending) {
-    const got = await pending;
-    if (!got.limited) return { body: { jsonrpc: "2.0", id: call.id, ...got }, source: "coalesced" };
+    const got = await within(pending);
+    if (got !== GAVE_UP && !got.limited) return { body: { jsonrpc: "2.0", id: call.id, ...got }, source: "coalesced" };
   }
   const mine = (async () => {
     if (!(await under(env.RPC_UPSTREAM, who))) return { limited: true };
     const got = await forward(call, lane, fetcher, cache, origin, kind);
     if (!got.error && got.result !== null && got.result !== undefined) {
+      // An empty list, or one that may have been cut short, is kept like an empty one: not for a month.
       const empty = Array.isArray(got.result) && got.result.length === 0;
-      await store(empty && short ? short : key, empty ? Math.min(ttl, emptyMs) : ttl, got, cache);
+      const doubtful = empty || (short !== null && !wholeLogs(got.result, call.params[0]));
+      await store(doubtful && short ? short : key, doubtful ? Math.min(ttl, emptyMs) : ttl, got, cache);
     }
     return got;
-  })();
+  })().finally(() => inflight.get(key.url) === mine && inflight.delete(key.url));
   inflight.set(key.url, mine);
-  const got = await mine.finally(() => inflight.get(key.url) === mine && inflight.delete(key.url));
+  // Others may be waiting on this answer: it is finished (and cached) even if this request's client goes away.
+  opts.waitUntil?.(mine.catch(() => undefined));
+  const got = await mine;
   if (got.limited) return limited();
   return { body: { jsonrpc: "2.0", id: call.id, ...got }, source: "upstream" };
 }
 
 /**
- * POST /rpc. `deps` lets tests pass a fetch and a cache. `opts`: `logs` serves eth_getLogs (imdusd.com's
- * terminal), `pages` names the site in refusals.
+ * POST /rpc. `deps` lets tests pass a fetch and a cache, and the Worker its `waitUntil` (ctx.waitUntil, bound), which
+ * keeps shared upstream calls running when the request that started them is cancelled. `opts`: `logs` serves
+ * eth_getLogs (imdusd.com's terminal), `pages` names the site in refusals.
  */
 export async function handleRpc(request, env, deps = {}, opts = {}) {
+  opts = { ...opts, waitUntil: deps.waitUntil };
   const origin = new URL(request.url).origin;
   const fetcher = deps.fetch ?? fetch;
   const cache = deps.cache === undefined ? (typeof caches !== "undefined" ? caches.default : null) : deps.cache;

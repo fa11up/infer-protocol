@@ -29,7 +29,11 @@ function pump() {
     running++;
     client
       .getEnsName({ address: getAddress(key), universalResolverAddress: UNIVERSAL_RESOLVER })
-      .catch(() => null) // an unreachable resolver means "no name", never a failed page
+      .catch(() => {
+        // An unreachable resolver means "no name" for now, never a failed page; ask again in a minute.
+        setTimeout(() => names.delete(key), 60_000);
+        return null;
+      })
       .then((name) => {
         names.set(key, name || null);
         version++;
