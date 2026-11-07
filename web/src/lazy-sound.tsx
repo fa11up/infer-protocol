@@ -7,7 +7,8 @@ type Button = ComponentType<{ takeAsked: () => boolean }>;
 
 /** The lazy button for one site: `key` is where its score keeps the visitor's on/off (score.tsx). */
 export function lazySound(key: string, load: () => Promise<{ default: Button }>) {
-  const SoundButton = lazy(load);
+  // A chunk that fails to load (a deploy replaced it, a flaky network) leaves no button, not a broken page.
+  const SoundButton = lazy(() => load().catch(() => ({ default: () => null })));
   let asked = false;
   const takeAsked = () => {
     const was = asked;

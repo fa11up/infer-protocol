@@ -182,7 +182,7 @@ is drained — `liquidity()` is 0 — so anything priced from it is a frozen lef
 ```bash
 cd oracle && npm install
 node preflight-oracle.mjs <payload.json> <feedAddress> --rpc <url>   # before paying
-node relay-attestation.js <oracleRequestId>                          # after it attests
+node relay-attestation.js <oracleRequestId> --network sepolia|mainnet # after it attests (mainnet also needs FEED=0x...)
 ```
 
 **Run the preflight before every paid request.** It reads the destination feed's own constraints from

@@ -150,7 +150,11 @@ export async function loadPoints(
   }
   const head = Number(s.block);
   // The preseason ends at the block openSeason executed in (rules section 3): pinned in config, else read.
-  const info = await readSeason(r, s.block, Number(s.timestamp)).catch(() => undefined);
+  // Only a vault that has no season to report reads as the preseason; a failed read is an error, not a phase.
+  const info = await readSeason(r, s.block, Number(s.timestamp)).catch((e) => {
+    if (/reverted|returned no data/i.test(message(e))) return undefined;
+    throw e;
+  });
   const preseasonEnd = pointsConfig.endBlock ?? (info && info.phase !== "preseason" ? info.openedBlock : undefined);
   const endBlock = preseasonEnd === undefined ? head : Math.min(preseasonEnd, head);
   const season = {

@@ -58,6 +58,10 @@ export type Actions = {
   account?: Address;
   /** The wallet can send an atomic EIP-5792 batch (one signature, all or nothing). Undefined while unknown. */
   atomic?: boolean;
+  /** Goes up each time a transaction confirms. */
+  confirmed?: number;
+  /** The control whose review the last confirmation came from. */
+  confirmedId?: string;
 };
 /** How long an action's error stays before it slides away. */
 export const ERROR_LIFETIME_MS = 10_000;
@@ -244,6 +248,10 @@ export function ActionForm({
   const [invalidField, setInvalidField] = useState("");
   // The after-action preview replaces the one-line summary while it shows: the review repeats the summary.
   const preview = after ? afterFor(fields, values, after) : null;
+  // A confirmed action is done: its amounts stay out of the next one.
+  useEffect(() => {
+    if (actions.confirmedId === id) setValues({});
+  }, [actions.confirmed, actions.confirmedId, id]);
   return (
     <form
       className="action-form"

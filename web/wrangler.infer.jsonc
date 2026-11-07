@@ -29,7 +29,8 @@
     { "name": "RPC_UPSTREAM", "namespace_id": "1002", "simple": { "limit": 120, "period": 60 } },
     // The Trade pane's 0x quotes (worker/swap.js): the API key is a secret, ZEROX_API_KEY (`wrangler secret put
     // ZEROX_API_KEY -c wrangler.infer.jsonc`); until it is set, /swap answers 503 and the pane trades on the launch pool.
-    { "name": "SWAP_REQUESTS", "namespace_id": "1006", "simple": { "limit": 60, "period": 60 } }
+    // Namespace ids are account-wide counters: 1006 is imdusd.com's HISTORY_REQUESTS (wrangler.jsonc), so this has its own.
+    { "name": "SWAP_REQUESTS", "namespace_id": "1007", "simple": { "limit": 60, "period": 60 } }
   ],
   // Busiest hour seen so far: 8.8 ms at p99. The cap bounds what one hostile request can cost.
   "limits": { "cpu_ms": 100 },

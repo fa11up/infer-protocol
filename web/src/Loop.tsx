@@ -7,6 +7,8 @@
 // at minCR + BORROW_BUFFER, as the vault requires; the planner (planToTarget) splits a target into such rounds.
 // Selling imdUSD under $0.9975 is allowed, but only after the viewer confirms the loss shown.
 import { useEffect, useRef, useState } from "react";
+import { loadHalf, saveHalf, standing, type Half, type HalfStep, type Leg } from "./loopHalf";
+import { OutcomeUnknown } from "./unsettled";
 import type { Address } from "viem";
 import type { Runtime } from "./config";
 import { feedsReady, type Snapshot } from "./state";
@@ -62,6 +64,15 @@ const x = (l: bigint | undefined) => (l === undefined ? "—" : `${(Number(l) / 
 const pctText = (bps: bigint) => `${(Number(bps < 0n ? -bps : bps) / 100).toFixed(2)}%`;
 /** A target: a ratio in whole percent, or undefined for no debt (1×). */
 type Target = { key: string; label: string; cr?: bigint };
+/** What a stopped round has left in the wallet, and what finishing it does. */
+function halfText(h: Half) {
+  const a = (n: bigint, d = 2) => fmt(n, 18, d);
+  if (h.at === "swap") return `You borrowed ${a(h.amount)} ${unit()} and it is still in your wallet. Finishing swaps it to IMD and deposits it. A new target would borrow again.`;
+  if (h.at === "deposit") return `Your borrowed ${unit()} became IMD, at least ${a(h.amount, 4)}, and it is in your wallet. Finishing deposits it.`;
+  if (h.at === "unstake") return `You withdrew ${fmtGem(h.amount)} ${gemUnit()} and it is in your wallet. Finishing unstakes it, swaps it to ${unit()} and repays.`;
+  if (h.at === "sell") return `Your withdrawn collateral is ${a(h.amount, 4)} IMD in your wallet. Finishing swaps it to ${unit()} and repays.`;
+  return `The swap landed and ${a(h.amount)} ${unit()} or more is in your wallet. Finishing repays it.`;
+}
 type Plan = TargetPlan & { up: boolean; costBps: bigint; route: Route; pegNow?: bigint; pegEnd?: bigint };
 
 export function LoopWindow({
@@ -83,6 +94,13 @@ export function LoopWindow({
   const [progress, setProgress] = useState("");
   const [error, setError] = useState("");
   const [finished, setFinished] = useState("");
+  // A round stopped between its transactions, for this wallet. It stays, across a close or a reload, until it is
+  // finished or the viewer chooses to leave the funds where they are.
+  const [half, setHalf] = useState(() => loadHalf(actions.account));
+  useEffect(() => setHalf(loadHalf(actions.account)), [actions.account]);
+  // Finishing can need a route under the peg floor, with no plan on screen to accept it on: it is asked here instead.
+  const [halfPegAsked, setHalfPegAsked] = useState(false);
+  const [halfPegOk, setHalfPegOk] = useState(false);
   const stop = useRef(false);
   // The whole run, rounds and the reads between them: actions.busy covers only the transactions.
   const [running, setRunning] = useState(false);
@@ -204,8 +222,10 @@ export function LoopWindow({
         ? "The vault's prices are out of date or disagree (its primary and spot IMD prices more than its skew apart), so it will not lend or release collateral. Update the price above, then pick a target."
         : "";
 
-  async function go() {
-    if (!plan || !target || !actions.sequence || !actions.account || !vault) return;
+  async function go(resume?: Half) {
+    if ((!resume && (!plan || !target)) || !actions.sequence || !actions.account || !vault) return;
+    // The viewer's answer on the plan they saw. A later round may pick a route that plan did not show.
+    const pegAccepted = resume ? halfPegOk : depeg && accepted;
     setError("");
     setFinished("");
     stop.current = false;
@@ -258,9 +278,22 @@ export function LoopWindow({
       for (let i = 0; i < 60 && !live.current.ready; i++) await new Promise((d) => setTimeout(d, 1000));
       if (!live.current.ready) throw Error(live.current.reason || "The terminal could not refresh its state.");
     };
-    const send = async (calls: Call[]) => {
+    let stands: Half | undefined = resume;
+    const note = (at: Leg<Call>["leaves"]) => {
+      stands = at && { ...at, account: me };
+      saveHalf(me, at);
+      setHalf(stands);
+    };
+    // `from` is where the round already stood; `whenDone` is what these transactions leave for the next ones.
+    const send = async (legs: Leg<Call>[], whenDone?: Leg<Call>["leaves"]) => {
       await settled();
-      await live.current.sequence!("loop", { calls, batch: !!live.current.atomic });
+      if (live.current.account !== me) throw Error("The wallet account changed, so the run stopped. Nothing more was sent.");
+      const from = stands;
+      await live.current.sequence!("loop", {
+        calls: legs.map((l) => l.call),
+        batch: !!live.current.atomic,
+        onStep: (n) => note(standing(legs, n, from, whenDone)),
+      });
     };
     const quote = async (currency: Address, path: readonly PathKey[], amount: bigint) =>
       (await read<readonly [bigint, bigint]>({
@@ -269,9 +302,88 @@ export function LoopWindow({
         functionName: "quoteExactInput",
         args: [{ exactCurrency: currency, path: [...path], exactAmount: amount }],
       }))[0];
+    const plainLegs = (calls: Call[]): Leg<Call>[] => calls.map((call) => ({ call }));
+    // Selling under the peg floor needs the viewer's yes, whichever round's route ends up there.
+    const pegAllowed = async (route: Route, amount: bigint) => {
+      if (!route.viaPeg || pegAccepted) return;
+      const slot0 = await read<readonly [bigint]>({ address: UNISWAP.stateView, abi: STATE_VIEW, functionName: "getSlot0", args: [PEG_POOL_ID] });
+      const end = await pegMarginalSell(pegQuoter(r.client), amount);
+      if (usdAtSqrt(slot0[0]) < PEG_FLOOR_USD || (end ?? 0n) < PEG_FLOOR_USD) {
+        if (resume) setHalfPegAsked(true);
+        throw Error(
+          `The best route now sells ${unit()} under $${fmt(PEG_FLOOR_USD, 18, 4)} at the peg pool, a loss you have not accepted. Nothing was sent for this round. ${resume ? "Accept it below to finish, or leave the funds in your wallet." : "Pick the target again to see it."}`,
+        );
+      }
+    };
+    const depositLegs = async (imd: bigint): Promise<Leg<Call>[]> => {
+      const allowed = await read<bigint>({ address: IMD, abi: ERC20, functionName: "allowance", args: [me, vault.address] });
+      return plainLegs([
+        ...(allowed < imd ? [{ target: { address: IMD, abi: ERC20 }, fn: "approve", args: [vault.address, imd], label: "Approve IMD for the vault" }] : []),
+        { target: { address: vault.address, abi: vaultShareAbi }, fn: "lockIMD", args: [imd], label: `Deposit ${fmt(imd, 18, 4)} IMD` },
+      ]);
+    };
+    const buyLegs = async (stable: bigint, deadline: bigint): Promise<Leg<Call>[]> => {
+      // Each round re-picks the route: a round moves the direct pool, and the other may then pay more.
+      const best = await bestRoute((path, a) => quote(IMDUSD, path, a), ROUTES_UP, stable);
+      if (!best) throw Error(`No pool can swap ${fmt(stable, 18, 2)} ${unit()} for IMD right now.`);
+      await pegAllowed(best.route, stable);
+      const minImd = (best.out * (10_000n - SLIPPAGE_BPS)) / 10_000n;
+      const swap = encodePathSwap({ currencyIn: IMDUSD, path: best.route.path, amountIn: stable, minOut: minImd });
+      return [
+        ...plainLegs(await approvals(IMDUSD, unit(), stable, deadline)),
+        {
+          call: { target: router, fn: "execute", args: [swap.commands, swap.inputs, deadline], label: `Swap ${unit()} for at least ${fmt(minImd, 18, 4)} IMD` },
+          leaves: { at: "deposit" as HalfStep, amount: minImd },
+        },
+        ...(await depositLegs(minImd)),
+      ];
+    };
+    const repayLeg = async (amount: bigint): Promise<Leg<Call>> => {
+      const owed = await read<bigint>({ ...vault, functionName: "debtOf", args: [me] });
+      const repay = amount < owed ? amount : owed;
+      return { call: { target: vault, fn: "wipe", args: [repay], label: `Repay ${fmt(repay, 18, 2)} ${unit()}` } };
+    };
+    const sellLegs = async (imdIn: bigint, deadline: bigint): Promise<Leg<Call>[]> => {
+      const best = await bestRoute((path, a) => quote(IMD, path, a), ROUTES_DOWN, imdIn);
+      if (!best) throw Error(`No pool can swap ${fmt(imdIn, 18, 4)} IMD for ${unit()} right now.`);
+      const minOut = (best.out * (10_000n - SLIPPAGE_BPS)) / 10_000n;
+      const swap = encodePathSwap({ currencyIn: IMD, path: best.route.path, amountIn: imdIn, minOut });
+      return [
+        ...plainLegs(await approvals(IMD, "IMD", imdIn, deadline)),
+        {
+          call: { target: router, fn: "execute", args: [swap.commands, swap.inputs, deadline], label: `Swap IMD for at least ${fmt(minOut, 18, 2)} ${unit()}` },
+          leaves: { at: "repay" as HalfStep, amount: minOut },
+        },
+        await repayLeg(minOut),
+      ];
+    };
+    const unstakeLegs = async (shares: bigint, deadline: bigint): Promise<Leg<Call>[]> => {
+      const gem = snap.current!.targets.gem.address;
+      const imdIn = await read<bigint>({ address: gem, abi: SHARE, functionName: "previewRedeem", args: [shares] });
+      return [
+        {
+          call: { target: { address: gem, abi: SHARE }, fn: "redeem", args: [shares, me, me], label: `Unstake ${fmtGem(shares)} ${gemUnit()} to IMD` },
+          leaves: { at: "sell" as HalfStep, amount: imdIn },
+        },
+        ...(await sellLegs(imdIn, deadline)),
+      ];
+    };
+    const finishLegs = async (h: Half, deadline: bigint): Promise<Leg<Call>[]> =>
+      h.at === "swap"
+        ? buyLegs(h.amount, deadline)
+        : h.at === "deposit"
+          ? depositLegs(h.amount)
+          : h.at === "unstake"
+            ? unstakeLegs(h.amount, deadline)
+            : h.at === "sell"
+              ? sellLegs(h.amount, deadline)
+              : [await repayLeg(h.amount)];
     let done = 0;
     try {
-      for (; done < MAX_ROUNDS; done++) {
+      if (resume) {
+        setProgress("Finishing the round that stopped.");
+        await send(await finishLegs(resume, (await position()).deadline));
+      } else if (plan && target) for (; done < MAX_ROUNDS; done++) {
         if (stop.current) break;
         await settled();
         const p = await position();
@@ -286,19 +398,14 @@ export function LoopWindow({
           const cap = ceilingState(snap.current?.v ?? {});
           const borrow = cap && cap.left < next.stable ? cap.left : next.stable;
           if (borrow < WAD) break;
-          // Each round re-picks the route: a round moves the direct pool, and the other may then pay more.
-          const best = await bestRoute((path, a) => quote(IMDUSD, path, a), ROUTES_UP, borrow);
-          if (!best) throw Error(`No pool can swap ${fmt(borrow, 18, 2)} ${unit()} for IMD right now.`);
-          const minImd = (best.out * (10_000n - SLIPPAGE_BPS)) / 10_000n;
-          const swap = encodePathSwap({ currencyIn: IMDUSD, path: best.route.path, amountIn: borrow, minOut: minImd });
-          const imdAllowance = await read<bigint>({ address: IMD, abi: ERC20, functionName: "allowance", args: [me, vault.address] });
+          const rest = await buyLegs(borrow, p.deadline);
           setProgress(`${of}: borrow ${fmt(borrow, 18, 2)} ${unit()}, swap it to IMD, deposit.`);
           await send([
-            { target: vault, fn: "draw", args: [borrow], label: `Borrow ${fmt(borrow, 18, 2)} ${unit()}` },
-            ...(await approvals(IMDUSD, unit(), borrow, p.deadline)),
-            { target: router, fn: "execute", args: [swap.commands, swap.inputs, p.deadline], label: `Swap ${unit()} for at least ${fmt(minImd, 18, 4)} IMD` },
-            ...(imdAllowance < minImd ? [{ target: { address: IMD, abi: ERC20 }, fn: "approve", args: [vault.address, minImd], label: "Approve IMD for the vault" }] : []),
-            { target: { address: vault.address, abi: vaultShareAbi }, fn: "lockIMD", args: [minImd], label: `Deposit ${fmt(minImd, 18, 4)} IMD` },
+            {
+              call: { target: vault, fn: "draw", args: [borrow], label: `Borrow ${fmt(borrow, 18, 2)} ${unit()}` },
+              leaves: { at: "swap", amount: borrow },
+            },
+            ...rest,
           ]);
         } else {
           const shares = (next.value * WAD) / p.price;
@@ -306,28 +413,19 @@ export function LoopWindow({
           if (withdraw === 0n) break;
           setProgress(`${of}: withdraw ${fmtGem(withdraw)} ${gemUnit()}.`);
           // Its own transaction: sIMD withdrawn in a block cannot be unstaked in that same block.
-          await send([{ target: vault, fn: "free", args: [withdraw], label: `Withdraw ${fmtGem(withdraw)} ${gemUnit()}` }]);
-          const gem = snap.current!.targets.gem.address;
-          const imdIn = await read<bigint>({ address: gem, abi: SHARE, functionName: "previewRedeem", args: [withdraw] });
-          const best = await bestRoute((path, a) => quote(IMD, path, a), ROUTES_DOWN, imdIn);
-          if (!best) throw Error(`No pool can swap ${fmt(imdIn, 18, 4)} IMD for ${unit()} right now.`);
-          const minOut = (best.out * (10_000n - SLIPPAGE_BPS)) / 10_000n;
-          const owed = await read<bigint>({ ...vault, functionName: "debtOf", args: [me] });
-          const repay = minOut < owed ? minOut : owed;
-          const swap = encodePathSwap({ currencyIn: IMD, path: best.route.path, amountIn: imdIn, minOut });
-          setProgress(`${of}: unstake, swap to ${unit()}, repay ${fmt(repay, 18, 2)}.`);
-          await send([
-            { target: { address: gem, abi: SHARE }, fn: "redeem", args: [withdraw, me, me], label: `Unstake ${fmtGem(withdraw)} ${gemUnit()} to IMD` },
-            ...(await approvals(IMD, "IMD", imdIn, p.deadline)),
-            { target: router, fn: "execute", args: [swap.commands, swap.inputs, p.deadline], label: `Swap IMD for at least ${fmt(minOut, 18, 2)} ${unit()}` },
-            { target: vault, fn: "wipe", args: [repay], label: `Repay ${fmt(repay, 18, 2)} ${unit()}` },
-          ]);
+          await send(
+            [{ call: { target: vault, fn: "free", args: [withdraw], label: `Withdraw ${fmtGem(withdraw)} ${gemUnit()}` } }],
+            { at: "unstake", amount: withdraw },
+          );
+          const legs = await unstakeLegs(withdraw, p.deadline);
+          setProgress(`${of}: unstake, swap to ${unit()}, repay.`);
+          await send(legs);
         }
       }
       const end = await position();
       const cr = end.debt >= DUST_DEBT ? (end.value * 100n) / end.debt : undefined;
       setFinished(
-        `${stop.current ? "Stopped" : "Done"} after ${done} round${done === 1 ? "" : "s"}: leverage ${x(leverageAt(cr))}, ratio ${crText(cr)}.` +
+        `${resume ? "Round finished" : `${stop.current ? "Stopped" : done >= MAX_ROUNDS ? "Stopped at the most rounds a run takes," : "Done"} after ${done} round${done === 1 ? "" : "s"}`}: leverage ${x(leverageAt(cr))}, ratio ${crText(cr)}.` +
           (end.debt > 0n && end.debt < DUST_DEBT
             ? ` The fee of the last few seconds (${fmt(end.debt, 18, 8)} ${unit()}) is still owed; Repay clears it.`
             : "") +
@@ -335,8 +433,12 @@ export function LoopWindow({
       );
       setChoice(undefined);
     } catch (e) {
+      const so = done ? `${done} round${done === 1 ? "" : "s"} went through, then the run stopped: ` : "The run stopped: ";
       setError(
-        `${done ? `${done} round${done === 1 ? "" : "s"} went through, then the run stopped: ` : "The run stopped before any round went through: "}${message(e)} Pick the target again to continue from where your position is now.`,
+        // A send whose result is unknown, or a round left partway, has its own next step: never "pick the target again".
+        e instanceof OutcomeUnknown || stands
+          ? `${so}${message(e)}`
+          : `${done ? so : "The run stopped before any round went through: "}${message(e)} Pick the target again to continue from where your position is now.`,
       );
     } finally {
       setProgress("");
@@ -445,6 +547,31 @@ export function LoopWindow({
         </label>
       )}
       {progress && <p className="micro">{progress}</p>}
+      {half && !working && (
+        <div className="loop-half" role="alert">
+          <p className="danger-text">A round stopped partway. {halfText(half)}</p>
+          {halfPegAsked && (
+            <label className="loop-check danger-text">
+              <input type="checkbox" checked={halfPegOk} disabled={busy} onChange={(e) => setHalfPegOk(e.target.checked)} />
+              Sell {unit()} under ${fmt(PEG_FLOOR_USD, 18, 4)} at the peg pool to finish this round. I accept the loss.
+            </label>
+          )}
+          <div className="button-row">
+            <button
+              type="button"
+              onClick={() => {
+                saveHalf(half.account, undefined);
+                setHalf(undefined);
+              }}
+            >
+              Leave it in my wallet
+            </button>
+            <button type="button" className="primary" disabled={!actions.ready || busy || (halfPegAsked && !halfPegOk)} onClick={() => void go(half)}>
+              Finish this round
+            </button>
+          </div>
+        </div>
+      )}
       <div role="status" className="action-note">
         {error ? (
           // A run's error stays: it says how far the run got, and the position has moved since the plan.
@@ -466,7 +593,7 @@ export function LoopWindow({
         <button
           type="button"
           className="primary"
-          disabled={!actions.ready || busy || !plan || !!blocked || noop || (depeg && !accepted)}
+          disabled={!actions.ready || busy || !plan || !!blocked || noop || !!half || (depeg && !accepted)}
           onClick={() => void go()}
         >
           {working ? "Working…" : action}

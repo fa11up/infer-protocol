@@ -71,6 +71,12 @@ export function Claim() {
     Record<string, { balance: bigint; allowance: bigint; left: bigint }>
   >({});
   const [amounts, setAmounts] = useState<Record<string, string>>({});
+  // Another account's balances, allowances and payouts are not this one's: drop them until this one's are read.
+  useEffect(() => {
+    setLegacy({});
+    setPayouts({});
+    setVesting(undefined);
+  }, [w.account]);
   // The chain's clock, read with the seasons: a season has ended when the chain says so, not the browser.
   const [now, setNow] = useState<bigint>(0n);
   // Each redemption box's balance, read whenever a wallet is connected and the legacy token is known.
@@ -230,6 +236,63 @@ export function Claim() {
     };
   }, [w.account, tick, c.legacyRedeemer]);
 
+  // What this wallet's redemptions have left vesting, and how the amounts typed now would be paid.
+  const [vesting, setVesting] = useState<{ ready: bigint; unvested: bigint; total: bigint }>();
+  useEffect(() => {
+    if (!LIVE || !c.legacyRedeemer || !w.account) return setVesting(undefined);
+    const redeemer = c.legacyRedeemer,
+      holder = w.account;
+    let stale = false;
+    Promise.all([
+      client.readContract({ address: redeemer, abi: LEGACY_REDEEMER, functionName: "claimable", args: [holder] }),
+      client.readContract({ address: redeemer, abi: LEGACY_REDEEMER, functionName: "vestingOf", args: [holder] }),
+    ])
+      .then(([ready, [total, claimed]]) => {
+        if (!stale) setVesting({ ready, unvested: total - claimed - ready, total });
+      })
+      .catch(() => {
+        if (!stale) setVesting(undefined);
+      });
+    return () => {
+      stale = true;
+    };
+  }, [w.account, tick, c.legacyRedeemer]);
+  const [payouts, setPayouts] = useState<Record<string, { amount: bigint; now: bigint; later: bigint }>>({});
+  const amountsKey = JSON.stringify(amounts);
+  useEffect(() => {
+    if (!LIVE || !c.legacyRedeemer || !w.account) return;
+    const redeemer = c.legacyRedeemer,
+      holder = w.account;
+    let stale = false;
+    const t = setTimeout(() => {
+      for (const r of LAUNCH.redemptions) {
+        const amount = parseAmount(amounts[r.key] ?? "", r.decimals);
+        if (!r.token || amount === 0n) continue;
+        client
+          .readContract({ address: redeemer, abi: LEGACY_REDEEMER, functionName: "quoteFor", args: [holder, r.token, amount] })
+          .then(([now, later]) => {
+            if (!stale) setPayouts((p) => ({ ...p, [r.key]: { amount, now, later } }));
+          })
+          .catch(() => undefined);
+      }
+    }, 250);
+    return () => {
+      stale = true;
+      clearTimeout(t);
+    };
+  }, [amountsKey, w.account, tick, c.legacyRedeemer]);
+
+  async function collectVested() {
+    if (!w.account || !c.legacyRedeemer || !w.provider) return;
+    const account = w.account,
+      redeemer = c.legacyRedeemer,
+      p = w.provider;
+    await send("Collect vested INFER", async () => {
+      const { request } = await client.simulateContract({ account, address: redeemer, abi: LEGACY_REDEEMER, functionName: "claim" });
+      return wallet(p).writeContract(request);
+    });
+  }
+
   async function claimSeason(s: SeasonView) {
     if (!w.account || !c.seasonVault) return;
     const account = w.account,
@@ -242,7 +305,8 @@ export function Claim() {
       async () => {
         if (s.amount === 0n) {
           const file = await leafFile(s.index);
-          const leaf = file?.claims[account.toLowerCase()];
+          if (!file) throw Error(`Season ${s.index + 1}'s claim list is not on this site yet. Nothing was sent.`);
+          const leaf = file.claims[account.toLowerCase()];
           if (!leaf)
             throw Error("No entitlement for this address in that season.");
           const { request } = await client.simulateContract({
@@ -328,7 +392,9 @@ export function Claim() {
     const amount = parseAmount(amounts[key] ?? "", r.decimals);
     if (amount === 0n) return;
     const st = legacy[key];
-    if (st && st.allowance < amount) {
+    // Without the allowance read, an approval might be missing: wait for it rather than send a redeem that reverts.
+    if (!st) return;
+    if (st.allowance < amount) {
       await send(`Approve ${r.symbol}`, async () => {
         const { request } = await client.simulateContract({
           account,
@@ -341,7 +407,7 @@ export function Claim() {
       });
       return;
     }
-    await send(`Redeem ${r.symbol}`, async () => {
+    const sent = await send(`Redeem ${r.symbol}`, async () => {
       const { request } = await client.simulateContract({
         account,
         address: redeemer,
@@ -351,7 +417,7 @@ export function Claim() {
       });
       return wallet(p).writeContract(request);
     });
-    setAmounts((a) => ({ ...a, [key]: "" }));
+    if (sent) setAmounts((a) => ({ ...a, [key]: "" }));
   }
 
   const toAddress: Address | null = w.account;
@@ -361,8 +427,9 @@ export function Claim() {
         <h1>Claim</h1>
         <p className="infer-lede">
           What INFER is yours, and the one button that gives it. Season points
-          vest over 13 weeks from when the season's list is published;
-          redemptions pay at once.
+          vest over 13 weeks from when the season's list is published.
+          Redemptions pay at once up to a limit for each wallet; anything above
+          it vests over 13 weeks and is collected here.
         </p>
 
         <section
@@ -415,6 +482,24 @@ export function Claim() {
           )}
         </section>
 
+        {vesting && vesting.total > 0n && (
+          <section className="infer-ticket infer-claim-block" aria-labelledby="vesting-h">
+            <h2 id="vesting-h">Vesting from redemptions</h2>
+            <dl className="infer-lines">
+              <Line k="Ready to collect" v={`${tokens(vesting.ready, 4)} INFER`} />
+              <Line k="Still vesting" v={`${tokens(vesting.unvested, 4)} INFER`} />
+            </dl>
+            <button
+              type="button"
+              className="infer-go"
+              disabled={vesting.ready === 0n || tx.status === "pending"}
+              onClick={() => void collectVested()}
+            >
+              {vesting.ready === 0n ? "Nothing to collect yet" : "Collect"}
+            </button>
+          </section>
+        )}
+
         {LAUNCH.redemptions.map((r, i) => {
           const st = legacy[r.key];
           const moon = moons[r.key];
@@ -424,6 +509,8 @@ export function Claim() {
           const out = r.rate
             ? (amount * parseUnits(r.rate, 18)) / 10n ** 18n
             : 0n;
+          const payout = payouts[r.key]?.amount === amount ? payouts[r.key] : undefined;
+          const tooMuch = !!st && amount > st.balance;
           return (
             <section
               className="infer-ticket infer-claim-block"
@@ -556,7 +643,17 @@ export function Claim() {
                     </span>
                   </div>
                   <dl className="infer-lines">
-                    <Line k="You receive" v={`${tokens(out, 4)} INFER`} />
+                    {payout && payout.later > 0n ? (
+                      <>
+                        <Line k="You receive now" v={`${tokens(payout.now, 4)} INFER`} />
+                        <Line k="Vests over 13 weeks" v={`${tokens(payout.later, 4)} INFER`} />
+                      </>
+                    ) : (
+                      <Line k="You receive" v={`${tokens(out, 4)} INFER`} />
+                    )}
+                    {payout && payout.later > 0n && vesting && vesting.unvested > 0n && (
+                      <Line k="Note" v="This restarts the 13 weeks for what is still vesting." />
+                    )}
                     <Line
                       k="Left to redeem"
                       v={`${tokens(st?.left, 0)} INFER`}
@@ -575,12 +672,14 @@ export function Claim() {
                   ) : (
                     <button
                       className="infer-go"
-                      disabled={amount === 0n || shut || tx.status === "pending"}
+                      disabled={amount === 0n || shut || tooMuch || tx.status === "pending"}
                     >
                       {shut
                         ? "Opens at the full moon"
                         : amount === 0n
                         ? "Enter an amount"
+                        : tooMuch
+                        ? `Not enough ${r.symbol}`
                         : st && st.allowance < amount
                           ? `Approve ${r.symbol}`
                           : "Redeem"}

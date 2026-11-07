@@ -326,3 +326,63 @@ test("a read at a final block is shared for a month; one nearer the head than FI
     Date.now = realNow;
   }
 });
+
+test("a final log window's answer that may be cut short (out of range, removed, at the cap) is kept a block, a whole one a month", async () => {
+  const deep = { jsonrpc: "2.0", id: 1, method: "eth_getLogs", params: [{ address: OURS, fromBlock: "0x18f4000", toBlock: "0x18f47cf" }] };
+  const longest = async (result) => {
+    fresh();
+    const cache = countingCache();
+    const up = upstream((url, body) => (body.method === "eth_getLogs" ? { jsonrpc: "2.0", id: 1, result } : undefined));
+    await post(deep, { fetch: up.fetch, cache });
+    return Math.max(...[...cache.store.values()].map((e) => e.until - Date.now()));
+  };
+  const log = (n, extra = {}) => ({ blockNumber: `0x${n.toString(16)}`, ...extra });
+  assert.ok((await longest([log(0x18f4001)])) > 86_400_000, "whole: kept long");
+  assert.ok((await longest([log(0x18f5000)])) <= 12_000, "a log outside the range asked");
+  assert.ok((await longest([log(0x18f4001, { removed: true })])) <= 12_000, "a removed log");
+  assert.ok((await longest(Array.from({ length: 10_000 }, () => log(0x18f4001)))) <= 12_000, "at the provider cap");
+});
+
+test("a follower stops waiting for a pending answer that never settles, and the starter hands it to waitUntil", async () => {
+  fresh();
+  const cache = countingCache();
+  let hang = true;
+  const base = upstream();
+  // The first call upstream never answers, as if its request had been cancelled; later ones answer.
+  const fetch = (url, init) => (JSON.parse(init.body).method !== "eth_blockNumber" && hang ? ((hang = false), new Promise(() => {})) : base.fetch(url, init));
+  const kept = [];
+  const realTimeout = globalThis.setTimeout;
+  // Shorten only the shared wait (10 s) so the test is quick.
+  globalThis.setTimeout = (f, ms, ...a) => realTimeout(f, ms === 10_000 ? 20 : ms, ...a);
+  try {
+    const first = post(ethCall(ALSO, "0x18160ddd", "latest", 1), { fetch, cache, waitUntil: (p) => kept.push(p) });
+    first.catch(() => undefined);
+    await new Promise((r) => realTimeout(r, 5));
+    const second = await post(ethCall(ALSO, "0x18160ddd", "latest", 2), { fetch, cache });
+    assert.equal(second.source, "upstream", "asked for itself after the wait");
+    assert.equal(second.body.id, 2);
+    assert.ok(second.body.result);
+    assert.equal(kept.length, 1, "the shared call was handed to waitUntil");
+  } finally {
+    globalThis.setTimeout = realTimeout;
+  }
+});
+
+test("an allowlist that could not be read is asked for again after a minute", async () => {
+  fresh();
+  let ok = false;
+  const e = env({ ASSETS: { fetch: async () => (ok ? new Response(JSON.stringify([OURS])) : new Response("no", { status: 404 })) } });
+  const ask = () => handleRpc(new Request("https://imdusd.com/rpc", { method: "POST", body: "{}" }), e, { fetch: upstream().fetch, cache: countingCache() });
+  const realNow = Date.now;
+  let now = realNow();
+  Date.now = () => now;
+  try {
+    assert.equal((await ask()).status, 404);
+    ok = true;
+    assert.equal((await ask()).status, 404, "still remembered within the minute");
+    now += 61_000;
+    assert.notEqual((await ask()).status, 404, "read again after it");
+  } finally {
+    Date.now = realNow;
+  }
+});

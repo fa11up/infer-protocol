@@ -254,8 +254,6 @@ export const pointsConfig = {
   endBlock: 26_208_562 as number | undefined,
   /** When endBlock was mined, for the pane. */
   endedAt: "17 Oct 2026 00:03 UTC" as string | undefined,
-  /** Season 1 has not opened: the pane says points so far count towards a capped preseason distribution. */
-  preseason: true,
   /**
    * The imdUSD/USDC peg pool per chain: liquidity in it earns `lpBps` (points/lp.ts reads its ModifyLiquidity
    * transactions from `fromBlock`, the block it was initialised in). A chain without one shows no LP rate.

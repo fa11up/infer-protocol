@@ -27,7 +27,7 @@ const ABI = [
   "function attestationChainId() view returns (uint256)",
   "function attestationAnswerType() view returns (uint8)",
   "function MIN_PANEL_SIZE() view returns (uint16)",
-  "function MIN_AGREED() view returns (uint16)",
+  "function minAgreed() view returns (uint16)",
   "function maxAge() view returns (uint256)",
   "function maxDeviationBps() view returns (uint256)",
   "function latestValue() view returns (uint256,uint64)",
@@ -35,6 +35,8 @@ const ABI = [
   "function DOMAIN_SEPARATOR() view returns (bytes32)",
 ];
 const TYPE_IDS = { bool: 0, address: 1, bytes32: 2, uint256: 3 };
+// Used when the feed has no minAgreed() (feeds older than the per-feed floor): the price and spot feeds' two thirds.
+const DEFAULT_MIN_AGREED = 67;
 
 const input = JSON.parse(readFileSync(payloadPath, "utf8")).input;
 const provider = new ethers.providers.JsonRpcProvider(rpc);
@@ -45,7 +47,9 @@ const notes = [];
 
 const [chainId, answerType, minPanel, minAgreed, maxAge, devBps, sep] = await Promise.all([
   feed.attestationChainId(), feed.attestationAnswerType(), feed.MIN_PANEL_SIZE(),
-  feed.MIN_AGREED(), feed.maxAge(), feed.maxDeviationBps(), feed.DOMAIN_SEPARATOR(),
+  // The floor submitAttestation applies is minAgreed() (67 price/spot, 51 NHI), not the base MIN_AGREED (51).
+  feed.minAgreed().catch(() => (notes.push(`the feed has no minAgreed(); assuming ${DEFAULT_MIN_AGREED}`), DEFAULT_MIN_AGREED)),
+  feed.maxAge(), feed.maxDeviationBps(), feed.DOMAIN_SEPARATOR(),
 ]);
 const [curVal] = await feed.latestValue();
 const net = await provider.getNetwork();
@@ -76,7 +80,7 @@ if (!c) {
 if (Number(input.panelSize ?? 0) < Number(minPanel))
   problems.push(`panelSize ${input.panelSize} is below the feed's MIN_PANEL_SIZE ${minPanel}`);
 if (Number(input.quorum ?? 0) < Number(minAgreed))
-  problems.push(`quorum ${input.quorum} is below the feed's MIN_AGREED ${minAgreed} — agreed can never exceed quorum, so this can never satisfy the feed`);
+  problems.push(`quorum ${input.quorum} is below the feed's minAgreed ${minAgreed} — agreed can never exceed quorum, so this can never satisfy the feed`);
 
 // 3. payload shape the feed pins
 if (Number(input.chainId) !== Number(chainId))

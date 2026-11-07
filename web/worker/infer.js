@@ -34,7 +34,7 @@ function frameable(response) {
 }
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     if (url.protocol === "http:") {
       url.protocol = "https:";
@@ -42,7 +42,7 @@ export default {
     }
     // The pages' own RPC (worker/rpc.js). Only a build that ships rpc-allow.json serves it, so the whitepaper,
     // which runs this same Worker, answers /rpc with a 404.
-    if (url.pathname === "/rpc") return handleRpc(request, env);
+    if (url.pathname === "/rpc") return handleRpc(request, env, { waitUntil: ctx?.waitUntil?.bind(ctx) });
     // The Trade pane's 0x quotes (worker/swap.js, shared with imdusd.com): the key stays here, the fee is set here.
     if (url.pathname.startsWith("/swap/")) return handleSwap(request, env);
     const response = await env.ASSETS.fetch(request);

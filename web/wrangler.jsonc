@@ -1,7 +1,8 @@
 // imdusd.com: the public site (homepage + docs), served as static assets by Cloudflare Workers.
 // worker/index.js runs only for /rpc (the terminal's own RPC, worker/rpc.js), /swap/* and /api/v1/* (the public history index); every other request goes to the
 // assets, where `_headers` and `_redirects` in dist-public/ apply as written.
-// Build first with `npm run build:public`; deploy with `npm run deploy:public`.
+// Deploy the live site (homepage, docs and the terminal) with `npm run deploy:launch`. `npm run deploy:public` deploys this same
+// Worker WITHOUT the terminal and /rpc, so it refuses unless CONFIRM_PUBLIC_ONLY=1.
 {
   "name": "imdusd",
   "compatibility_date": "2026-10-01",

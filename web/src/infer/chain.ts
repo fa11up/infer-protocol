@@ -49,6 +49,10 @@ export const LEGACY_REDEEMER = parseAbi([
   "function closesAt() view returns (uint64)",
   "function redeem(address legacy, uint256 amount) returns (uint256)",
   "function advanceClock(address legacy, uint256 steps)",
+  "function quoteFor(address holder, address legacy, uint256 amount) view returns (uint256 now_, uint256 later)",
+  "function claimable(address holder) view returns (uint256)",
+  "function vestingOf(address holder) view returns (uint128 total, uint128 claimed, uint64 start)",
+  "function claim() returns (uint256)",
 ]);
 
 export const STAKED_INFER = parseAbi([
@@ -105,7 +109,7 @@ export type LeafFile = {
 export async function leafFile(season: number): Promise<LeafFile | null> {
   const url = LAUNCH.claims.files[season];
   if (!url) return null;
-  const r = await fetch(url);
+  const r = await fetch(url, { signal: AbortSignal.timeout(20_000) });
   if (!r.ok)
     throw Error(
       `Could not load the season ${season + 1} claim file (HTTP ${r.status}).`,

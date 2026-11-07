@@ -233,8 +233,11 @@ export async function snapshot(
         functionName: "asset",
         blockNumber: bn,
       })) as Address;
-    } catch {
-      return { kind: "plain" };
+    } catch (e) {
+      // Only the contract itself saying it has no asset() makes it plain. A read that failed says nothing about what
+      // the collateral is, and treating sIMD as IMD would misstate every amount and limit.
+      const refused = /reverted|returned no data/i.test(e instanceof Error ? e.message : "");
+      return refused ? { kind: "plain" } : { kind: "broken" };
     }
     if (underlying === zeroAddress || underlying.toLowerCase() === targets.gem.address.toLowerCase()) return { kind: "plain" };
     targets.underlying = { address: underlying, abi: r.abis.MockIMD };

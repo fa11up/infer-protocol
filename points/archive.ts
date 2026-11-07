@@ -35,6 +35,7 @@ export async function etherscanLogs(address: string, topics: (string | null)[], 
       }
       if (body!.status === "1" || /No records/.test(body!.message)) break;
       if (!/rate limit/i.test(String(body!.result))) throw Error(`etherscan: ${body!.message} ${String(body!.result).slice(0, 120)}`);
+      if (attempt === 4) throw Error("etherscan: still rate limited after 5 tries");
       await new Promise((r) => setTimeout(r, 1200 * (attempt + 1)));
     }
     // Etherscan writes zero as "0x" (log index 0, transaction index 0): normalise before anything parses it.

@@ -11,7 +11,7 @@ import { handleHistoryApi } from "./history-api.js";
 
 const HOST = "imdusd.com";
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
     // One host for crawlers and caches: www. and plain http both land on https://imdusd.com.
     if (url.protocol === "http:" || url.hostname === `www.${HOST}`) {
@@ -24,7 +24,7 @@ export default {
     // The public history index (worker/history-api.js): read-only, the PUBLIC_DB binding only.
     if (url.pathname.startsWith("/api/v1/")) return handleHistoryApi(request, env);
     // Only a build that ships rpc-allow.json (the launch build, with the terminal) serves it; otherwise 404.
-    if (url.pathname === "/rpc") return handleRpc(request, env, {}, { logs: true, pages: "the imdUSD terminal" });
+    if (url.pathname === "/rpc") return handleRpc(request, env, { waitUntil: ctx?.waitUntil?.bind(ctx) }, { logs: true, pages: "the imdUSD terminal" });
     return env.ASSETS.fetch(request);
   },
 };
