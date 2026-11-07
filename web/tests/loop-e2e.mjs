@@ -163,6 +163,10 @@ async function open(account, { batch = false } = {}) {
     const host = new URL(req.url()).host;
     const cors = { "access-control-allow-origin": "*", "access-control-allow-headers": "*", "access-control-allow-methods": "POST" };
     if (forked.includes(host) && req.method() === "POST") {
+      // Chart history is not what this test is about, and every eth_getLogs a fork forwards upstream slows the rounds.
+      const body = JSON.parse(req.postData() ?? "{}");
+      if (!Array.isArray(body) && body.method === "eth_getLogs")
+        return route.fulfill({ status: 200, body: JSON.stringify({ jsonrpc: "2.0", id: body.id, result: [] }), headers: { "content-type": "application/json", ...cors } });
       const r = await fetch(RPC, { method: "POST", headers: { "content-type": "application/json" }, body: req.postData() });
       return route.fulfill({ status: r.status, body: await r.text(), headers: { "content-type": "application/json", ...cors } });
     }
@@ -275,6 +279,15 @@ async function target(page, label, shot) {
       if (process.env.TRACE && line !== seen) console.log("  window:", (seen = line));
       // While a run goes the status line is empty (progress has its own line): anything else but "Done" is a failure.
       // The terminal waiting for a fresh read ("State is outdated…") is a pause, not a failure: the run waits it out.
+      // A later round whose best route sells under the peg floor asks for the loss in the window: accept and carry on.
+      if (/a loss you have not accepted/.test(note)) {
+        const ask = dialog.locator(".loop-check input");
+        if (await ask.count()) {
+          for (const box of await ask.all()) if (!(await box.isChecked())) await box.check();
+          await go.click();
+        }
+        return false;
+      }
       if (note.trim() && !/^Done/.test(note) && !/State is outdated|Waiting for verified/.test(note)) throw fatal(note);
       return /^Done after/.test(note) && note;
     },
@@ -302,7 +315,7 @@ try {
     await page.getByRole("button", { name: "Loop leverage ↗" }).click();
     const dialog = page.locator("dialog.loop-dialog[open]");
     await dialog.getByRole("button", { name: "1.5×", exact: true }).click({ timeout: 120_000 });
-    await dialog.locator(".loop-plan").waitFor({ timeout: 40_000 }).catch(async (e) => {
+    await dialog.locator(".loop-plan").waitFor({ timeout: 120_000 }).catch(async (e) => {
       throw Error(`no plan; the window read: ${(await dialog.innerText()).replace(/\s+/g, " ")}`, { cause: e });
     });
     // Only a route through the peg pool sells imdUSD there: when the direct pool pays more, there is no loss to accept.
@@ -352,7 +365,18 @@ try {
   await halfPage.evaluate(() => (window.__failSends = 1));
   await halfDialog.locator("button.primary").last().click();
   const stopped = halfDialog.locator(".loop-half");
-  await stopped.waitFor({ timeout: 120_000 });
+  // A round can first ask for a below-peg loss: accept it, the injected failure still comes on the second send.
+  await until("the round to stop partway", async () => {
+    if (await stopped.count()) return true;
+    const note = await halfDialog.locator('[role="status"].action-note').innerText();
+    if (/a loss you have not accepted/.test(note)) {
+      for (const box of await halfDialog.locator(".loop-check input").all()) if (!(await box.isChecked())) await box.check();
+      await halfDialog.locator("button.primary").last().click();
+    }
+    return false;
+  }, 200_000).catch(async (e) => {
+    throw Error(`${e.message}\nwindow: ${(await halfDialog.innerText()).replace(/\s+/g, " ")}`);
+  });
   assert.match(await stopped.innerText(), /still in your wallet/);
   const mid = await position(c);
   assert.ok(mid.debt > 0n && mid.imdusd > 0n, "the borrow landed and its imdUSD is in the wallet");
