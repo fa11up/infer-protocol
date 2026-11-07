@@ -73,6 +73,8 @@ function halfText(h: Half) {
   if (h.at === "sell") return `Your withdrawn collateral is ${a(h.amount, 4)} IMD in your wallet. Finishing swaps it to ${unit()} and repays.`;
   return `The swap landed and ${a(h.amount)} ${unit()} or more is in your wallet. Finishing repays it.`;
 }
+/** A round that would sell under the peg floor without the viewer's yes. */
+class PegRefused extends Error {}
 type Plan = TargetPlan & { up: boolean; costBps: bigint; route: Route; pegNow?: bigint; pegEnd?: bigint };
 
 export function LoopWindow({
@@ -98,9 +100,14 @@ export function LoopWindow({
   // finished or the viewer chooses to leave the funds where they are.
   const [half, setHalf] = useState(() => loadHalf(actions.account));
   useEffect(() => setHalf(loadHalf(actions.account)), [actions.account]);
-  // Finishing can need a route under the peg floor, with no plan on screen to accept it on: it is asked here instead.
-  const [halfPegAsked, setHalfPegAsked] = useState(false);
-  const [halfPegOk, setHalfPegOk] = useState(false);
+  // A later round, or finishing a stopped one, can need a route under the peg floor that the plan on screen did not
+  // show: the loss is asked for where the run stopped, and the answer holds for this target.
+  const [pegAsked, setPegAsked] = useState(false);
+  const [pegOk, setPegOk] = useState(false);
+  useEffect(() => {
+    setPegAsked(false);
+    setPegOk(false);
+  }, [choice, actions.account]);
   const stop = useRef(false);
   // The whole run, rounds and the reads between them: actions.busy covers only the transactions.
   const [running, setRunning] = useState(false);
@@ -225,7 +232,7 @@ export function LoopWindow({
   async function go(resume?: Half) {
     if ((!resume && (!plan || !target)) || !actions.sequence || !actions.account || !vault) return;
     // The viewer's answer on the plan they saw. A later round may pick a route that plan did not show.
-    const pegAccepted = resume ? halfPegOk : depeg && accepted;
+    const pegAccepted = pegOk || (!resume && depeg && accepted);
     setError("");
     setFinished("");
     stop.current = false;
@@ -309,9 +316,9 @@ export function LoopWindow({
       const slot0 = await read<readonly [bigint]>({ address: UNISWAP.stateView, abi: STATE_VIEW, functionName: "getSlot0", args: [PEG_POOL_ID] });
       const end = await pegMarginalSell(pegQuoter(r.client), amount);
       if (usdAtSqrt(slot0[0]) < PEG_FLOOR_USD || (end ?? 0n) < PEG_FLOOR_USD) {
-        if (resume) setHalfPegAsked(true);
-        throw Error(
-          `The best route now sells ${unit()} under $${fmt(PEG_FLOOR_USD, 18, 4)} at the peg pool, a loss you have not accepted. Nothing was sent for this round. ${resume ? "Accept it below to finish, or leave the funds in your wallet." : "Pick the target again to see it."}`,
+        setPegAsked(true);
+        throw new PegRefused(
+          `The best route now sells ${unit()} under $${fmt(PEG_FLOOR_USD, 18, 4)} at the peg pool, a loss you have not accepted. Nothing was sent for this round. ${resume ? "Accept it below to finish, or leave the funds in your wallet." : "Accept it below to carry on, or stop here."}`,
         );
       }
     };
@@ -436,7 +443,7 @@ export function LoopWindow({
       const so = done ? `${done} round${done === 1 ? "" : "s"} went through, then the run stopped: ` : "The run stopped: ";
       setError(
         // A send whose result is unknown, or a round left partway, has its own next step: never "pick the target again".
-        e instanceof OutcomeUnknown || stands
+        e instanceof OutcomeUnknown || e instanceof PegRefused || stands
           ? `${so}${message(e)}`
           : `${done ? so : "The run stopped before any round went through: "}${message(e)} Pick the target again to continue from where your position is now.`,
       );
@@ -547,12 +554,18 @@ export function LoopWindow({
         </label>
       )}
       {progress && <p className="micro">{progress}</p>}
+      {pegAsked && !half && !(depeg && plan) && (
+        <label className="loop-check danger-text">
+          <input type="checkbox" checked={pegOk} disabled={busy} onChange={(e) => setPegOk(e.target.checked)} />
+          The next rounds sell {unit()} under ${fmt(PEG_FLOOR_USD, 18, 4)} at the peg pool, losing more than the plan showed. I accept.
+        </label>
+      )}
       {half && !working && (
         <div className="loop-half" role="alert">
           <p className="danger-text">A round stopped partway. {halfText(half)}</p>
-          {halfPegAsked && (
+          {pegAsked && (
             <label className="loop-check danger-text">
-              <input type="checkbox" checked={halfPegOk} disabled={busy} onChange={(e) => setHalfPegOk(e.target.checked)} />
+              <input type="checkbox" checked={pegOk} disabled={busy} onChange={(e) => setPegOk(e.target.checked)} />
               Sell {unit()} under ${fmt(PEG_FLOOR_USD, 18, 4)} at the peg pool to finish this round. I accept the loss.
             </label>
           )}
@@ -566,7 +579,7 @@ export function LoopWindow({
             >
               Leave it in my wallet
             </button>
-            <button type="button" className="primary" disabled={!actions.ready || busy || (halfPegAsked && !halfPegOk)} onClick={() => void go(half)}>
+            <button type="button" className="primary" disabled={!actions.ready || busy || (pegAsked && !pegOk)} onClick={() => void go(half)}>
               Finish this round
             </button>
           </div>
@@ -593,7 +606,7 @@ export function LoopWindow({
         <button
           type="button"
           className="primary"
-          disabled={!actions.ready || busy || !plan || !!blocked || noop || !!half || (depeg && !accepted)}
+          disabled={!actions.ready || busy || !plan || !!blocked || noop || !!half || (depeg && !accepted) || (pegAsked && !pegOk && !(depeg && plan))}
           onClick={() => void go()}
         >
           {working ? "Working…" : action}
