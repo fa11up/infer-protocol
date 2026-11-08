@@ -1,7 +1,7 @@
 ---
 title: "imdUSD v2: Scope and Strategy"
 date: 2026-10-21
-updated: 2026-10-22
+updated: 2026-11-07
 summary: "Where imdUSD goes next: a multi-collateral dollar with a permissionless peg, self-repaying positions, identity.md seat staking and more chains. A living document, updated as the build moves."
 author: imdUSD
 living: true
@@ -19,8 +19,7 @@ mainnet since 11 October 2026. v2 is the version built to grow:
   identity.md seats.
 - **A peg nobody has to babysit.** Redemptions set the floor and a keeper inside our own pool hook sets the ceiling.
   Both are permissionless, and neither needs a custodial reserve.
-- **Positions that repay themselves.** Collateral that earns (stablecoin vault yield, seat rewards) pays down the
-  debt against it.
+- **Positions that repay themselves.** Collateral that earns (stablecoin vault yield) pays down the debt against it.
 - **Seat staking.** Pledge an identity.md seat, keep it earning, and borrow against it.
 - **More chains.** One dollar across Ethereum and Robinhood Chain first, with others after.
 
@@ -53,10 +52,12 @@ v1 also taught us where the hard parts are, and v2 is designed around them:
 2. **A fresh price or no new debt.** Borrowing and withdrawing need a fresh, agreeing price, exactly as in v1;
    repaying and depositing never wait. This is our calling card, not a limitation.
 3. **Governance sets floors, not prices.** Borrowers choose their own interest rate; governance only sets the minimum
-   per collateral, through a public 48-hour timelock. The governance Safe cannot mint imdUSD, cannot touch anyone's
-   collateral and cannot change a collateral's price source once it is listed.
+   per collateral, through a public 48-hour timelock. The governance Safe cannot touch anyone's collateral and cannot
+   change a collateral's price source once it is listed. It can mint imdUSD in one way only: by naming the cross-chain
+   bridge as a minter, once, through that public timelock.
 4. **One Treasury.** Every product pays its fees into the same imdUSD Treasury. No new tokens, no emissions.
-5. **Show the work.** Every contract is verified, every parameter is on chain, every change waits out a timelock.
+5. **Show the work.** Every contract is verified, every parameter is on chain, every raise waits out a timelock
+   (lowering a limit is instant).
 
 ## What v2 includes
 
@@ -92,14 +93,14 @@ The rate becomes a market price, and protocol revenue rises exactly when the peg
 lets other protocols list imdUSD, and a dollar that is held is a dollar that is not sold into the pool.
 
 **Positions that repay themselves.** Collateral that earns pays down the loan against it. A stablecoin in a savings
-vault, or a seat earning swarm rewards, has its earnings credited against the debt automatically. The protocol keeps
-10% of that yield as its fee.
+vault has its yield credited against the debt automatically. The protocol keeps 10% of that yield as its fee. A
+pledged seat's rewards are paid to you, less the same 10% fee: they do not repay the loan by themselves.
 
 **Seat staking (identity.md NFTs).** An identity.md seat earns from the swarm, but owning one means running a worker
 and holding an illiquid NFT. v2 makes a seat a working, liquid asset:
 
 - **Borrow against your seat.** Each pledged seat sits in its own account. You keep running your worker, the seat
-  keeps earning, and its rewards repay your loan. Seats are priced from real sales, start at a conservative
+  keeps earning, and its rewards keep coming to you (less a 10% fee). Seats are priced from real sales, start at a conservative
   loan-to-value, are capped while the market for them proves itself, and are never redeemed against.
 - **Liquid seats (planned).** Holders who do not want to run a worker can deposit a seat with an operator who does,
   and hold a claim on its rewards: either a receipt for their own seat, or a share of a pool of seats. That claim can
@@ -211,6 +212,9 @@ does the job) and vote-escrow gauges (they need token emissions, and there are n
 
 ## Changelog
 
+- **2026-11-07** Corrections: a pledged seat's rewards are paid to its holder and do not repay the loan; the
+  governance Safe can mint in one way, by naming the bridge minter once through the timelock; lowering a limit is
+  instant.
 - **2026-10-22** Robinhood Chain section updated to the built core, stocks after legal review; added *What we are
   exploring* (grouped price attestations, a pool of earning tokens, Solana); the terminal gets a new layout; v2's
   components no longer have a heading each.
