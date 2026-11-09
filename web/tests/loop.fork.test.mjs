@@ -210,9 +210,10 @@ test("one round up and one round down through the deployed vault", { skip: !fork
   assert.ok(afterDown.debt < p.debt);
 });
 
-test("a small swap each way takes the direct imdUSD/IMD pool, through the real router", { skip: !forked && `no mainnet fork at ${RPC}` }, async () => {
+test("a small IMD buy takes the direct imdUSD/IMD pool, and a sale gets the best route with the direct within 0.5%, through the real router", { skip: !forked && `no mainnet fork at ${RPC}` }, async () => {
   assert.ok(DIRECT_POOL_CHECK());
-  const SAFE = "0xbeFd108085613662356aa26A2466Ad3426DA9C32"; // the Treasury's Safe holds a few imdUSD
+  // Funded from the Uniswap v4 PoolManager, which always holds imdUSD (the Safe put all of its own into the pools).
+  const SAFE = "0x000000000004444c5dc75cB358380D2e3dE08A90";
   const account = privateKeyToAccount(generatePrivateKey());
   const pub = createPublicClient({ chain: mainnet, transport: http(RPC, { timeout: 120_000 }) });
   const wal = createWalletClient({ account, chain: mainnet, transport: http(RPC, { timeout: 120_000 }) });
@@ -220,7 +221,7 @@ test("a small swap each way takes the direct imdUSD/IMD pool, through the real r
   await pub.request({ method: "anvil_impersonateAccount", params: [SAFE] });
   const amount = parseEther("5");
   const fund = await wal.writeContract({ account: SAFE, address: IMDUSD, abi: parseAbi(["function transfer(address,uint256) returns (bool)"]), functionName: "transfer", args: [account.address, amount] });
-  await pub.waitForTransactionReceipt({ hash: fund });
+  assert.equal((await pub.waitForTransactionReceipt({ hash: fund })).status, "success", "funding the test account failed");
   await pub.request({ method: "anvil_stopImpersonatingAccount", params: [SAFE] });
   const send = async (req) => {
     const receipt = await pub.waitForTransactionReceipt({ hash: await wal.writeContract(req) });
@@ -234,7 +235,15 @@ test("a small swap each way takes the direct imdUSD/IMD pool, through the real r
   const ROUTER = parseAbi(["function execute(bytes commands, bytes[] inputs, uint256 deadline) payable"]);
   const swap = async (from, to, routes, a) => {
     const best = await bestRoute(quote(from), routes, a);
-    assert.equal(best?.route.name, "direct", "a small swap should take the direct pool");
+    const direct = await quote(from)(routes.find((r) => r.name === "direct").path, a);
+    if (from === IMDUSD) {
+      // Buying IMD, the loop's main direction: the direct pool sells IMD at market plus its 0.3% fee and should win.
+      assert.equal(best?.route.name, "direct", "a small IMD buy should take the direct pool");
+    } else {
+      // Selling IMD: imdUSD bought back cheaply in the peg pool below $1 can make the three-hop path tie or win; the
+      // direct pool must still quote within 0.5% of the best.
+      assert.ok(direct * 1_000n >= best.out * 995n, `direct ${direct} is more than 0.5% under the best ${best.out}`);
+    }
     const minOut = (best.out * 9_900n) / 10_000n;
     const before = await pub.readContract({ address: to, abi: ERC20, functionName: "balanceOf", args: [account.address] });
     await send({ address: from, abi: ERC20, functionName: "approve", args: [UNISWAP.permit2, a] });

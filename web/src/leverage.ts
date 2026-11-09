@@ -52,8 +52,10 @@ export const UP_PATH: readonly PathKey[] = [hop(USDC, PEG_KEY), hop(NATIVE, ETH_
 export const DOWN_PATH: readonly PathKey[] = [hop(NATIVE, ETH_IMD_KEY), hop(USDC, ETH_USDC_KEY), hop(IMDUSD, PEG_KEY)];
 
 /** imdUSD/IMD 0.3%, no hook: one hop each way, and it never touches the peg pool. */
-export const DIRECT_KEY: PoolKey = { currency0: IMDUSD, currency1: IMD, fee: 3_000, tickSpacing: 60, hooks: NATIVE };
-export const DIRECT_POOL_ID: Hex = "0x5e0b6d80edc2843617e05c203e581f32dadb2aed8cb9a9a6e6c718467d736c8e";
+// The Treasury's imdUSD/IMD pool, re-opened at market on 2026-11-09 (0.3%, tick spacing 10). The first one (spacing
+// 60, 0x5e0b6d80…) was left stranded at IMD 4.17 imdUSD with no liquidity in range.
+export const DIRECT_KEY: PoolKey = { currency0: IMDUSD, currency1: IMD, fee: 3_000, tickSpacing: 10, hooks: NATIVE };
+export const DIRECT_POOL_ID: Hex = "0x617d697bdafcfd21b137e811149af6e13328d644ac18f189ffd54e079aefb472";
 export type Route = { name: "direct" | "via USDC and ETH"; path: readonly PathKey[]; viaPeg: boolean };
 export const ROUTES_UP: readonly Route[] = [
   { name: "direct", path: [hop(IMD, DIRECT_KEY)], viaPeg: false },
