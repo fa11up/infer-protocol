@@ -51,11 +51,29 @@ export function Buy() {
     if (!LIVE) return;
     return everyVisible(refresh, REFRESH_MS);
   }, []);
+  // The sheet sits under the masthead and above the footer, whose heights change with the screen (a phone
+  // stacks the price over the market cap): measured into --buy-top / --buy-foot for style.css.
+  const page = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const root = page.current;
+    const top = root?.querySelector<HTMLElement>(".infer-buy-top");
+    const foot = root?.querySelector<HTMLElement>(".infer-buy-foot");
+    if (!root || !top || !foot) return;
+    const measure = () => {
+      root.style.setProperty("--buy-top", `${top.getBoundingClientRect().bottom}px`);
+      root.style.setProperty("--buy-foot", `${foot.offsetHeight}px`);
+    };
+    measure();
+    const ro = new ResizeObserver(measure);
+    ro.observe(top);
+    ro.observe(foot);
+    return () => ro.disconnect();
+  }, []);
   const out = framed
     ? { target: "_blank", rel: "noopener noreferrer" }
     : { rel: "noopener" };
   return (
-    <div className="infer infer-buy">
+    <div className="infer infer-buy" ref={page}>
       <header className="infer-buy-top">
         <a className="infer-mark" href="../" aria-label="INFER home" {...out}>
           <Mark />

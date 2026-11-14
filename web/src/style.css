@@ -4082,6 +4082,9 @@ html.app-terminal body:has(> .vibe-canvas:not([hidden])) :is(input, textarea) {
 
 /* --- /buy/: the X player card (480 × 560 inside a post), one screen, no scroll ------------- */
 .infer-buy {
+  /* The masthead's and footer's heights until Buy.tsx measures them. */
+  --buy-top: 60px;
+  --buy-foot: 28px;
   height: 100dvh;
   overflow: hidden;
 }
@@ -4101,11 +4104,14 @@ html.app-terminal body:has(> .vibe-canvas:not([hidden])) :is(input, textarea) {
   gap: 12px;
   min-width: 0;
 }
-.infer-buy-price {
+/* `.infer p` sets text-wrap: pretty, whose shorthand turns wrapping back on: this has to outrank it, or a
+   320px phone breaks the price mid-number. */
+.infer .infer-buy-price {
   margin: 0;
   font-size: 13px;
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+  text-wrap: nowrap;
 }
 .infer-buy-price strong {
   font-family: var(--serif);
@@ -4194,11 +4200,13 @@ html.app-terminal body:has(> .vibe-canvas:not([hidden])) :is(input, textarea) {
 /* The trade sheet: the home page's trade pane, compact, dropped in under the masthead (which stays in
    view, price and all) the way imd.fun/buy does it. One bordered box: tabs, pay, receive, quick amounts,
    one button; the rate, the minimum and the route appear only once there is an amount. */
+/* --buy-top and --buy-foot are the masthead's and footer's measured heights (Buy.tsx): the masthead grows
+   when a phone stacks the price, and a short landscape screen must stop the sheet above the footer. */
 .infer-buy-sheet {
   width: calc(100% - 32px);
   max-width: 520px;
-  max-height: calc(100dvh - 72px);
-  margin: 60px auto auto;
+  max-height: calc(100dvh - var(--buy-top) - var(--buy-foot) - 16px);
+  margin: calc(var(--buy-top) + 8px) auto auto;
   padding: 0;
   border: 1px solid var(--text);
   background: var(--bg);
@@ -4232,6 +4240,40 @@ body:has(.infer-buy-sheet[open]) .infer-buy-main {
 @media (min-width: 600px) and (min-height: 600px) {
   .infer-buy-sheet {
     margin: auto;
+  }
+}
+/* A phone on its side (or the card in a short frame): the footer steps aside while the sheet is open and
+   the rows tighten, so the whole sheet, its button included, fits without scrolling. */
+@media (max-height: 480px) {
+  body:has(.infer-buy-sheet[open]) .infer-buy-foot {
+    display: none;
+  }
+  .infer-buy-sheet .infer-trade-compact .infer-switch button {
+    padding: 8px 0;
+  }
+  .infer-buy-sheet .infer-trade-compact .infer-field {
+    padding: 6px 18px;
+  }
+  .infer-buy-sheet .infer-trade-compact .infer-field-row input,
+  .infer-buy-sheet .infer-trade-compact .infer-field-row output {
+    font-size: 22px;
+  }
+  .infer-buy-sheet .infer-quick {
+    padding: 6px 18px;
+  }
+  .infer-buy-sheet .infer-trade-compact .infer-go {
+    min-height: 44px;
+  }
+}
+/* On touch, the quick amounts and the balance link get finger-sized targets; the balance link grows its
+   hit area without moving the line it sits on. */
+@media (pointer: coarse) {
+  .infer-buy-sheet .infer-quick button {
+    min-height: 40px;
+  }
+  .infer-buy-sheet .infer-bal-use {
+    padding: 12px 0;
+    margin: -12px 0;
   }
 }
 .infer-buy-sheet-bar {

@@ -495,7 +495,7 @@ export function Trade({
     : preparing
       ? "Getting a firm quote…"
     : !w.account
-      ? "Connect a wallet to trade"
+      ? "Connect a wallet"
       : amountIn === 0n
         ? "Enter an amount"
         : insufficient
@@ -724,22 +724,29 @@ export function Trade({
             {readError.text}
           </Vanishing>
         )}
-        <button
-          className="infer-go"
-          type="submit"
-          disabled={
-            !LIVE ||
-            preparing ||
-            !w.account ||
-            !bal ||
-            amountIn === 0n ||
-            insufficient ||
-            out === undefined ||
-            tx.status === "pending"
-          }
-        >
-          {button}
-        </button>
+        {/* With no account the big button connects: on /buy/ there is no masthead Connect, and the amount
+            box's "disconnected" label alone was too easy to miss (as on the home page, 2026-10-11). */}
+        {LIVE && !w.account ? (
+          <button className="infer-go" type="button" disabled={w.busy} onClick={() => void w.connect()}>
+            {button}
+          </button>
+        ) : (
+          <button
+            className="infer-go"
+            type="submit"
+            disabled={
+              !LIVE ||
+              preparing ||
+              !bal ||
+              amountIn === 0n ||
+              insufficient ||
+              out === undefined ||
+              tx.status === "pending"
+            }
+          >
+            {button}
+          </button>
+        )}
         <TxStatus tx={tx} onDone={clear} />
       </form>
 
