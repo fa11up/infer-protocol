@@ -23,7 +23,7 @@ const AUDIENCE = {
   governance: "For governance",
   integrators: "For integrators",
 };
-const REPO = "https://github.com/fa11up/infer-protocol/blob/main/";
+const REPO = "https://github.com/imdusd/infer-protocol/blob/main/";
 
 const escapeHtml = (s) =>
   String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);

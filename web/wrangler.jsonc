@@ -37,7 +37,7 @@
     // /api/v1 (worker/history-api.js), counted on cache misses only: a page load is ~3 requests, most served from cache.
     { "name": "HISTORY_REQUESTS", "namespace_id": "1006", "simple": { "limit": 120, "period": 60 } }
   ],
-  // The PUBLIC history index, written by infer-ops' cron (fa11up/infer-ops worker/public/, migrations-public/) and read
+  // The PUBLIC history index, written by infer-ops' cron (imdusd/infer-ops worker/public/, migrations-public/) and read
   // here by /api/v1. It holds raw public chain logs only, and it is the ONLY database this Worker is bound to: never
   // bind infer-ops' private database here (tests/history-api.test.mjs refuses it). database_id: the id printed by
   // `npx wrangler d1 create imdusd-public`, the same as in infer-ops' wrangler.jsonc (local dev shares one local

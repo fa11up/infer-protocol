@@ -51,7 +51,7 @@ const GROUPS: Group[] = [
   {
     name: "Build",
     rows: [
-      { title: "Source code", sub: "github.com/fa11up/infer-protocol: contracts, sites and docs", url: SOURCE_REPO, external: true },
+      { title: "Source code", sub: "github.com/imdusd/infer-protocol: contracts, sites and docs", url: SOURCE_REPO, external: true },
       { title: "IdentityMD", sub: "imd.fun: the agent network whose panels price imdUSD", url: IDENTITYMD, external: true },
     ],
   },

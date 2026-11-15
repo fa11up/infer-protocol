@@ -17,7 +17,7 @@ imdUSD trades against USDC in one Uniswap v4 pool. It opened at exactly $ 1, cha
 | Pool key | currency0 imdUSD, currency1 USDC, fee 100 (0.01%), tick spacing 1 |
 | PoolManager | [`0x000000000004444c5dc75cB358380D2e3dE08A90`](https://etherscan.io/address/0x000000000004444c5dc75cB358380D2e3dE08A90) |
 | Trade | [Uniswap](https://app.uniswap.org/explore/pools/ethereum/0x3cb8cc9c22f7da5c3169d4059131ddba9e61f68230977797c03a2f1214992035) |
-| Source and audits | [github.com/fa11up/imdusd-peg-hook](https://github.com/fa11up/imdusd-peg-hook) |
+| Source and audits | [github.com/imdusd/imdusd-peg-hook](https://github.com/imdusd/imdusd-peg-hook) |
 
 Anyone can deploy a copy of the hook at another address and open a pool beside this one. Only the pool id above is the peg pool: pin it, not the token pair.
 

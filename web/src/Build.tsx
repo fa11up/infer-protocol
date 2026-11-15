@@ -5,10 +5,10 @@ import { Card, Cards, InfoPage, InfoSection } from "./InfoPage";
 import { EMAIL } from "./links-config";
 import { href, IDENTITYMD, SOURCE_REPO, TERMINAL } from "./site";
 
-export const KEEPER_REPO = "https://github.com/fa11up/imdusd-keeper";
-export const SKILLS_REPO = "https://github.com/fa11up/imd-skills";
-export const LIQUIDITY_SKILL = "https://github.com/fa11up/imd-skills/tree/main/imdusd-liquidity";
-export const PEG_HOOK_REPO = "https://github.com/fa11up/imdusd-peg-hook";
+export const KEEPER_REPO = "https://github.com/imdusd/imdusd-keeper";
+export const SKILLS_REPO = "https://github.com/imdusd/imd-skills";
+export const LIQUIDITY_SKILL = "https://github.com/imdusd/imd-skills/tree/main/imdusd-liquidity";
+export const PEG_HOOK_REPO = "https://github.com/imdusd/imdusd-peg-hook";
 export const BOX = "https://box.imdusd.com";
 const API = "https://imdusd.com/api/v1";
 const IMD_DOCS = "https://imd.fun/docs/";

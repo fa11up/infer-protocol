@@ -32,7 +32,7 @@ review and in-house reviews, not third-party audit firms. Every one, with its jo
 [`web/content/docs/reference/audit-history.md`](web/content/docs/reference/audit-history.md); the first two are summarised under [Audits](#audits).
 
 **Operations:** the keeper (oracle watcher, attestation relayer, liquidator, INFER dripper) is
-[`fa11up/imdusd-keeper`](https://github.com/fa11up/imdusd-keeper).
+[`imdusd/imdusd-keeper`](https://github.com/imdusd/imdusd-keeper).
 
 ## History
 
@@ -282,7 +282,7 @@ the written reproductions. Archive the record immediately.
 
 - **Nothing here operates the protocol.** A CDP protocol with no keeper is a contract that
   accumulates bad debt: somebody has to relay attestations before feeds go stale, mark positions, and
-  bite them with their own stablecoin. That lives in [`fa11up/imdusd-keeper`](https://github.com/fa11up/imdusd-keeper).
+  bite them with their own stablecoin. That lives in [`imdusd/imdusd-keeper`](https://github.com/imdusd/imdusd-keeper).
 - The Sepolia deployment's reporter and relayer are a single testnet key. Mainnet was a fresh
   deployment with keys held outside this repository (`docs/MAINNET-RUNBOOK.md`).
 - `Registry` is written and governed but **nothing reads it**, so a rotation recorded there changes
@@ -310,7 +310,7 @@ the written reproductions. Archive the record immediately.
 | `docs/AUDIT-2026-10-04.md` | the second, on the USD denomination and work backing |
 | `oracle/work-tally-quote.json` | the question `SwarmWorkOracle` pins, read from the daily oracle receipts |
 | `docs/MAINNET-RUNBOOK.md` | keys, constants, the one-broadcast CREATE2 deploy and what to read back |
-| [`fa11up/imdusd-keeper`](https://github.com/fa11up/imdusd-keeper) | the off-chain operator: price watcher, attestation relayer, CDP liquidator, INFER dripper |
+| [`imdusd/imdusd-keeper`](https://github.com/imdusd/imdusd-keeper) | the off-chain operator: price watcher, attestation relayer, CDP liquidator, INFER dripper |
 | `docs/UPSTREAM-ASKS.md` | what we have asked the operator for, what landed, and what is settled |
 | `docs/archive/` | superseded per-increment notes, kept for history |
 | `docs/UPSTREAM-STABLE-QUESTION-ID.md` | why `questionHash` is unstable, and why that is not a PR yet |

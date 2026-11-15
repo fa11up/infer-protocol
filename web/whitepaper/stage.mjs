@@ -1,5 +1,5 @@
 // Stages the INFER whitepaper for whitepaper.imdusd.com: the paper's own single file, unchanged, from
-// its repository (fa11up/infer-whitepaper, checked out at ../../imd/whitepaper/web by default, or
+// its repository (imdusd/infer-whitepaper, checked out at ../../imd/whitepaper/web by default, or
 // WHITEPAPER_SRC), plus the headers Cloudflare serves with it. Nothing else from that repository is
 // uploaded: not its README, not its .git.
 //

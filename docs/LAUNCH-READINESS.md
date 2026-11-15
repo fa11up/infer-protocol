@@ -46,7 +46,7 @@ frozen, because the contracts are immutable. **After deploy** = first operationa
 
 | item | status |
 |---|---|
-| Mainnet mode (deployment record, asker path, sIMD pricing, inventory-capped bites, guarded sends, one-at-a-time loops) | done, `fa11up/imd-keeper@7888e46` at the freeze, rehearsed on the fork |
+| Mainnet mode (deployment record, asker path, sIMD pricing, inventory-capped bites, guarded sends, one-at-a-time loops) | done, `imdusd/imd-keeper@7888e46` at the freeze, rehearsed on the fork |
 | Review | internal only (private repo; the swarm cannot read it). Its failure modes cost the keeper's own funds, not the protocol's solvency |
 | Host (NOT the swarm worker box), hot key, three balances (ETH gas, imdUSD inventory, IMD for `askPaid`), Blockscout API key | **after deploy** — user |
 
