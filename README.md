@@ -1,18 +1,47 @@
-# imdUSD Protocol
+# INFER protocol: imdUSD
 
-A compute-backed CDP stablecoin whose prices and risk parameters come from IdentityMD swarm oracle
-attestations. sIMD (staked IMD, `StakedIMD` `0x9Efa934D9fAd4AE28c998a40195646b965a97247`) is the collateral,
-the vault mints imdUSD against it, and the swarm's answers decide what a position is worth and how harshly it
-is liquidated. Built and proven on Sepolia; the mainnet deploy commit is frozen on `release/mainnet` at
-`9e37405` (tag `mainnet-freeze-2026-10-10c`), which differs from `main` only in `src/DeploymentConfig.sol`.
-Public docs: https://imdusd.com/docs/.
+imdUSD is a stablecoin meant to be worth one US dollar, live on Ethereum mainnet since 2026-10-11. You lock
+staked IMD (sIMD) in the vault and borrow imdUSD against it; collateral prices and risk parameters come from
+attestations by the IdentityMD agent swarm, which land on chain only when a quorum of agents agrees. **INFER**
+is the protocol's token: protocol revenue goes to the INFER Treasury, and INFER can be staked as sINFER.
 
-Forked from `identity-md-launches/launch-519-mockimd-pricefeed-nhifeed-cdpvault`, so the history below
-the fork point is the swarm's own build across launches 458 → 493 → 517 → 519 → 586. Everything above
-it is ours.
+- Site: [imdusd.com](https://imdusd.com) · docs: [imdusd.com/docs](https://imdusd.com/docs/) · about: [imdusd.com/docs/overview/about](https://imdusd.com/docs/overview/about/)
+- INFER: [infer.imdusd.com](https://infer.imdusd.com) · [tokenomics](https://infer.imdusd.com/tokenomics/)
+- Live supply: [infer.imdusd.com/supply.json](https://infer.imdusd.com/supply.json)
+- X: [@imdusd](https://x.com/imdusd) · DefiLlama: [INFER](https://defillama.com/protocol/infer)
 
-At the freeze: **654 tests pass** on a plain `forge test` (4 skipped), 655 with `AUDIT_PROOFS=true`, 116 in
-`script/checks`, and the mainnet fork tests (including `test/fork/IntakeV2.t.sol` against the live Intake).
+## Mainnet (Ethereum, chain 1)
+
+| | |
+|---|---|
+| imdUSD | `0x61aAF8a992A3143e2B0C9cB0030b9fE702854a25` |
+| Vault (`ParameterizedVault`) | `0x0b69F8DA8D8cE521d74Ea69a7A3475B77302EF82` |
+| Price feed / spot feed / NHI feed | `0x070e0603737242B01aBC1D223f7C92D63E86EC97` / `0x77E1684402869Bf2B7c70B8bf21E1C7Ca7104951` / `0x014DabF6F940c9C383D9ef48636F70D842F65D7A` |
+| Parameters | `0x3D96A6Ffada9C2E5B8fF8eb3f8AFB360116dA881` |
+| Treasury | `0x6Ac8fF96Fb8DCF5d79A8eF1E59D9AC23f2BD27Bc` |
+| SwarmWorkOracle | `0xC7335a836ad85a6ac0830c6CEf602d735B9d8a8A` |
+| INFER (token) | `0x53d0eA0A685220718Dc6a0a6e4617194C6F37921` |
+| Governance | 2-of-3 Safe `0xbeFd108085613662356aa26A2466Ad3426DA9C32`, behind a 48-hour delay |
+
+The core contracts are verified on Sourcify. The full list, with every constructor-created dependency, is in
+[`web/content/docs/reference/contracts-and-addresses.md`](web/content/docs/reference/contracts-and-addresses.md);
+the protocol's own event index, two-provider verified, is at [imdusd.com/api/v1/meta](https://imdusd.com/api/v1/meta).
+
+**Reviews:** thirty before launch: swarm audits bought from IdentityMD (single, panel and adversarial), a gas
+review and in-house reviews, not third-party audit firms. Every one, with its job, commit and record, is in
+[`web/content/docs/reference/audit-history.md`](web/content/docs/reference/audit-history.md); the first two are summarised under [Audits](#audits).
+
+**Operations:** the keeper (oracle watcher, attestation relayer, liquidator, INFER dripper) is
+[`fa11up/imdusd-keeper`](https://github.com/fa11up/imdusd-keeper).
+
+## History
+
+Built and proven on Sepolia; the mainnet deploy commit is frozen on `release/mainnet` at `9e37405` (tag
+`mainnet-freeze-2026-10-10c`), which differs from `main` only in `src/DeploymentConfig.sol`. Forked from
+`identity-md-launches/launch-519-mockimd-pricefeed-nhifeed-cdpvault`, so the history below the fork point is the
+swarm's own build across launches 458 → 493 → 517 → 519 → 586; everything above it is ours. At the freeze,
+**654 tests passed** on a plain `forge test` (4 skipped), 655 with `AUDIT_PROOFS=true`, 116 in `script/checks`,
+and the mainnet fork tests (including `test/fork/IntakeV2.t.sol` against the live Intake).
 
 ## Contracts
 
@@ -203,7 +232,7 @@ Other things learned the expensive way:
 ## Testing
 
 ```bash
-forge test                                                              # 362, InHouse self-skips
+forge test                                                              # InHouse self-skips
 forge test --match-path test/InHouse.t.sol --fork-url $SEPOLIA_RPC_URL   # 14, live state
 forge test --match-path test/SharePriceFeedFork.t.sol --fork-url $MAINNET_RPC_URL  # 12, live sIMD
 AUDIT_PROOFS=true forge test --match-path 'test/audit/*'                 # auditor proofs
@@ -253,10 +282,9 @@ the written reproductions. Archive the record immediately.
 
 - **Nothing here operates the protocol.** A CDP protocol with no keeper is a contract that
   accumulates bad debt: somebody has to relay attestations before feeds go stale, mark positions, and
-  bite them with their own stablecoin. That lives in **`fa11up/imd-keeper`**, which is private on
-  purpose — it publishes bidding thresholds a searcher would use to be one block earlier.
-- The live deployment's reporter and relayer are a single testnet key. **Mainnet must be a fresh
-  deployment with a key held outside this repository.**
+  bite them with their own stablecoin. That lives in [`fa11up/imdusd-keeper`](https://github.com/fa11up/imdusd-keeper).
+- The Sepolia deployment's reporter and relayer are a single testnet key. Mainnet was a fresh
+  deployment with keys held outside this repository (`docs/MAINNET-RUNBOOK.md`).
 - `Registry` is written and governed but **nothing reads it**, so a rotation recorded there changes
   nothing. Wiring it means a feed resolving its relayer through a pinned registry instead of an
   immutable, which trades an immutable authority check for an external call on the attestation path.
@@ -282,7 +310,7 @@ the written reproductions. Archive the record immediately.
 | `docs/AUDIT-2026-10-04.md` | the second, on the USD denomination and work backing |
 | `oracle/work-tally-quote.json` | the question `SwarmWorkOracle` pins, read from the daily oracle receipts |
 | `docs/MAINNET-RUNBOOK.md` | keys, constants, the one-broadcast CREATE2 deploy and what to read back |
-| `fa11up/imd-keeper` *(private)* | the off-chain operator: price watcher, attestation relayer, CDP liquidator |
+| [`fa11up/imdusd-keeper`](https://github.com/fa11up/imdusd-keeper) | the off-chain operator: price watcher, attestation relayer, CDP liquidator, INFER dripper |
 | `docs/UPSTREAM-ASKS.md` | what we have asked the operator for, what landed, and what is settled |
 | `docs/archive/` | superseded per-increment notes, kept for history |
 | `docs/UPSTREAM-STABLE-QUESTION-ID.md` | why `questionHash` is unstable, and why that is not a PR yet |
