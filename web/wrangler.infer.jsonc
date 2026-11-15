@@ -12,7 +12,7 @@
     // Only the two X player cards (X may frame them) and /rpc (worker/rpc.js) run the Worker. Every other file is
     // served straight from Cloudflare's cache: no Worker invocation, so no request cap. HTTP -> HTTPS is the
     // zone's "Always Use HTTPS" setting.
-    "run_worker_first": ["/buy/*", "/97/*", "/rpc", "/swap/*"],
+    "run_worker_first": ["/buy/*", "/97/*", "/rpc", "/swap/*", "/supply/*", "/supply.json"],
     "html_handling": "auto-trailing-slash",
     "not_found_handling": "404-page"
   },

@@ -11,6 +11,7 @@
 // the imdUSD terminal uses, so INFER is routed the way the terminal routes imdUSD. Needs the ZEROX_API_KEY secret.
 import { handleRpc } from "./rpc.js";
 import { handleSwap } from "./swap.js";
+import { handleSupply } from "./supply.js";
 
 // Module-private: a Worker entry module may export only handlers (the runtime refuses to start otherwise).
 const FRAME_ANCESTORS =
@@ -45,6 +46,9 @@ export default {
     if (url.pathname === "/rpc") return handleRpc(request, env, { waitUntil: ctx?.waitUntil?.bind(ctx) });
     // The Trade pane's 0x quotes (worker/swap.js, shared with imdusd.com): the key stays here, the fee is set here.
     if (url.pathname.startsWith("/swap/")) return handleSwap(request, env);
+    // Total and circulating supply for listings (worker/supply.js): plain numbers, and /supply.json.
+    if (url.pathname === "/supply.json" || url.pathname.startsWith("/supply/"))
+      return handleSupply(url, env, { waitUntil: ctx?.waitUntil?.bind(ctx) });
     const response = await env.ASSETS.fetch(request);
     return FRAMEABLE.has(url.pathname) && response.ok
       ? frameable(response)
