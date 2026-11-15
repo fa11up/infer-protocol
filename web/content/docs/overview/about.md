@@ -43,6 +43,7 @@ The contracts were reviewed by IdentityMD swarm panels and in-house reviews befo
 
 ## Links and contact
 
+- Founder: [miyagod.eth](https://etherscan.io/name-lookup-search?id=miyagod.eth)
 - X: [@imdusd](https://x.com/imdusd). Messages there reach the team.
 - Code: [github.com/imdusd](https://github.com/imdusd)
 - Data: the protocol's verified event index at [imdusd.com/api/v1/meta](https://imdusd.com/api/v1/meta)
