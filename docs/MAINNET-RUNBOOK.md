@@ -47,7 +47,7 @@ Each step assumes the previous one is merged and green. Steps 2 and 3 are indepe
 | 3 | **Delete the reporter fallback** — **done** (`SwarmFeed` has no `report`; attestations are the only way a value is set) | a single key can otherwise re-anchor the price — see §4 |
 | 4 | CREATE2 deployment script with address assertions — **built** (`script/DeployMainnet.s.sol`, `deploy/mainnet/`), rehearsed on a fork | removes the silent-misconfiguration failure mode — see §6 |
 | 5 | Independent audit of this configuration — **done** (three panels + adversarial + gas, `docs/AUDIT-*-2026-10-05.md`, fixes through `9dd2149`). The scoped review owed after `03e8d0c` is **done** too: two final adversarial reviews, then panel rounds through the fourth final sweep (job `6229d0fc`, no high), then two in-house reviews of the last changes (`docs/AUDIT-INTERNAL-2026-10-10-*.md`); the chain is in `web/content/docs/reference/audit-history.md` | the configuration and every fix after it have had outside review |
-| 6 | Keeper / watcher daemon — **mainnet-ready** (`fa11up/imd-keeper@7888e46` at the freeze), rehearsed bark → bite → Treasury-paid ask on a fork | the protocol is not operable without it — see §7 |
+| 6 | Keeper / watcher daemon — **mainnet-ready** (`imdusd/imd-keeper@7888e46` at the freeze), rehearsed bark → bite → Treasury-paid ask on a fork | the protocol is not operable without it — see §7 |
 
 ---
 

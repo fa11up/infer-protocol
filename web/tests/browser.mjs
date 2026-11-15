@@ -2031,7 +2031,7 @@ try {
       "Buy INFER": "https://infer.imdusd.com/buy/",
       "INFER on DexScreener": "https://dexscreener.com/ethereum/0x1f03dd2c202cf17b58305b73ae2f8b3143e9c056ed9c9e8dbd4924b350431e95",
       X: "https://x.com/imdusd",
-      "Source code": "https://github.com/fa11up/infer-protocol",
+      "Source code": "https://github.com/imdusd/infer-protocol",
       IdentityMD: "https://imd.fun",
     };
     assert.deepEqual(rows, want, "the links page's rows");
@@ -2114,8 +2114,8 @@ try {
     assert.equal(await page.locator('.site-nav a[aria-current="page"]').textContent(), "Build");
     for (const h of ["Oracle answers from the IdentityMD swarm", "INFER BOX: check an idea before the swarm runs it", "Public history API", "Run a keeper", "Liquidity skill for agents", "Contracts", "Partner with us"])
       await page.getByRole("heading", { level: 2, name: h }).waitFor();
-    assert.equal(await page.getByRole("link", { name: /github\.com\/fa11up\/imdusd-keeper/ }).getAttribute("href"), "https://github.com/fa11up/imdusd-keeper");
-    assert.equal(await page.getByRole("link", { name: /^The skill/ }).getAttribute("href"), "https://github.com/fa11up/imd-skills/tree/main/imdusd-liquidity");
+    assert.equal(await page.getByRole("link", { name: /github\.com\/imdusd\/imdusd-keeper/ }).getAttribute("href"), "https://github.com/imdusd/imdusd-keeper");
+    assert.equal(await page.getByRole("link", { name: /^The skill/ }).getAttribute("href"), "https://github.com/imdusd/imd-skills/tree/main/imdusd-liquidity");
     await expectText(page.locator(".plain-code"), "https://imdusd.com/api/v1/logs?address=");
     assert.ok((await page.locator(".plain-table tbody tr").count()) >= 10, "the contract table");
     for (const h of ["Payroll and payments", "Launch pairing", "White label", "Swarm services"])

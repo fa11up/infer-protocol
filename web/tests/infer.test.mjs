@@ -370,3 +370,46 @@ test("/rpc shares the provider bench through the cache, and recent log ranges a 
   resetBench();
   resetAllowlist();
 });
+
+// ------------------------------------------------------------------ /supply (worker/supply.js)
+
+test("/supply reports total and circulating from one read, matches src/infer/supply.ts, and never invents a number", async () => {
+  const { handleSupply, SUPPLY } = await import("../worker/supply.js");
+  const { resetAllowlist, MULTICALL3 } = await import("../worker/rpc.js");
+  const { encodeFunctionResult, parseAbi } = await import("viem");
+  // The Worker's list is the page's list: these addresses reach rpc-allow.json only through src/infer/supply.ts.
+  const ts = await readFile(new URL("supply.ts", dir), "utf8");
+  for (const t of Object.values(SUPPLY)) {
+    assert.ok(ts.includes(t.token), t.token);
+    for (const h of t.notCirculating) assert.ok(ts.includes(h.holder) && ts.includes(h.label), h.holder);
+  }
+  assert.equal((ts.match(/holder: "0x/g) ?? []).length, Object.values(SUPPLY).reduce((n, t) => n + t.notCirculating.length, 0));
+
+  const AGG = parseAbi(["function aggregate3((address target, bool allowFailure, bytes callData)[] calls) payable returns ((bool success, bytes returnData)[] returnData)"]);
+  const U256 = parseAbi(["function totalSupply() view returns (uint256)"]);
+  const word = (n) => encodeFunctionResult({ abi: U256, functionName: "totalSupply", result: n });
+  const allow = [MULTICALL3, ...Object.values(SUPPLY).map((t) => t.token)];
+  const env = { RPC_UPSTREAMS: "https://keyed.example/a", ASSETS: { fetch: async () => new Response(JSON.stringify(allow)) } };
+  let upstream = (n) => ({ jsonrpc: "2.0", id: 1, result: encodeFunctionResult({ abi: AGG, functionName: "aggregate3", result: [
+    { success: true, returnData: word(1000n * 10n ** 18n) },
+    ...Array.from({ length: n }, () => ({ success: true, returnData: word(100n * 10n ** 18n) })),
+  ] }) });
+  const deps = (n) => ({ cache: null, fetch: async () => new Response(JSON.stringify(upstream(n))) });
+  const get = async (path, n) => {
+    resetAllowlist();
+    const r = await handleSupply(new URL(`https://infer.imdusd.com${path}`), env, deps(n));
+    return { status: r.status, type: r.headers.get("content-type"), text: await r.text() };
+  };
+  // imdUSD leaves out one holder, INFER five: circulating is total minus their balances.
+  assert.deepEqual(await get("/supply/imdusd/total", 1), { status: 200, type: "text/plain; charset=utf-8", text: "1000\n" });
+  assert.equal((await get("/supply/imdusd/circulating", 1)).text, "900\n");
+  assert.equal((await get("/supply/infer/circulating", 5)).text, "500\n");
+  assert.equal((await get("/supply/other/total", 1)).status, 404);
+  assert.equal(await handleSupply(new URL("https://infer.imdusd.com/buy/"), env, deps(1)), null);
+  // A provider failure is a 502 with a reason, never a zero or a stale guess.
+  upstream = () => ({ jsonrpc: "2.0", id: 1, error: { code: -32000, message: "boom" } });
+  const bad = await get("/supply/infer/total", 5);
+  assert.equal(bad.status, 502);
+  assert.doesNotMatch(bad.text, /^\d/);
+  resetAllowlist();
+});

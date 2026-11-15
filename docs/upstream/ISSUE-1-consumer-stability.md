@@ -39,5 +39,5 @@ of documentation and the discipline the plane already practises.
 
 ## Context
 
-imdUSD (fa11up/infer-protocol): three price/health feeds and a work-tally oracle, each a `SwarmFeed`
+imdUSD (imdusd/infer-protocol): three price/health feeds and a work-tally oracle, each a `SwarmFeed`
 pinning signer, domain and question, consumed by an immutable vault. Deploy script and audits are public.

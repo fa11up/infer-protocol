@@ -1,5 +1,5 @@
 {
-  "note": "The public history index (imdusd-public D1): which on-chain logs it holds. A byte-identical copy lives in fa11up/infer-protocol web/public-logs.json (the imdusd.com Worker's allowlist); both repos test their copy against their own config, and infer-ops tests the two are identical when both are checked out.",
+  "note": "The public history index (imdusd-public D1): which on-chain logs it holds. A byte-identical copy lives in imdusd/infer-protocol web/public-logs.json (the imdusd.com Worker's allowlist); both repos test their copy against their own config, and infer-ops tests the two are identical when both are checked out.",
   "version": 1,
   "chainId": 1,
   "launchId": "imdusd-mainnet-26166417",

@@ -40,7 +40,7 @@ export const WHITEPAPER = "https://whitepaper.imdusd.com";
 export const INFER_SITE = "https://infer.imdusd.com";
 export const X_ACCOUNT = "https://x.com/imdusd";
 /** The public source: contracts, both sites and the docs. */
-export const SOURCE_REPO = "https://github.com/fa11up/infer-protocol";
+export const SOURCE_REPO = "https://github.com/imdusd/infer-protocol";
 /** IdentityMD, the agent network whose panels price imdUSD. */
 export const IDENTITYMD = "https://imd.fun";
 // INFER's launch pool on DexScreener: in its own module so infer.imdusd.com can link it without this file.

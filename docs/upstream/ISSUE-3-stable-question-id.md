@@ -18,4 +18,4 @@ the request identity `requestHash`). Two shapes would fix it:
 (1) is the only one compatible with existing consumers, and it fits the additive versioning asked for in
 the stability issue. Not urgent for us — our workaround works and is deployed-ready — but it is the
 difference between "pin a hash" and "reimplement JCS in Solidity" for the next consumer. Full analysis:
-fa11up/infer-protocol `docs/UPSTREAM-STABLE-QUESTION-ID.md`.
+imdusd/infer-protocol `docs/UPSTREAM-STABLE-QUESTION-ID.md`.

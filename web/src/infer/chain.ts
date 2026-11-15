@@ -1,6 +1,6 @@
 // Chain access for the INFER page: public reads over the configured RPCs, writes through the injected
 // wallet. The ABIs are the few members the page uses, written out so they are reviewable here; the
-// contracts are the reference implementations in fa11up/infer-token (SeasonVault, LegacyRedeemer,
+// contracts are the reference implementations in imdusd/infer-token (SeasonVault, LegacyRedeemer,
 // StakedInfer), which the swarm builds to the same interface.
 import {
   createWalletClient,
