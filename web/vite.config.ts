@@ -113,6 +113,14 @@ const buildMeta = `<meta name="build" content="${BUILD}" />`;
 
 /** Cloudflare Web Analytics, injected by the zone: where its beacon loads from and where it reports. */
 const CF_ANALYTICS = { script: "https://static.cloudflareinsights.com", report: "https://cloudflareinsights.com" };
+const csp = (
+  scriptHashes: string[],
+  connect: string[] = [],
+  frames: string[] = [],
+  media = false,
+  scriptOrigins: string[] = [],
+) =>
+  `Content-Security-Policy: default-src 'none'; script-src 'self' ${scriptHashes.map((h) => `'sha256-${h}'`).join(" ")}${scriptOrigins.map((o) => ` ${o}`).join("")}; style-src 'self'; img-src 'self' data:; font-src 'self'; manifest-src 'self'; connect-src ${connect.length ? connect.join(" ") : "'none'"};${media ? " media-src 'self';" : ""}${frames.length ? ` frame-src ${frames.join(" ")};` : ""} frame-ancestors 'none'; base-uri 'self'; form-action 'none'; object-src 'none'; upgrade-insecure-requests`;
 const publicHeaders = (
   scriptHashes: string[],
   connect: string[] = [],
@@ -120,7 +128,7 @@ const publicHeaders = (
   media = false,
   scriptOrigins: string[] = [],
 ) => `/*
-  Content-Security-Policy: default-src 'none'; script-src 'self' ${scriptHashes.map((h) => `'sha256-${h}'`).join(" ")}${scriptOrigins.map((o) => ` ${o}`).join("")}; style-src 'self'; img-src 'self' data:; font-src 'self'; manifest-src 'self'; connect-src ${connect.length ? connect.join(" ") : "'none'"};${media ? " media-src 'self';" : ""}${frames.length ? ` frame-src ${frames.join(" ")};` : ""} frame-ancestors 'none'; base-uri 'self'; form-action 'none'; object-src 'none'; upgrade-insecure-requests
+  ${csp(scriptHashes, connect, frames, media, scriptOrigins)}
   X-Content-Type-Options: nosniff
   X-Frame-Options: DENY
   Referrer-Policy: strict-origin-when-cross-origin
@@ -130,6 +138,21 @@ const publicHeaders = (
   Cache-Control: public, max-age=31536000, immutable
   Access-Control-Allow-Origin: *
 `;
+
+/**
+ * imdusd.com/build/ is the one public page that talks to a chain (founder 2026-11-17: building with the swarm is
+ * its headline, open to any wallet). Its own policy replaces the site's (`!` detaches the /* one) and admits
+ * exactly INFER BOX (box.imdusd.com, which answers this origin as a partner) and the public RPCs that
+ * src/build-swarm/wallet.ts BUILD_RPCS reads; scripts/public-check.mjs holds it to that list.
+ */
+export const BUILD_CONNECT = ["https://box.imdusd.com", "https://ethereum-rpc.publicnode.com", "https://eth.drpc.org"];
+const buildPageHeaders = (scriptHashes: string[], connect: string[]) =>
+  ["/build", "/build/*"]
+    .map((p) => `${p}
+  ! Content-Security-Policy
+  ${csp(scriptHashes, [...connect, ...BUILD_CONNECT], [], false, [CF_ANALYTICS.script])}
+`)
+    .join("");
 
 const walk = (dir: string): string[] =>
   readdirSync(dir).flatMap((n) => {
@@ -202,7 +225,7 @@ function publicSite(): Plugin {
       );
       // /build/: their canonical URLs and social cards (every public build has them).
       for (const [path, title] of [
-        ["build/", "Build on imdUSD"],
+        ["build/", "Build with the swarm · imdUSD"],
       ]) {
         const file = resolve(dir, `${path}index.html`);
         const page = readFileSync(file, "utf8");
@@ -245,7 +268,7 @@ function publicSite(): Plugin {
           [],
           false,
           [CF_ANALYTICS.script],
-        ),
+        ) + buildPageHeaders([...hashes], ["'self'", CF_ANALYTICS.report, ...(LAUNCH ? launchConnect() : [])]),
       );
     },
   };

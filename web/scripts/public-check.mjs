@@ -51,6 +51,17 @@ const headers = await readFile(`${dir}/_headers`, "utf8");
 if (!/Content-Security-Policy: .*'sha256-[A-Za-z0-9+/=]+'/.test(headers))
   fail("_headers has no hashed Content-Security-Policy");
 const connect = headers.match(/connect-src ([^;]*);/)?.[1].trim();
+// imdusd.com/build/ alone may talk to INFER BOX and two public Ethereum RPCs (vite.config.ts buildPageHeaders):
+// its section must detach the site's policy and set one that adds exactly those, for both /build and /build/*.
+const BUILD_ONLY = ["https://box.imdusd.com", "https://ethereum-rpc.publicnode.com", "https://eth.drpc.org"];
+for (const p of ["/build", "/build/*"]) {
+  const section = headers.split(/\n(?=\S)/).find((s) => s.startsWith(`${p}\n`));
+  if (!section) fail(`_headers has no ${p} section`);
+  if (!section.includes("! Content-Security-Policy")) fail(`${p} does not detach the site's Content-Security-Policy`);
+  const got = section.match(/connect-src ([^;]*);/)?.[1].trim().split(/\s+/) ?? [];
+  const want = [...connect.split(/\s+/), ...BUILD_ONLY];
+  if (got.join(" ") !== want.join(" ")) fail(`${p} connect-src is "${got.join(" ")}", expected "${want.join(" ")}"`);
+}
 let deployment;
 if (LAUNCH) {
   deployment = JSON.parse(await readFile(`${dir}/imd-deployment.json`, "utf8"));
@@ -108,7 +119,8 @@ for (const f of files.filter((f) => /\.(html|js|css|webmanifest|txt)$/.test(f) &
   // may name RPC methods for integrators, the JavaScript may not call them).
   const leak =
     text.match(/sepolia|testnet/i) ??
-    (f.endsWith(".js")
+    // /build/'s INFER BOX chunk reads Ethereum on purpose, under its own policy (checked above).
+    (f.endsWith(".js") && !/^assets\/BuildSwarm-[\w-]+\.js$/.test(f)
       ? text.match(
           /blockscout|etherscan|publicnode|infura|alchemy|eth_call|eth_getLogs/i,
         )
