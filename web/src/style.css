@@ -6223,3 +6223,32 @@ body:has(> .vibe-canvas:not([hidden])) .blog-masthead {
   line-height: 1.6;
   color: var(--muted);
 }
+
+/* Build with the swarm (src/build-swarm): the /build/ headline. Theme tokens only, so both themes hold. */
+.bs { display: flex; flex-direction: column; gap: 12px; padding: 18px; background: var(--surface); border: 1px solid var(--rule); }
+.bs-label { font-weight: 600; }
+.bs-idea { width: 100%; box-sizing: border-box; min-height: 7em; padding: 10px 12px; font: inherit; color: var(--text); background: transparent; border: 1px solid var(--rule); resize: vertical; }
+.bs-idea:focus-visible, .bs-facts input:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+.bs-kinds { display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; border: 0; }
+.bs-kinds label { display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border: 1px solid var(--rule); cursor: pointer; }
+.bs-kinds label.on { border-color: var(--text); }
+.bs-kinds input { margin: 0; }
+.bs-facts { display: grid; gap: 8px; }
+.bs-facts label { display: grid; gap: 4px; }
+.bs-facts input { padding: 8px 10px; font: inherit; color: var(--text); background: transparent; border: 1px solid var(--rule); }
+/* Transparent fields: an opaque one left a stale copy of itself over the page on phones (headless Chromium, 2026-11-17). */
+.bs-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; }
+.bs-small, .bs-status { margin: 0; color: var(--muted); font-size: 0.875rem; }
+.bs-error { margin: 0; color: var(--danger); }
+.bs-link { padding: 0; font: inherit; color: inherit; text-decoration: underline; background: none; border: 0; cursor: pointer; }
+.bs-wallets { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 12px; background: var(--raised); border: 1px solid var(--rule); }
+.bs-wallets button:not(.bs-link) { display: inline-flex; align-items: center; gap: 6px; }
+.bs-verdict, .bs-quote, .bs-orders { display: flex; flex-direction: column; gap: 8px; padding: 14px; background: var(--raised); border-left: 3px solid var(--rule); }
+.bs-verdict h3, .bs-quote h3, .bs-orders h3 { margin: 0; }
+.bs-verdict ul, .bs-orders ul { margin: 0; padding-left: 1.2em; }
+.bs-verdict.band-likely { border-left-color: var(--live); }
+.bs-verdict.band-uncertain { border-left-color: var(--caution); }
+.bs-verdict.band-unlikely, .bs-verdict.band-refused { border-left-color: var(--danger); }
+.bs-steps { margin-top: 12px; }
+.bs-kinds label { white-space: nowrap; font-size: 0.875rem; }
+.bs-kinds input[type="radio"] { width: 14px; height: 14px; flex: none; }
