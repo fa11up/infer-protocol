@@ -2109,17 +2109,16 @@ try {
       "the header's links, in order",
     );
     await page.locator(".site-nav").getByRole("link", { name: "Build" }).click();
-    await page.getByRole("heading", { level: 1, name: "Build on imdUSD" }).waitFor();
+    // The page as rebuilt on 2026-11-17 (#2): INFER BOX first, then developer cards, the contracts and the partner ask.
+    await page.getByRole("heading", { level: 1, name: "Build with the swarm" }).waitFor();
     assert.equal(new URL(page.url()).pathname, "/preview/build/");
     assert.equal(await page.locator('.site-nav a[aria-current="page"]').textContent(), "Build");
-    for (const h of ["Oracle answers from the IdentityMD swarm", "INFER BOX: check an idea before the swarm runs it", "Public history API", "Run a keeper", "Liquidity skill for agents", "Contracts", "Partner with us"])
+    for (const h of ["Start here", "For developers", "Contracts", "Partner with us"])
       await page.getByRole("heading", { level: 2, name: h }).waitFor();
-    assert.equal(await page.getByRole("link", { name: /github\.com\/imdusd\/imdusd-keeper/ }).getAttribute("href"), "https://github.com/imdusd/imdusd-keeper");
-    assert.equal(await page.getByRole("link", { name: /^The skill/ }).getAttribute("href"), "https://github.com/imdusd/imd-skills/tree/main/imdusd-liquidity");
-    await expectText(page.locator(".plain-code"), "https://imdusd.com/api/v1/logs?address=");
+    assert.equal(await page.getByRole("link", { name: "imdusd-keeper" }).getAttribute("href"), "https://github.com/imdusd/imdusd-keeper");
+    assert.equal(await page.getByRole("link", { name: "imdusd-liquidity" }).getAttribute("href"), "https://github.com/imdusd/imd-skills/tree/main/imdusd-liquidity");
+    assert.equal(await page.getByRole("link", { name: "Endpoints" }).getAttribute("href"), "https://imdusd.com/api/v1/meta");
     assert.ok((await page.locator(".plain-table tbody tr").count()) >= 10, "the contract table");
-    for (const h of ["Payroll and payments", "Launch pairing", "White label", "Swarm services"])
-      await page.getByRole("heading", { level: 3, name: h }).waitFor();
     assert.equal(await page.getByRole("link", { name: "Write to admin@imdusd.com" }).getAttribute("href"), "mailto:admin@imdusd.com");
     assert.equal(await page.locator(".site-footer").getByRole("link", { name: "Partners", exact: true }).getAttribute("href"), `${url}build/#partners`);
     for (const path of ["build/"]) {
