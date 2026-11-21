@@ -197,6 +197,30 @@ test("cache: a closed, verified range is kept a day; one reaching `through`, or 
   assert.deepEqual(await b.json(), await a.json());
 });
 
+test("cache: a hit keeps the answer's own max-age, not the zone's Browser Cache TTL", async () => {
+  // Cloudflare's cache hands a hit back with the zone's Browser Cache TTL (4 h) as its cache-control.
+  const m = new Map();
+  const zone = {
+    match: async (req) => {
+      const r = m.get(req.url)?.clone();
+      if (r) r.headers.set("cache-control", "public, max-age=14400");
+      return r;
+    },
+    put: async (req, res) => void m.set(req.url, new Response(await res.clone().text(), { headers: res.headers })),
+  };
+  const db = seeded();
+  for (const path of ["/api/v1/meta", `/api/v1/logs?address=${VAULT}&fromBlock=1000000&toBlock=1000100`]) {
+    assert.equal((await get(db, path, { cache: zone })).headers.get("x-history-cache"), "miss");
+    const hit = await get(db, path, { cache: zone });
+    assert.equal(hit.headers.get("x-history-cache"), "hit");
+    assert.equal(hit.headers.get("cache-control"), "public, max-age=60", path);
+    assert.equal(hit.headers.get("x-history-cache-control"), null, "the kept copy is not sent");
+  }
+  const closed = `/api/v1/logs?address=${VAULT}&fromBlock=1000000&toBlock=1000050`;
+  await get(db, closed, { cache: zone });
+  assert.equal((await get(db, closed, { cache: zone })).headers.get("cache-control"), "public, max-age=86400");
+});
+
 test("rate limit: a visitor over HISTORY_REQUESTS gets a 429 on a miss, a cache hit is still served", async () => {
   const limiter = { limit: async () => ({ success: false }) };
   const cache = memCache();

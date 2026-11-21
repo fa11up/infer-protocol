@@ -20,6 +20,8 @@ const MAX_ADDRESSES = 10;
 const MAX_TOPICS = 4;
 const CLOSED_TTL = 86_400;
 const OPEN_TTL = 60;
+/** The answer's own cache-control, kept on the cached copy (a hit's cache-control is the zone's, not ours). */
+const TTL_HEADER = "x-history-cache-control";
 
 const NAMED = {
   ...SPEC.history,
@@ -175,6 +177,10 @@ export async function handleHistoryApi(request, env, deps = {}) {
   const hit = cache ? await cache.match(key).catch(() => undefined) : undefined;
   if (hit) {
     const out = new Response(hit.body, hit);
+    // A hit comes back with the zone's Browser Cache TTL (4 h) in place of the answer's own max-age, which kept a
+    // meta four hours in browsers: the answer's own value is put back from the copy kept beside it.
+    out.headers.set("cache-control", hit.headers.get(TTL_HEADER) ?? `public, max-age=${OPEN_TTL}`);
+    out.headers.delete(TTL_HEADER);
     out.headers.set("x-history-cache", "hit");
     return out;
   }
@@ -246,6 +252,7 @@ export async function handleHistoryApi(request, env, deps = {}) {
   if (cache) {
     const stored = res.clone();
     stored.headers.set("x-history-cache", "stored");
+    stored.headers.set(TTL_HEADER, res.headers.get("cache-control"));
     await cache.put(key, stored).catch(() => undefined);
   }
   res.headers.set("x-history-cache", "miss");
