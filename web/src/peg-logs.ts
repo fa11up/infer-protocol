@@ -80,6 +80,11 @@ async function readPegPool(r: Runtime, head: number): Promise<RawLog[] | undefin
   return logs;
 }
 
+/** The positions' NFT transfers, kept per runtime like the pool's logs: a later call for the same positions reads only
+ * from 64 blocks before the last scan (a full chain read takes longer than the terminal's refresh, so redoing it each
+ * refresh never finished); a new position reads them all again. */
+const nftScans = new WeakMap<Runtime, { through: number; ids: string; logs: RawLog[] }>();
+
 /** The peg pool's logs and its positions' NFT transfers, for Season 1's liquidity reader (points/preseason.ts). */
 export async function pegPoolLogs(r: Runtime, head: number): Promise<{ pool: RawLog[]; nft: RawLog[] } | undefined> {
   const pool = pointsConfig.pegPools[r.config.chainId];
@@ -89,6 +94,15 @@ export async function pegPoolLogs(r: Runtime, head: number): Promise<{ pool: Raw
   const { tokenIds } = poolEvents(logs, pool.positionManager);
   const ids = tokenIds.map((id) => "0x" + id.toString(16).padStart(64, "0"));
   if (!ids.length) return { pool: logs, nft: [] };
+  const key = ids.join(",");
+  const old = nftScans.get(r);
+  if (old?.ids === key) {
+    const from = Math.max(pool.fromBlock, Math.min(old.through, head) - 63);
+    const fresh = from <= head ? (await scan(r, windowsFrom(from, head), pool.positionManager, [S1_TOPICS.transfer, null, null, ids])).filter((l) => Number(BigInt(l.blockNumber)) >= from) : [];
+    const nft = [...old.logs.filter((l) => Number(BigInt(l.blockNumber)) < from), ...fresh];
+    nftScans.set(r, { through: head, ids: key, logs: nft });
+    return { pool: logs, nft };
+  }
   const wanted = new Set(ids);
   const pre = await indexed(r, head, pool.fromBlock, pool.positionManager, (l) => l.topics[0]?.toLowerCase() === S1_TOPICS.transfer && wanted.has(l.topics[3]?.toLowerCase()));
   const chainFrom = pre ? pre.tail : pool.fromBlock;
@@ -97,5 +111,6 @@ export async function pegPoolLogs(r: Runtime, head: number): Promise<{ pool: Raw
       ? (await scan(r, windowsFrom(chainFrom, head), pool.positionManager, [S1_TOPICS.transfer, null, null, ids])).filter((l) => !pre || Number(BigInt(l.blockNumber)) >= chainFrom)
       : [];
   const nft = [...(pre?.logs ?? []), ...recent];
+  nftScans.set(r, { through: head, ids: key, logs: nft });
   return { pool: logs, nft };
 }

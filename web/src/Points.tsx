@@ -233,19 +233,35 @@ type Loaded = {
 export function usePoints(r: Runtime, s?: Snapshot) {
   const [state, setState] = useState<Loaded>({ loading: true });
   const [attempt, setAttempt] = useState(0);
+  // One load at a time per runtime. A snapshot that lands mid-load waits for it instead of abandoning it (a load that
+  // has to read the chain can outlast the refresh, and abandoning it each time left the pane reading forever); when it
+  // ends, the newest snapshot is loaded. Another runtime starts afresh and the old load's answer is dropped.
+  const run = useRef<{ r: Runtime; s: Snapshot; attempt: number; busy: boolean } | undefined>(undefined);
+  const [ended, setEnded] = useState(0);
   useEffect(() => {
     if (!s) return;
-    let live = true;
+    const cur = run.current;
+    if (cur?.r === r && (cur.busy || (cur.s === s && cur.attempt === attempt))) return;
+    const me = { r, s, attempt, busy: true };
+    run.current = me;
     setState((old) => ({ ...old, loading: true }));
-    loadPoints(r, s).then(
-      (data) => live && setState({ data, loading: false, at: Date.now(), error: undefined }),
-      // A failed refresh keeps the last board (with the error noted under it) rather than replacing it.
-      (e) => live && setState((old) => ({ ...old, error: message(e), loading: false })),
-    );
-    return () => {
-      live = false;
-    };
-  }, [r, s, attempt]);
+    loadPoints(r, s)
+      .then(
+        (data) => run.current === me && setState({ data, loading: false, at: Date.now(), error: undefined }),
+        // A failed refresh keeps the last board (with the error noted under it) rather than replacing it.
+        (e) => run.current === me && setState((old) => ({ ...old, error: message(e), loading: false })),
+      )
+      .finally(() => {
+        me.busy = false;
+        if (run.current === me) setEnded((n) => n + 1);
+      });
+  }, [r, s, attempt, ended]);
+  useEffect(
+    () => () => {
+      run.current = undefined;
+    },
+    [],
+  );
   return { ...state, retry: () => setAttempt((n) => n + 1) };
 }
 

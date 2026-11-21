@@ -56,9 +56,11 @@ export function indexBase(): string | undefined {
   return undefined;
 }
 
-async function getJson(url: string): Promise<any> {
+/** `fresh` answers (meta, the open chunk) skip the browser's cache: Cloudflare can stretch the API's max-age=60 to
+ * hours on the way out, and a meta kept that long reads as an index too far behind to use (the chain path then). */
+async function getJson(url: string, fresh = false): Promise<any> {
   indexStats.requests++;
-  const r = await fetch(url, { signal: AbortSignal.timeout(indexConfig.timeoutMs) });
+  const r = await fetch(url, { signal: AbortSignal.timeout(indexConfig.timeoutMs), cache: fresh ? "no-store" : "default" });
   if (!r.ok) throw Error(`history index answered ${r.status}`);
   return r.json();
 }
@@ -67,7 +69,7 @@ const metas = new WeakMap<Runtime, { at: number; p: Promise<Meta> }>();
 function meta(r: Runtime, base: string): Promise<Meta> {
   const old = metas.get(r);
   if (old && Date.now() - old.at < indexConfig.metaMs) return old.p;
-  const p = getJson(new URL("/api/v1/meta", base).href).then((m) => {
+  const p = getJson(new URL("/api/v1/meta", base).href, true).then((m) => {
     if (typeof m?.chainId !== "number" || typeof m.unverified !== "boolean" || typeof m.floor !== "number" || !m.addresses || typeof m.addresses !== "object")
       throw Error("malformed index meta");
     if (m.through !== null && !Number.isSafeInteger(m.through)) throw Error("malformed index meta");
@@ -103,12 +105,12 @@ function check(l: any, from: bigint, to: bigint, allowed: Set<string>): IndexLog
 }
 
 /** One aligned chunk, every page of it (the API caps rows per answer and links the next page). */
-async function chunk(base: string, addresses: string[], from: bigint, to: bigint, allowed: Set<string>): Promise<IndexLog[]> {
+async function chunk(base: string, addresses: string[], from: bigint, to: bigint, allowed: Set<string>, fresh = false): Promise<IndexLog[]> {
   const out: IndexLog[] = [];
   let path: string | null = `/api/v1/logs?address=${addresses.join(",")}&fromBlock=${from}&toBlock=${to}`;
   for (let page = 0; path; page++) {
     if (page > 200) throw Error("history index pagination did not end");
-    const body: any = await getJson(new URL(path, base).href);
+    const body: any = await getJson(new URL(path, base).href, fresh);
     if (!Array.isArray(body?.logs) || typeof body.through !== "number" || body.unverified !== false) throw Error("history index answer unusable");
     if (BigInt(body.through) < to) throw Error("history index is behind the range asked for");
     out.push(...body.logs.map((l: unknown) => check(l, from, to, allowed)));
@@ -142,7 +144,7 @@ async function readAll(r: Runtime, base: string, m: Meta, through: bigint): Prom
         p.catch(() => memo!.get(id) === mine && memo!.delete(id));
       }
       parts.push(p);
-    } else parts.push(chunk(base, addresses, a, through, allowed));
+    } else parts.push(chunk(base, addresses, a, through, allowed, true));
   }
   const logs = (await Promise.all(parts)).flat();
   logs.sort((x, y) => {
